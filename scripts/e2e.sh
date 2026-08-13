@@ -10,8 +10,13 @@
 #
 #     bash scripts/e2e.sh
 #
+# Gegen die Live-Instanz:
+#     PASSWORT=… bash scripts/e2e.sh https://tuerwartung.ksqsebastian.workers.dev
+#
 set -u
-B=http://127.0.0.1:8787
+B=${1:-http://127.0.0.1:8787}
+BENUTZER=${BENUTZER:-marc}
+PASSWORT=${PASSWORT:-test-test-1234}
 J=$(mktemp)
 rm -f $J
 ok()  { echo "  OK   $1"; }
@@ -21,11 +26,11 @@ STEMPEL=$(date +%H%M%S)-$RANDOM   # eindeutig je Lauf: die Kennung einer Wartung
 
 echo "== 1. Anmeldung =="
 code=$(curl -s -o /dev/null -w "%{http_code}" -c $J -X POST $B/anmeldung \
-  -d "benutzer=marc" -d "passwort=test-test-1234")
+  -d "benutzer=$BENUTZER" -d "passwort=$PASSWORT")
 [ "$code" = "302" ] && ok "Login 302" || bad "Login $code"
 grep -q tw_sitzung $J && ok "Sitzungs-Cookie gesetzt" || bad "kein Cookie"
 
-code=$(curl -s -o /dev/null -w "%{http_code}" -X POST $B/anmeldung -d "benutzer=marc" -d "passwort=falsch")
+code=$(curl -s -o /dev/null -w "%{http_code}" -X POST $B/anmeldung -d "benutzer=$BENUTZER" -d "passwort=garantiert-falsch")
 [ "$code" = "200" ] && ok "Falsches Passwort -> Formular" || bad "Falsches Passwort $code"
 
 echo "== 2. Geschützte Seiten =="
