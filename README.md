@@ -78,6 +78,15 @@ npm run build      # Typecheck + Bündel nach dist/worker.js
 npm run deploy     # baut und deployt (wrangler login vorausgesetzt)
 ```
 
+Der Durchstich lässt sich gegen den laufenden Entwicklungsserver prüfen — Anmeldung, Wartung,
+Türen, Berichte, der komplette OAuth-Tanz und ein paar MCP-Aufrufe:
+
+```bash
+npm run konten -- marc:Marc --passwort=test-test-1234
+npx wrangler d1 execute tuerwartung --local --file konten.sql
+bash scripts/e2e.sh
+```
+
 `wrangler.jsonc` zeigt mit `main` auf das fertige Bündel, nicht auf die Quelle: die Vorlagen-PDFs
 und Cheatsheets brauchen eigene esbuild-Loader, die Wrangler nicht kennt. `npm run dev` und
 `npm run deploy` bauen deshalb vorher von selbst.
