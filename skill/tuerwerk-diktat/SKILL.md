@@ -1,9 +1,9 @@
 ---
-name: tuerenwartung-diktat
+name: tuerwerk-diktat
 description: "Freihändige Sprach-Erfassung einer Türenwartung für Seehafer Elemente. Der Monteur diktiert vor Ort ins Handy; Claude sammelt geduldig alle Infos, schreibt jede Tür sofort über den Türwerk-Connector weg und erzeugt auf 'Fertig'/'Go' die fertigen Wartungsprotokolle. Trigger: Türenwartung, Wartung diktieren, Wartungsprotokoll, 'ich fang mit der Wartung an', Türwartung erfassen, Objektwartung, Wartung aufnehmen, 'nimm die Wartung auf', Diktat Wartung."
 ---
 
-# Türenwartung-Diktat (Sprach-Erfassung vor Ort)
+# Türwerk-Diktat (Sprach-Erfassung vor Ort)
 
 Der Monteur arbeitet und **spricht nebenbei ins Handy**. Du hörst geduldig zu, sammelst alles,
 und störst nur bei echten Lücken. Freihändig, kein Formular, kein Tippen.

@@ -13,7 +13,7 @@ Claude.
 
 ## Wie es benutzt wird
 
-**Vor Ort am Handy.** Der Monteur startet den Skill `tuerenwartung-diktat`, sagt Objekt und
+**Vor Ort am Handy.** Der Monteur startet den Skill `tuerwerk-diktat`, sagt Objekt und
 Vorlage, und diktiert dann Tür für Tür. Standard ist „alles in Ordnung" — er nennt nur die
 Ausnahmen: „Tür 6, Punkt 8 nicht." Jede Tür geht sofort in die Datenbank; bricht das Gespräch ab,
 ist nichts verloren. Auf „Fertig" liest Claude alles zurück, auf „Go" entstehen die PDFs.
@@ -37,7 +37,7 @@ schema.sql            D1-Schema
 scripts/konten.mjs    Konten anlegen und Passwörter setzen
 ```
 
-Die drei Vorlagen (Drehflügeltüren, Fenster, Feststellanlagen) stammen unverändert aus dem Skill
+Die drei Vorlagen (Drehflügeltüren, Fenster, Feststellanlagen) stammen unverändert aus dem alten Skill
 `tuerenwartung-diktat`: dieselben Koordinaten-Profile, dieselben Cheatsheets, dieselben PDFs. Das
 Python-Skript `fill_pdf_overlay.py` ist nach pdf-lib übersetzt — ein Profil, das dort funktioniert
 hat, funktioniert hier. Alles drei ist **einkompiliert**, damit ein Deployment vollständig ist und
