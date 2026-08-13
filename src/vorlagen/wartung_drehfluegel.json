@@ -1,0 +1,53 @@
+{
+  "_comment": "Koordinaten-Profil fuer die Vorlage 'Wartung von Drehfluegeltueren'. Eine Datei pro Vorlage. top = Abstand von oben (pdfplumber), Baseline wird im Script berechnet.",
+  "page": [595.3, 841.9],
+  "font": "Helvetica",
+  "font_size": 9,
+  "fields": {
+    "IDENT": [432, 33],
+    "BETREIBER": [432, 47],
+    "OBJEKT": [432, 60],
+    "ETAGE": [432, 74],
+    "RAUM": [432, 87],
+    "TUERTYP": [432, 126],
+    "HERSTELLER": [432, 138],
+    "ABSENKDICHTUNG": [432, 151],
+    "OTS": [432, 164],
+    "SPION": [432, 177],
+    "ZULASSUNG": [432, 190],
+    "PRUEFER": [128, 152],
+    "BEFAEHIGUNG": [128, 180],
+    "ERGEBNIS": [505, 653, "c"],
+    "LETZTE_PRUEFUNG": [442, 549],
+    "NAECHSTE_PRUEFUNG": [442, 572],
+    "BETEILIGTE": [150, 655],
+    "ORT": [76, 770],
+    "DATUM": [84, 782]
+  },
+  "boxes": {
+    "RECHTSGRUNDLAGEN": [57, 692, 40],
+    "HINWEISE": [315, 692, 34]
+  },
+  "signature": {"x": 186, "top": 768, "w": 92, "h": 42},
+  "check_columns": {
+    "L": {"io": 241, "nio": 263, "nz": 282, "sb": 301},
+    "R": {"io": 510, "nio": 530, "nz": 548, "sb": 567}
+  },
+  "check_rows": {
+    "leichtgang": ["L", 232],
+    "zugang": ["L", 285],
+    "sicht": ["L", 340],
+    "mechanik": ["L", 398],
+    "einstellung": ["L", 480],
+    "defekt": ["R", 232],
+    "verschmutzung": ["R", 291],
+    "fetten": ["R", 335],
+    "absenk_kontrolle": ["R", 410],
+    "dichtung": ["R", 486]
+  },
+  "points": {
+    "1": "leichtgang", "2": "zugang", "3": "sicht", "4": "mechanik", "5": "einstellung",
+    "6": "defekt", "7": "verschmutzung", "8": "fetten", "9": "absenk_kontrolle", "10": "dichtung"
+  },
+  "checks_default_column": "io"
+}

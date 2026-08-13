@@ -1,0 +1,36 @@
+{
+  // `main` zeigt auf das fertige Bündel, nicht auf die Quelle: die Vorlagen-PDFs und die
+  // Cheatsheets brauchen eigene esbuild-Loader (scripts/bundle.mjs), die Wrangler nicht kennt.
+  // Also immer erst `npm run build` — `npm run dev` und `npm run deploy` tun das von selbst.
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "tuerwartung",
+  "main": "dist/worker.js",
+  "compatibility_date": "2026-08-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": true,
+  "observability": { "enabled": true },
+  "kv_namespaces": [
+    {
+      "binding": "OAUTH_KV",
+      "id": "0add4419fa4a43d3945f697f2fed103d"
+    }
+  ],
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "tuerwartung",
+      "database_id": "c7908b7c-5ec1-49cb-bfaf-4f5c8b2cc4f2"
+    }
+  ],
+  "r2_buckets": [
+    {
+      "binding": "R2",
+      "bucket_name": "tuerwartung"
+    }
+  ],
+  "vars": {
+    "HUB_URL": "https://mcp-hub.ksqsebastian.workers.dev"
+  }
+  // Secret (nicht hier, sondern per `wrangler secret put` bzw. API):
+  //   SITZUNGS_SCHLUESSEL — lange Zufallszeichenkette, signiert die Sitzungs-Cookies
+}

@@ -1,0 +1,26 @@
+{
+  "name": "tuerwartung",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Türenwartung — Diktat-Sammelstelle, Berichtsgenerator und OAuth-MCP-Server auf Cloudflare Workers.",
+  "scripts": {
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "build": "npm run typecheck && node scripts/bundle.mjs src/index.ts dist/worker.js",
+    "dev": "npm run build && wrangler dev --local --port 8787",
+    "schema": "wrangler d1 execute tuerwartung --remote --file schema.sql",
+    "schema:lokal": "wrangler d1 execute tuerwartung --local --file schema.sql",
+    "konten": "node scripts/konten.mjs",
+    "deploy": "npm run build && wrangler deploy",
+    "deploy:api": "npm run build && node scripts/deploy.mjs wrangler.jsonc dist/worker.js"
+  },
+  "dependencies": {
+    "pdf-lib": "^1.17.1"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^5.20260813.1",
+    "esbuild": "^0.25.0",
+    "typescript": "^5.7.3",
+    "wrangler": "^4.122.0"
+  }
+}

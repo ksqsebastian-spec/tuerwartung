@@ -1,0 +1,49 @@
+{
+  "_comment": "Profil fuer 'Wartung von Fenster'. Header/Komponenten/Fuss aus Label-Extraktion (sicher). Checklisten-Zeilen (check_rows) sind Schaetzwerte — bei erstem Testlauf visuell kalibrieren.",
+  "page": [595.3, 841.9],
+  "font": "Helvetica",
+  "font_size": 9,
+  "fields": {
+    "IDENT": [432, 33],
+    "BETREIBER": [432, 47],
+    "OBJEKT": [432, 60],
+    "ETAGE": [432, 74],
+    "RAUM": [432, 87],
+    "FLUR": [432, 101],
+    "RAUMBEZ": [432, 114],
+    "FENSTERTYP": [432, 126],
+    "HERSTELLER": [432, 138],
+    "FABRIK_BESCHLAEGE": [432, 151],
+    "PRUEFER": [128, 150],
+    "LETZTE_PRUEFUNG": [452, 528],
+    "NAECHSTE_PRUEFUNG": [452, 561],
+    "BETEILIGTE": [150, 632],
+    "ORT": [76, 754],
+    "DATUM": [84, 767]
+  },
+  "boxes": {
+    "RECHTSGRUNDLAGEN": [57, 704, 40],
+    "HINWEISE": [470, 704, 30]
+  },
+  "signature": {"x": 190, "top": 762, "w": 92, "h": 42},
+  "check_columns": {
+    "L": {"io": 241, "nio": 263, "nz": 282, "sb": 301},
+    "R": {"io": 510, "nio": 530, "nz": 548, "sb": 567}
+  },
+  "check_rows": {
+    "leichtgang": ["L", 240],
+    "zugang": ["L", 297],
+    "sicht": ["L", 345],
+    "mechanik": ["L", 413],
+    "glas": ["L", 477],
+    "defekt": ["R", 240],
+    "verschmutzung": ["R", 298],
+    "fetten": ["R", 345],
+    "dichtung": ["R", 430]
+  },
+  "points": {
+    "1": "leichtgang", "2": "zugang", "3": "sicht", "4": "mechanik", "5": "glas",
+    "6": "defekt", "7": "verschmutzung", "8": "fetten", "9": "dichtung"
+  },
+  "checks_default_column": "io"
+}
