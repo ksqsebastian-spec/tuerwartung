@@ -89,6 +89,19 @@ export default {
       return new Response(null, { status: 204, headers: CORS });
     }
 
+    /*
+     * Ohne Sitzungsschlüssel wäre jede Anmeldung wertlos, und der Fehler käme sonst erst tief
+     * in der Krypto als 500 heraus. Lieber einmal klar sagen, was fehlt.
+     */
+    if (!env.SITZUNGS_SCHLUESSEL) {
+      return fehlerSeite(
+        "Nicht eingerichtet",
+        "Das Secret SITZUNGS_SCHLUESSEL fehlt. Einmal 'wrangler secret put SITZUNGS_SCHLUESSEL' " +
+          "mit einer langen Zufallszeichenkette setzen.",
+        503,
+      );
+    }
+
     /* ── Öffentlich ──────────────────────────────────────────────────────── */
 
     switch (`${request.method} ${pfad}`) {
