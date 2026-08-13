@@ -21,10 +21,18 @@ export function esc(s: unknown): string {
     .replace(/'/g, "&#39;");
 }
 
-export const MARKE = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" width="48" height="48">
-<rect width="48" height="48" rx="13" fill="#131316"/>
-<rect x="14" y="11" width="20" height="26" rx="2" fill="none" stroke="#fff" stroke-width="2.4"/>
-<circle cx="29" cy="24" r="1.9" fill="#fff"/></svg>`;
+/**
+ * Die Bildmarke: das Türsymbol aus dem Grundriss — Wand, offen stehendes Blatt, Schwenkbogen.
+ * Wer Baupläne liest, erkennt es sofort, und niemand sonst führt es als Zeichen. Aufgebaut wie
+ * die Marken im Hub (mcpees/shared/src/marks.ts): Zeichen mittig auf abgerundeter Fläche.
+ */
+export const MARKE = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+<rect width="64" height="64" rx="14" fill="#1B54D6"/>
+<g transform="translate(9 13.3) scale(.72)"><g fill="none" stroke="#fff">
+<path stroke-width="9" stroke-linecap="butt" d="M0 46h14M50 46h14"/>
+<path stroke-width="9" stroke-linecap="round" d="M14 46V10"/>
+<path stroke-width="5" stroke-linecap="round" opacity=".85" d="M14 10a36 36 0 0 1 36 36"/>
+</g></g></svg>`;
 
 const APP_CSS = `
 body { padding-bottom: 80px; }
@@ -149,13 +157,13 @@ export function seite(inhalt: string, opt: SeitenOptionen): Response {
 
   const html = `<!doctype html><html lang="de"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>${esc(opt.titel)} · Türenwartung</title>
+<title>${esc(opt.titel)} · Türwerk</title>
 <link rel="icon" href="${logo}">
 <meta name="theme-color" content="#ffffff">
 <style>${BASE_CSS}${APP_CSS}</style></head><body>
 <header class="kopf"><div class="innen">
 <img class="logo" src="${logo}" alt="" width="30" height="30">
-<a href="/" class="titel">Türenwartung</a>${nav}
+<a href="/" class="titel">Türwerk</a>${nav}
 </div></header>
 <main class="wrap rise">${inhalt}</main>
 ${opt.skript ? `<script>${opt.skript}</script>` : ""}

@@ -1,6 +1,6 @@
 ---
 name: tuerenwartung-diktat
-description: "Freihändige Sprach-Erfassung einer Türenwartung für Seehafer Elemente. Der Monteur diktiert vor Ort ins Handy; Claude sammelt geduldig alle Infos, schreibt jede Tür sofort über den Türenwartung-Connector weg und erzeugt auf 'Fertig'/'Go' die fertigen Wartungsprotokolle. Trigger: Türenwartung, Wartung diktieren, Wartungsprotokoll, 'ich fang mit der Wartung an', Türwartung erfassen, Objektwartung, Wartung aufnehmen, 'nimm die Wartung auf', Diktat Wartung."
+description: "Freihändige Sprach-Erfassung einer Türenwartung für Seehafer Elemente. Der Monteur diktiert vor Ort ins Handy; Claude sammelt geduldig alle Infos, schreibt jede Tür sofort über den Türwerk-Connector weg und erzeugt auf 'Fertig'/'Go' die fertigen Wartungsprotokolle. Trigger: Türenwartung, Wartung diktieren, Wartungsprotokoll, 'ich fang mit der Wartung an', Türwartung erfassen, Objektwartung, Wartung aufnehmen, 'nimm die Wartung auf', Diktat Wartung."
 ---
 
 # Türenwartung-Diktat (Sprach-Erfassung vor Ort)
@@ -8,11 +8,11 @@ description: "Freihändige Sprach-Erfassung einer Türenwartung für Seehafer El
 Der Monteur arbeitet und **spricht nebenbei ins Handy**. Du hörst geduldig zu, sammelst alles,
 und störst nur bei echten Lücken. Freihändig, kein Formular, kein Tippen.
 
-Alles Fachliche — Vorlagen, Prüfpunkte, Datenhaltung, Berichte — liegt im **Türenwartung-Connector**
-(MCP-Server, https://tuerwartung.ksqsebastian.workers.dev). Dieser Skill sagt nur, wie man zuhört.
+Alles Fachliche — Vorlagen, Prüfpunkte, Datenhaltung, Berichte — liegt im **Türwerk-Connector**
+(MCP-Server, https://tuerwerk.ksqsebastian.workers.dev). Dieser Skill sagt nur, wie man zuhört.
 
 ## Voraussetzung
-Der Connector **Türenwartung** muss verbunden sein (Einstellungen → Connectors). Beim Verbinden
+Der Connector **Türwerk** muss verbunden sein (Einstellungen → Connectors). Beim Verbinden
 meldet sich der Monteur mit seinem Benutzer und Passwort an — dieselben wie auf der Website.
 Ist er nicht da: kurz sagen, nicht raten und nicht im Chat puffern.
 

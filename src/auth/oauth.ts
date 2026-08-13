@@ -106,7 +106,7 @@ export function protectedResourceMetadata(origin: string) {
 export function unauthorized(origin: string, beschreibung: string): Response {
   return json({ error: "invalid_token", error_description: beschreibung }, 401, {
     "www-authenticate":
-      `Bearer realm="tuerwartung", ` +
+      `Bearer realm="tuerwerk", ` +
       `resource_metadata="${origin}/.well-known/oauth-protected-resource"`,
   });
 }

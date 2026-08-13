@@ -53,8 +53,8 @@ import { vorlage } from "./vorlagen";
 import { berichtePaket, berichteErzeugen } from "./pdf/berichte";
 
 const SERVER_INFO = {
-  name: "tuerwartung",
-  title: "Türenwartung Seehafer Elemente",
+  name: "tuerwerk",
+  title: "Türwerk — Türenwartung Seehafer Elemente",
   version: "1.0.0",
   websiteUrl: "https://seehafer-elemente.de",
 };

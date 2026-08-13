@@ -81,7 +81,7 @@ ${konten
 
   return seite(
     `<div style="max-width:420px">
-<h1 class="seite">Türenwartung</h1>
+<h1 class="seite">Türwerk</h1>
 <p class="lede" style="margin-top:14px;max-width:38ch">Diktiert vor Ort, gesammelt an einer Stelle,
 fertige Wartungsprotokolle auf Knopfdruck.</p>
 ${optionen.fehler ? `<div class="err" style="margin-top:24px">${esc(optionen.fehler)}</div>` : ""}

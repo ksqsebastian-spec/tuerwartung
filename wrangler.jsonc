@@ -3,7 +3,7 @@
   // Cheatsheets brauchen eigene esbuild-Loader (scripts/bundle.mjs), die Wrangler nicht kennt.
   // Also immer erst `npm run build` — `npm run dev` und `npm run deploy` tun das von selbst.
   "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "tuerwartung",
+  "name": "tuerwerk",
   "main": "dist/worker.js",
   "compatibility_date": "2026-08-01",
   "compatibility_flags": ["nodejs_compat"],
