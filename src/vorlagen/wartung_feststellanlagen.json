@@ -17,14 +17,14 @@
     "OTS": [372, 139],
     "SPION": [372, 150],
     "ZULASSUNG": [372, 161],
-    "PRUEFER": [128, 135],
-    "BEFAEHIGUNG": [128, 158],
-    "ERGEBNIS": [510, 690, "c"],
+    "PRUEFER": [128, 126],
+    "BEFAEHIGUNG": [128, 148],
+    "ERGEBNIS": [510, 684, "c"],
     "LETZTE_PRUEFUNG": [455, 596],
     "NAECHSTE_PRUEFUNG": [455, 628],
-    "BETEILIGTE": [150, 690],
-    "ORT": [76, 785],
-    "DATUM": [84, 797]
+    "BETEILIGTE": [167, 684],
+    "ORT": [76, 779],
+    "DATUM": [84, 790]
   },
   "boxes": {
     "HINWEISE": [400, 720, 32]

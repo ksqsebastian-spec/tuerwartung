@@ -14,18 +14,18 @@
     "FENSTERTYP": [432, 126],
     "HERSTELLER": [432, 138],
     "FABRIK_BESCHLAEGE": [432, 151],
-    "PRUEFER": [128, 150],
+    "PRUEFER": [128, 143],
     "LETZTE_PRUEFUNG": [452, 528],
     "NAECHSTE_PRUEFUNG": [452, 561],
-    "BETEILIGTE": [150, 632],
-    "ORT": [76, 754],
-    "DATUM": [84, 767]
+    "BETEILIGTE": [186, 632],
+    "ORT": [76, 740],
+    "DATUM": [84, 753]
   },
   "boxes": {
     "RECHTSGRUNDLAGEN": [57, 704, 40],
     "HINWEISE": [470, 704, 30]
   },
-  "signature": {"x": 190, "top": 762, "w": 92, "h": 42},
+  "signature": {"x": 190, "top": 754, "w": 92, "h": 42},
   "signature_betreiber": {"x": 318, "top": 752, "w": 110, "h": 32},
   "betreiber_name": {"x": 318, "top": 786, "size": 7},
   "check_columns": {
