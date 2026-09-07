@@ -22,6 +22,7 @@ PASSWORT=${PASSWORT:-test-test-1234}
 AUFRAEUMEN=${AUFRAEUMEN:-1}
 J=$(mktemp); rm -f $J
 FAILED=0
+zufall() { head -c 16 /dev/urandom | od -An -tx1 | tr -d " \n"; }
 ok()  { echo "  OK   $1"; }
 bad() { echo "  FEHL $1"; FAILED=1; }
 
@@ -32,6 +33,27 @@ HEUTE=$(date +%Y-%m-%d)
 
 # Ein 1×1-PNG als Unterschrift — es geht um den Weg, nicht um das Bild.
 PNG="iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
+
+# Ein winziges, gültiges JPEG als Foto — pdf-lib muss es einbetten können.
+JPG="/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAA0JCgsKCA0LCgsODg0PEyAVExISEyccHhcgLikxMC4p\
+LSwzOko+MzZGNywtQFdBRkxOUlNSMj5aYVpQYEpRUk//2wBDAQ4ODhMREyYVFSZPNS01T09PT09P\
+T09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT0//wAARCAAgADADASIA\
+AhEBAxEB/8QAHwAAAQUBAQEBAQEAAAAAAAAAAAECAwQFBgcICQoL/8QAtRAAAgEDAwIEAwUFBAQA\
+AAF9AQIDAAQRBRIhMUEGE1FhByJxFDKBkaEII0KxwRVS0fAkM2JyggkKFhcYGRolJicoKSo0NTY3\
+ODk6Q0RFRkdISUpTVFVWV1hZWmNkZWZnaGlqc3R1dnd4eXqDhIWGh4iJipKTlJWWl5iZmqKjpKWm\
+p6ipqrKztLW2t7i5usLDxMXGx8jJytLT1NXW19jZ2uHi4+Tl5ufo6erx8vP09fb3+Pn6/8QAHwEA\
+AwEBAQEBAQEBAQAAAAAAAAECAwQFBgcICQoL/8QAtREAAgECBAQDBAcFBAQAAQJ3AAECAxEEBSEx\
+BhJBUQdhcRMiMoEIFEKRobHBCSMzUvAVYnLRChYkNOEl8RcYGRomJygpKjU2Nzg5OkNERUZHSElK\
+U1RVVldYWVpjZGVmZ2hpanN0dXZ3eHl6goOEhYaHiImKkpOUlZaXmJmaoqOkpaanqKmqsrO0tba3\
+uLm6wsPExcbHyMnK0tPU1dbX2Nna4uPk5ebn6Onq8vP09fb3+Pn6/9oADAMBAAIRAxEAPwDCs7S2\
+ls57q7uJYkikSMCKESElgx7suPufrTvK0j/n+vv/AADT/wCO0Q/8i/ef9fUH/oE1UK97Vt6nAX/K\
+0j/n+vv/AADT/wCO0eVpH/P9ff8AgGn/AMdqhRT5X3FfyL/laR/z/X3/AIBp/wDHabeWltFZwXVp\
+cSypLI8ZEsIjIKhT2Zs/f/SqVX5v+Rfs/wDr6n/9AhpaprUYQ/8AIv3n/X1B/wCgTVQq7Z3dtFZz\
+2t3byypLIkgMUwjIKhh3Vs/f/SnebpH/AD433/gYn/xqjVN6AUKKv+bpH/Pjff8AgYn/AMao83SP\
++fG+/wDAxP8A41T5n2FbzKFX5v8AkX7P/r6n/wDQIaPN0j/nxvv/AAMT/wCNU28u7aWzgtbS3liS\
+KR5CZZhISWCjsq4+5+tLVtaDP//Z"
+FOTO=$(mktemp).jpg
+printf '%s' "$JPG" | base64 -d > $FOTO
 
 echo "== 1. Anmeldung =="
 code=$(curl -s -o /dev/null -w "%{http_code}" -c $J -X POST $B/anmeldung \
@@ -221,7 +243,75 @@ code=$(curl -s -o /dev/null -w "%{http_code}" -b $J -X POST "$B/begehung/$BEG2/p
 ruf bauteil_lesen "$(jq -nc --arg o "$OID" '{objekt:$o,nr:3}')" \
   | jq -e '.bauteil.offene_maengel == 1' >/dev/null && ok "Mangel aus dem Formular" || bad "Formular-Mangel"
 
-echo "== 12. Zugriffsschutz =="
+echo "== 12. Rundgang ohne Netz =="
+curl -s -b $J "$B/api/rundgang/$BEG2" \
+  | jq -e '.bauteile | length == 3 and (.[0] | has("letzte") and has("maengel"))' >/dev/null \
+  && ok "Rundgang-Daten vollständig" || bad "Rundgang-Daten"
+curl -s -o /dev/null -w "%{http_code}" "$B/sw.js" | grep -q 200 && ok "Service Worker öffentlich" || bad "sw.js"
+code=$(curl -s -o /dev/null -w "%{http_code}" "$B/api/rundgang/$BEG2")
+[ "$code" = "401" ] && ok "API ohne Anmeldung 401" || bad "API anonym $code"
+
+# Was der Client offline gesammelt hätte: zwei Prüfungen und eine unbekannte Tür auf einer
+# Nummer, die inzwischen belegt ist.
+OP1=$(zufall); OP2=$(zufall); OP3=$(zufall)
+# Client-Zeit: eine Minute nach jetzt, damit sie die im Browser erfasste Prüfung schlägt.
+JETZT=$(( $(date +%s) * 1000 + 60000 ))
+SYNC=$(curl -s -b $J -X POST "$B/api/sync" -H 'content-type: application/json' -d "$(jq -nc \
+  --arg b "$BEG2" --arg o1 "$OP1" --arg o2 "$OP2" --arg o3 "$OP3" --arg t "$JETZT" '{begehung:$b,ops:[
+   {op_id:$o1,art:"pruefung",payload:{nr:1,checks:{"2":"nio"},ergebnis:"Nachbesserung",hinweise:"Offline erfasst",geprueft_am:($t|tonumber)}},
+   {op_id:$o2,art:"bauteil_neu",payload:{nr:2,art:"wartung_drehfluegel",raum:"Im Rundgang gefunden"}},
+   {op_id:$o3,art:"pruefung",payload:{nr:2,checks:{},ergebnis:"bestanden",geprueft_am:(($t|tonumber)+1000)}}]}')")
+echo "$SYNC" | jq -e '[.ergebnisse[].ok] | all' >/dev/null && ok "Warteschlange angekommen" || bad "Sync: $SYNC"
+NEUE=$(echo "$SYNC" | jq -r '.ergebnisse[1].zuordnung.server_nr')
+[ "$NEUE" = "4" ] && ok "belegte Nummer umgelegt auf $NEUE" || bad "Zuordnung: $NEUE"
+echo "$SYNC" | jq -e '.ergebnisse[2].bauteil_nr == 4' >/dev/null \
+  && ok "Folgeprüfung zieht die neue Nummer mit" || bad "Umlegung wirkt nicht"
+
+WDH=$(curl -s -b $J -X POST "$B/api/sync" -H 'content-type: application/json' -d "$(jq -nc \
+  --arg b "$BEG2" --arg o1 "$OP1" '{begehung:$b,ops:[{op_id:$o1,art:"pruefung",payload:{nr:1,checks:{},ergebnis:"bestanden"}}]}')")
+echo "$WDH" | jq -e '.ergebnisse[0].doppelt == true' >/dev/null \
+  && ok "dieselbe op_id ändert nichts" || bad "Idempotenz: $WDH"
+ruf bauteil_lesen "$(jq -nc --arg o "$OID" '{objekt:$o,nr:1}')" \
+  | jq -e '.pruefungen[0].abweichungen | length == 1' >/dev/null \
+  && ok "Wiederholung hat nichts überschrieben" || bad "Wiederholung wirkte doch"
+
+ALT=$(curl -s -b $J -X POST "$B/api/sync" -H 'content-type: application/json' -d "$(jq -nc \
+  --arg b "$BEG2" --arg o "$(zufall)" '{begehung:$b,ops:[{op_id:$o,art:"pruefung",payload:{nr:1,checks:{},ergebnis:"bestanden",geprueft_am:1000}}]}')")
+echo "$ALT" | jq -e '.ergebnisse[0].konflikt == "aelter"' >/dev/null \
+  && ok "ältere Erfassung verliert" || bad "Konflikt: $ALT"
+NEU=$(curl -s -b $J -X POST "$B/api/sync" -H 'content-type: application/json' -d "$(jq -nc \
+  --arg b "$BEG2" --arg o "$(zufall)" '{begehung:$b,ops:[{op_id:$o,art:"pruefung",payload:{nr:1,checks:{"5":"nio"},ergebnis:"Nachbesserung",geprueft_am:4102444800000}}]}')")
+echo "$NEU" | jq -e '.ergebnisse[0].konflikt == null' >/dev/null \
+  && ok "jüngere Erfassung gewinnt" || bad "jüngere verworfen: $NEU"
+
+echo "== 13. Foto =="
+F=$(curl -s -b $J -X POST "$B/api/foto" -F "op_id=$(zufall)" -F "begehung_id=$BEG2" \
+  -F "bauteil_nr=4" -F "breite=48" -F "hoehe=32" -F "bild=@$FOTO;type=image/jpeg")
+echo "$F" | jq -e '.ok == true and (.foto | length > 0)' >/dev/null && ok "Foto angenommen" || bad "Foto: $F"
+FKEY=$(echo "$F" | jq -r .link | sed 's#^/datei/##')
+typ=$(curl -s -o /dev/null -w "%{content_type}" -b $J "$B/datei/$FKEY")
+echo "$typ" | grep -q image && ok "Foto abrufbar" || bad "Foto-Typ $typ"
+ruf bauteil_lesen "$(jq -nc --arg o "$OID" '{objekt:$o,nr:4}')" \
+  | jq -e '.fotos | length == 1' >/dev/null && ok "Foto hängt am Bauteil" || bad "Foto am Bauteil"
+ruf berichte_erzeugen "$(jq -nc --arg b "$BEG2" '{begehung:$b}')" >/dev/null
+ruf berichte_auflisten "$(jq -nc --arg b "$BEG2" '{begehung:$b}')" \
+  | jq -e '[.berichte[] | select(.nr == 4) | .seiten] == [2]' >/dev/null \
+  && ok "Bericht mit Fotoanhang (2 Seiten)" || bad "Fotoanhang fehlt"
+
+echo "== 14. Tagestour =="
+MONTAG=$(date -d "monday this week" +%Y-%m-%d 2>/dev/null || date +%Y-%m-%d)
+T=$(ruf tour_planen "$(jq -nc --arg d "$HEUTE" --arg o "$OID" '{datum:$d,objekte:[$o]}')")
+echo "$T" | jq -e '.objekte | length == 1' >/dev/null && ok "tour_planen" || bad "tour_planen: $T"
+ruf tour_lesen "$(jq -nc --arg d "$HEUTE" '{datum:$d}')" \
+  | jq -e '.maps | startswith("https://www.google.com/maps/dir/")' >/dev/null \
+  && ok "Maps-Link" || bad "Maps-Link"
+code=$(curl -s -o /dev/null -w "%{http_code}" -b $J "$B/touren")
+[ "$code" = "200" ] && ok "Tourenseite" || bad "Tourenseite $code"
+code=$(curl -s -o /dev/null -w "%{http_code}" -b $J -X POST "$B/touren" \
+  -d "woche=$MONTAG" -d "datum=$HEUTE" -d "objekt=$OID" -d "tun=weg")
+[ "$code" = "302" ] && ok "Objekt aus der Tour genommen" || bad "Tour entfernen $code"
+
+echo "== 15. Zugriffsschutz =="
 code=$(curl -s -o /dev/null -w "%{http_code}" "$B/datei/$V1")
 [ "$code" = "302" ] && ok "Datei ohne Anmeldung gesperrt" || bad "Datei ohne Anmeldung $code"
 code=$(curl -s -o /dev/null -w "%{http_code}" -b $J "$B/datei/vorlagen/wartung_drehfluegel.pdf")
@@ -230,12 +320,15 @@ FEHL=$(ruf pruefung_erfassen "$(jq -nc --arg b "$BEG2" '{begehung:$b,nr:1,checks
 echo "$FEHL" | grep -q "^FEHLER" && ok "ungültiger Punkt abgewiesen" || bad "Punktprüfung"
 
 if [ "$AUFRAEUMEN" = "1" ]; then
-  echo "== 13. Testdaten entfernen =="
+  echo "== 16. Testdaten entfernen =="
   code=$(curl -s -o /dev/null -w "%{http_code}" -b $J -X POST "$B/objekt/$OID/loeschen")
   [ "$code" = "302" ] && ok "Objekt samt Begehungen entfernt" || bad "Aufräumen $code"
   ruf objekte_auflisten "$(jq -nc --arg s "$OBJEKT" '{suche:$s}')" \
     | jq -e '.objekte | length == 0' >/dev/null && ok "nichts geblieben" || bad "Reste"
+  ruf tour_planen "$(jq -nc --arg d "$HEUTE" '{datum:$d,objekte:[]}')" >/dev/null
+  ok "Tour geräumt"
 fi
+rm -f $FOTO
 
 echo
 [ "$FAILED" = "0" ] && echo "ALLES GRÜN" || echo "FEHLER VORHANDEN"

@@ -900,6 +900,9 @@ Abnahme:
 ### Stufe 2 — Rundgang, Fotos, Tagestour
 
 Bauen: Abschnitte 5, 6, 8.
+Die Bedienung der Tagestour weicht ab: statt Ziehen tragen Knöpfe je Wochentag ein
+(Ziehen bleibt als Zugabe für den Rechner). Ein Sieben-Tage-Raster mit Drag & Drop ist auf
+einem Telefon im Auto nicht zu bedienen.
 Abnahme:
 - Rundgang laden, Netz trennen (DevTools offline), zwei Prüfungen + ein Foto erfassen,
   „unbekannte Tür" anlegen, Netz verbinden → alles auf dem Server, Foto im Bericht-Anhang,

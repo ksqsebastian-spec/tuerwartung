@@ -45,6 +45,7 @@ import {
 } from "./web/begehungen";
 import { maengelSeite, mangelSeite } from "./web/maengel";
 import { rundgangDaten, rundgangSeite, serviceWorkerText } from "./web/rundgang";
+import { tourenSeite } from "./web/touren";
 import { heute, zugriffPruefen } from "./daten/basis";
 import {
   personGesehen,
@@ -65,12 +66,13 @@ import { bauteilAendern, bauteilAnlegen, bauteileMitStand } from "./daten/bautei
 import {
   begehungAbbrechen,
   begehungAendern,
-  begehungAnlegen,
+  begehungFuerTag,
   begehungLesen,
   betreiberUnterschrift,
   pruefungErfassen,
 } from "./daten/begehungen";
 import { mangelAendern, mangelLesen, mangelSchliessen } from "./daten/maengel";
+import { tourLesen, tourSpeichern } from "./daten/touren";
 import { bauteilLesen, bauteilPerNr } from "./daten/bauteile";
 import { fotoAnlegen, fotoEntfernen, fotoLesen, darfFotoLoeschen } from "./daten/fotos";
 import { fotoOpGesehen, opsAnwenden } from "./daten/sync";
@@ -286,6 +288,15 @@ export default {
           status: url.searchParams.get("status") ?? "",
           faellig_bis: url.searchParams.get("faellig_bis") ?? "",
         });
+
+      case "GET /touren":
+        return tourenSeite(env, nutzer, {
+          woche: url.searchParams.get("woche") ?? undefined,
+          meldung,
+        });
+
+      case "POST /touren":
+        return tourRoute(request, env, nutzer);
 
       case "GET /verbinden":
         return verbindenSeite(origin, nutzer);
@@ -523,17 +534,24 @@ async function objektRoute(
   }
 
   if (teile.length === 3 && teile[2] === "begehung" && request.method === "POST") {
+    const form = await request.formData();
     const person = await personLesen(env.DB, nutzer.benutzer);
     const v = person?.vorgaben ?? {};
-    const b = await begehungAnlegen(env.DB, {
-      objekt_id: objekt.id,
-      datum: heute(),
-      pruefer: v.pruefer ?? nutzer.name,
-      befaehigung: v.befaehigung,
-      ort: v.ort,
-      angelegt_von: nutzer.benutzer,
-    });
-    return umleitung(`/begehung/${b.id}`);
+    const { begehung } = await begehungFuerTag(
+      env.DB,
+      objekt.id,
+      String(form.get("datum") ?? "") || heute(),
+      {
+        pruefer: v.pruefer ?? nutzer.name,
+        befaehigung: v.befaehigung,
+        ort: v.ort,
+        angelegt_von: nutzer.benutzer,
+      },
+    );
+    const ziel = String(form.get("ziel") ?? "");
+    return umleitung(
+      ziel === "rundgang" ? `/rundgang/${begehung.id}` : `/begehung/${begehung.id}`,
+    );
   }
 
   if (teile.length === 3 && teile[2] === "geschosse") {
@@ -952,4 +970,57 @@ async function fotoRoute(request: Request, env: Env, nutzer: Nutzer): Promise<Re
     von: nutzer.benutzer,
   });
   return json({ ok: true, foto: foto.id, bauteil_nr: bauteil.nr, link: `/datei/${schluessel}` });
+}
+
+/* ── Tagestour ─────────────────────────────────────────────────────────────── */
+
+/**
+ * Ein Tag, eine Liste, vier Handgriffe: dazu, hoch, runter, weg. Dazu der fünfte, der die
+ * Begehung für diesen Tag anlegt (oder die vorhandene nimmt) und gleich in den Rundgang führt.
+ */
+async function tourRoute(request: Request, env: Env, nutzer: Nutzer): Promise<Response> {
+  const form = await request.formData();
+  const datum = String(form.get("datum") ?? "").trim();
+  const objektId = String(form.get("objekt") ?? "").trim();
+  const tun = String(form.get("tun") ?? "dazu");
+  const woche = String(form.get("woche") ?? "").trim();
+  const zurueck = `/touren${woche ? `?woche=${encodeURIComponent(woche)}` : ""}`;
+
+  if (!datum || !objektId) return umleitung(zurueck);
+  const objekt = await objektLesen(env.DB, objektId);
+  if (!objekt) return umleitung(zurueck);
+  zugriffPruefen(nutzer.benutzer, objekt.id);
+
+  if (tun === "rundgang") {
+    const person = await personLesen(env.DB, nutzer.benutzer);
+    const v = person?.vorgaben ?? {};
+    const { begehung } = await begehungFuerTag(env.DB, objekt.id, datum, {
+      pruefer: v.pruefer ?? nutzer.name,
+      befaehigung: v.befaehigung,
+      ort: v.ort,
+      /* Geplant, nicht laufend: erst die erste gespeicherte Prüfung macht daraus einen Termin. */
+      status: "geplant",
+      angelegt_von: nutzer.benutzer,
+    });
+    return umleitung(`/rundgang/${begehung.id}`);
+  }
+
+  const tour = await tourLesen(env.DB, datum, nutzer.benutzer);
+  let liste = tour?.objekte ?? [];
+  const pos = liste.indexOf(objektId);
+
+  if (tun === "dazu") {
+    if (pos < 0) liste = [...liste, objektId];
+  } else if (tun === "weg") {
+    liste = liste.filter((id) => id !== objektId);
+  } else if (tun === "hoch" && pos > 0) {
+    liste = [...liste];
+    [liste[pos - 1], liste[pos]] = [liste[pos], liste[pos - 1]];
+  } else if (tun === "runter" && pos >= 0 && pos < liste.length - 1) {
+    liste = [...liste];
+    [liste[pos], liste[pos + 1]] = [liste[pos + 1], liste[pos]];
+  }
+
+  await tourSpeichern(env.DB, datum, nutzer.benutzer, liste);
+  return umleitung(zurueck);
 }

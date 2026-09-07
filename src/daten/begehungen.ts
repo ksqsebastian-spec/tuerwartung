@@ -127,6 +127,32 @@ export async function begehungAendern(
 }
 
 /**
+ * Die Begehung eines Objekts an einem Tag — vorhandene fortsetzen statt eine zweite anlegen.
+ *
+ * Dieselbe Frage stellen drei Wege: `begehung_starten` im Diktat, der Knopf auf der
+ * Objektseite und die Tagestour, wenn der Monteur ein geplantes Objekt im Rundgang öffnet.
+ * Eine abgeschlossene oder abgebrochene Begehung zählt nicht als fortsetzbar.
+ */
+export async function begehungFuerTag(
+  db: D1Database,
+  objektId: string,
+  datum: string,
+  daten: BegehungPatch & { angelegt_von?: string } = {},
+): Promise<{ begehung: Begehung; fortgesetzt: boolean }> {
+  const zeile = await db
+    .prepare(
+      `SELECT * FROM begehungen WHERE objekt_id = ? AND datum = ?
+        AND status NOT IN ('abgeschlossen','abgebrochen')
+        ORDER BY angelegt_am DESC LIMIT 1`,
+    )
+    .bind(objektId, datum)
+    .first();
+  if (zeile) return { begehung: alsBegehung(zeile as Record<string, unknown>), fortgesetzt: true };
+  const begehung = await begehungAnlegen(db, { ...daten, objekt_id: objektId, datum });
+  return { begehung, fortgesetzt: false };
+}
+
+/**
  * Eine Begehung abbrechen — der Termin ist geplatzt, der Monteur wird weggerufen, das Objekt
  * war das falsche.
  *

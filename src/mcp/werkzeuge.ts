@@ -47,7 +47,7 @@ import type { BauteilMitStand } from "../daten/bauteile";
 import {
   begehungAbbrechen,
   begehungAendern,
-  begehungAnlegen,
+  begehungFuerTag,
   begehungLesen,
   begehungenListe,
   pruefungErfassen,
@@ -64,6 +64,7 @@ import {
   maengelZuBauteil,
 } from "../daten/maengel";
 import { fotosZuBauteil } from "../daten/fotos";
+import { mapsLink, tourLesen, tourSpeichern } from "../daten/touren";
 import { berichteZuPruefung } from "../daten/berichte";
 import { berichteErzeugen, berichtsUebersicht, sammelberichtErzeugen } from "../pdf/berichte";
 
@@ -810,20 +811,13 @@ const begehungStarten: ToolDef = {
     zugriffPruefen(ctx.nutzer.benutzer, objekt.id);
 
     /* Gespräch abgebrochen? Dieselbe Begehung fortsetzen statt eine zweite anzulegen. */
-    const laufende = (await begehungenListe(ctx.env.DB, { objekt_id: objekt.id, limit: 10 })).find(
-      (b) => b.datum === datum && b.status !== "abgeschlossen" && b.status !== "abgebrochen",
-    );
-    const begehung = laufende
-      ? (await begehungLesen(ctx.env.DB, laufende.id))!
-      : await begehungAnlegen(ctx.env.DB, {
-          objekt_id: objekt.id,
-          datum,
-          pruefer: args.pruefer ?? v.pruefer ?? ctx.nutzer.name,
-          befaehigung: args.befaehigung ?? v.befaehigung,
-          ort: args.ort ?? v.ort,
-          beteiligte: args.beteiligte,
-          angelegt_von: ctx.nutzer.benutzer,
-        });
+    const { begehung, fortgesetzt } = await begehungFuerTag(ctx.env.DB, objekt.id, datum, {
+      pruefer: args.pruefer ?? v.pruefer ?? ctx.nutzer.name,
+      befaehigung: args.befaehigung ?? v.befaehigung,
+      ort: args.ort ?? v.ort,
+      beteiligte: args.beteiligte,
+      angelegt_von: ctx.nutzer.benutzer,
+    });
 
     if (args.art_vorgabe) vorlage(String(args.art_vorgabe));
 
@@ -837,7 +831,7 @@ const begehungStarten: ToolDef = {
 
     return {
       begehung: begehungAnsicht(begehung),
-      fortgesetzt: Boolean(laufende),
+      fortgesetzt,
       objekt: objektAnsicht(objekt),
       objekt_neu_angelegt: objektNeu,
       link: `${ctx.origin}/begehung/${begehung.id}`,
@@ -1294,6 +1288,87 @@ const sammelberichtErzeugenTool: ToolDef = {
   },
 };
 
+const tourLesenTool: ToolDef = {
+  name: "tour_lesen",
+  title: "Tagestour lesen",
+  description:
+    "Was fahre ich heute? Die Objekte des Tages in Reihenfolge mit Adressen, offenen Mängeln " +
+    "und einem fertigen Google-Maps-Link über alle Halte.",
+  inputSchema: {
+    type: "object",
+    properties: {
+      datum: str("Tag YYYY-MM-DD, Standard heute"),
+      person: str("Benutzerkennung, Standard der angemeldete Nutzer"),
+    },
+    additionalProperties: false,
+  },
+  annotations: NUR_LESEN,
+  async handler(args, ctx) {
+    const datum = String(args.datum || heute());
+    const person = String(args.person || ctx.nutzer.benutzer).toLowerCase();
+    const tour = await tourLesen(ctx.env.DB, datum, person);
+    const objekte = [];
+    for (const id of tour?.objekte ?? []) {
+      const o = await objektLesen(ctx.env.DB, id);
+      if (!o) continue;
+      zugriffPruefen(ctx.nutzer.benutzer, o.id);
+      const bauteile = await bauteileMitStand(ctx.env.DB, o);
+      objekte.push({
+        ...objektAnsicht(o),
+        faellige_bauteile: bauteile.filter(istFaellig).length,
+        link: `${ctx.origin}/objekt/${o.id}`,
+      });
+    }
+    return {
+      datum,
+      person,
+      objekte,
+      maps: objekte.length
+        ? mapsLink(objekte.map((o) => ({ adresse: o.adresse, name: o.name }) as never))
+        : undefined,
+      notiz: tour?.notiz || undefined,
+      hinweis: objekte.length ? undefined : `Für ${datum} ist nichts geplant.`,
+    };
+  },
+};
+
+const tourPlanenTool: ToolDef = {
+  name: "tour_planen",
+  title: "Tagestour planen",
+  description:
+    "Setzt die Objekte eines Tages in dieser Reihenfolge. Ersetzt, was für den Tag schon " +
+    "geplant war; eine leere Liste räumt den Tag.",
+  inputSchema: {
+    type: "object",
+    properties: {
+      datum: str("Tag YYYY-MM-DD"),
+      objekte: wortliste("Objekte in Reihenfolge — ID, Name oder Adresse"),
+      person: str("Benutzerkennung, Standard der angemeldete Nutzer"),
+    },
+    required: ["datum", "objekte"],
+    additionalProperties: false,
+  },
+  annotations: SCHREIBT,
+  async handler(args, ctx) {
+    const datum = pflicht<string>(args, "datum");
+    const person = String(args.person || ctx.nutzer.benutzer).toLowerCase();
+    const ids: string[] = [];
+    const namen: string[] = [];
+    for (const eintrag of pflicht<string[]>(args, "objekte")) {
+      const o = await holeObjekt(ctx, String(eintrag));
+      ids.push(o.id);
+      namen.push(o.name);
+    }
+    await tourSpeichern(ctx.env.DB, datum, person, ids);
+    return {
+      datum,
+      person,
+      objekte: namen,
+      link: `${ctx.origin}/touren?woche=${datum}`,
+    };
+  },
+};
+
 const vorgabenSpeichern: ToolDef = {
   name: "vorgaben_speichern",
   title: "Eigene Vorgaben speichern",
@@ -1331,6 +1406,7 @@ export const TOOLS: ToolDef[] = [
   begehungLesenTool,
   maengelAuflisten,
   berichteAuflisten,
+  tourLesenTool,
   pruefpunkte,
   vorlagenAuflisten,
   vorgabenLesen,
@@ -1349,6 +1425,7 @@ export const TOOLS: ToolDef[] = [
   begehungAbbrechenTool,
   berichteErzeugenTool,
   sammelberichtErzeugenTool,
+  tourPlanenTool,
   vorgabenSpeichern,
 ];
 

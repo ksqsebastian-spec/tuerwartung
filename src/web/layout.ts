@@ -182,6 +182,30 @@ select.field { appearance: none; background-image: none; }
 .abgleich { cursor: pointer; }
 button.reihe { width: 100%; text-align: left; background: none; font: inherit; color: inherit; cursor: pointer; }
 
+/* ── Tagestour ────────────────────────────────────────────────────────── */
+.woche { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 10px; }
+.tag { border: 1px solid var(--line); border-radius: 14px; padding: 10px; min-height: 130px; }
+.tag.heute { border-color: var(--ink); }
+.tag.ziel { background: var(--wash); border-color: var(--ink); }
+.tag header { font-size: .82rem; margin-bottom: 8px; }
+.leerer-tag { color: var(--ink-3); font-size: .8rem; padding: 6px 0; }
+.tourposten { border-top: 1px solid var(--line); padding: 8px 0; font-size: .84rem; }
+.tourposten:first-of-type { border-top: 0; }
+.tourposten .haupt small { display: block; color: var(--ink-3); font-size: .76rem; margin-top: 2px; }
+.tourposten .knoepfchen { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 6px; }
+.tourposten .knoepfchen button {
+  appearance: none; background: none; cursor: pointer; font: inherit; font-size: .74rem;
+  border: 1px solid var(--line-strong); border-radius: 7px; padding: 2px 7px; color: var(--ink-2);
+}
+.tourposten .knoepfchen button:hover { border-color: var(--ink); color: var(--ink); }
+.tourposten .knoepfchen button.stark { border-color: var(--ink); color: var(--ink); }
+.tag .route { margin-top: 10px; display: block; text-align: center; }
+.offene-liste { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 12px; }
+.offene-liste .tourposten { border: 1px solid var(--line); border-radius: 14px; padding: 12px 14px; }
+@media (max-width: 900px) {
+  .woche { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
 /* ── Kennzahlen ───────────────────────────────────────────────────────── */
 .zahlen { display: flex; gap: 34px; flex-wrap: wrap; margin: 4px 0 30px; }
 .zahl .wert { font-size: 1.9rem; font-weight: 660; letter-spacing: -.04em; line-height: 1; }
@@ -222,6 +246,7 @@ export function seite(inhalt: string, opt: SeitenOptionen): Response {
     ? `<nav>
 <a href="/objekte"${opt.aktiv === "objekte" ? ' aria-current="page"' : ""}>Objekte</a>
 <a href="/maengel"${opt.aktiv === "maengel" ? ' aria-current="page"' : ""}>Mängel</a>
+<a href="/touren"${opt.aktiv === "touren" ? ' aria-current="page"' : ""}>Touren</a>
 <a href="/verbinden"${opt.aktiv === "verbinden" ? ' aria-current="page"' : ""}>Claude</a>
 <a href="/einstellungen"${opt.aktiv === "einstellungen" ? ' aria-current="page"' : ""}>Einstellungen</a>
 <span class="wer">${esc(opt.nutzer.name)}</span>
