@@ -240,21 +240,23 @@ pre.code code { background: none; padding: 0; }
    auf den Container statt auf den Plan, und alles sitzt versetzt. */
 .planbuehne { position: absolute; top: 0; left: 0; width: 100%; transform-origin: 0 0; }
 .planbuehne img { display: block; width: 100%; height: auto; user-select: none; }
-.marke {
+/* Eigener Name statt .marke: so hieß auch die Nummer in der Checkliste, und das absolute
+   Positionieren von hier legte sie dort über den Text. Zwei Dinge, ein Name — das rächt sich. */
+.planmarke {
   position: absolute; transform: translate(-50%, -50%); cursor: pointer;
   min-width: 22px; height: 22px; padding: 0 5px; border-radius: 999px;
   border: 2px solid #fff; font: 600 11px/1 system-ui; color: #fff;
   display: grid; place-items: center; box-shadow: 0 1px 4px rgba(0,0,0,.35);
 }
-.marke.sicher { background: #12833f; }
-.marke.unsicher { background: #a9761b; }
-.marke.vage { background: #8a8a94; }
-.marke.an { background: #1B54D6; }
-.marke.weg { background: transparent; border-color: #8a8a94; color: #8a8a94; opacity: .5; }
-.marke.pflicht { border-color: #131316; border-width: 3px; }
-.marke.gewaehlt { outline: 3px solid var(--focus); outline-offset: 2px; }
-.marke.bauteil { background: #1B54D6; }
-.marke.start { background: #131316; cursor: default; }
+.planmarke.sicher { background: #12833f; }
+.planmarke.unsicher { background: #a9761b; }
+.planmarke.vage { background: #8a8a94; }
+.planmarke.an { background: #1B54D6; }
+.planmarke.weg { background: transparent; border-color: #8a8a94; color: #8a8a94; opacity: .5; }
+.planmarke.pflicht { border-color: #131316; border-width: 3px; }
+.planmarke.gewaehlt { outline: 3px solid var(--focus); outline-offset: 2px; }
+.planmarke.bauteil { background: #1B54D6; }
+.planmarke.start { background: #131316; cursor: default; }
 .planknoepfe { position: absolute; right: 12px; bottom: 12px; display: flex; gap: 6px; }
 .planknoepfe button {
   width: 34px; height: 34px; border-radius: 10px; border: 1px solid var(--line-strong);
@@ -266,7 +268,7 @@ pre.code code { background: none; padding: 0; }
   margin-top: 12px; font-size: .8rem; color: var(--ink-2);
 }
 .legende span { display: inline-flex; align-items: center; gap: 6px; }
-.legende i.marke { position: static; transform: none; width: 14px; height: 14px; min-width: 14px; padding: 0; }
+.legende i.planmarke { position: static; transform: none; width: 14px; height: 14px; min-width: 14px; padding: 0; }
 
 .plankarte {
   border: 1px solid var(--ink); border-radius: var(--radius); padding: 16px 18px; margin-top: 14px;

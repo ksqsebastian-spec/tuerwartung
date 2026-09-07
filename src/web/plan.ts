@@ -111,11 +111,11 @@ export async function planSeite(
 </div>
 <div class="plankarte" id="karte" hidden></div>
 <div class="legende">
-<span><i class="marke sicher"></i> sicher (ab 0.85)</span>
-<span><i class="marke unsicher"></i> unsicher (ab 0.6)</span>
-<span><i class="marke vage"></i> vage</span>
-<span><i class="marke an"></i> schon Bauteil</span>
-<span><i class="marke pflicht sicher"></i> wartungspflichtig (dicker Rand)</span>
+<span><i class="planmarke sicher"></i> sicher (ab 0.85)</span>
+<span><i class="planmarke unsicher"></i> unsicher (ab 0.6)</span>
+<span><i class="planmarke vage"></i> vage</span>
+<span><i class="planmarke an"></i> schon Bauteil</span>
+<span><i class="planmarke pflicht sicher"></i> wartungspflichtig (dicker Rand)</span>
 <span class="meta">Antippen öffnet das Kärtchen · Ziehen verschiebt · am Rechner j/k/a/x</span>
 </div>`
     : `<div class="leer">Für dieses Geschoss gibt es noch kein Planbild.<br>

@@ -494,6 +494,9 @@ ruf import_abschliessen "$(jq -nc --arg i "$IPLAN" '{import:$i}')" \
 GID=$(ruf objekt_lesen "$(jq -nc --arg o "$OID" '{objekt:$o}')" | jq -r '.geschosse[] | select(.name=="EG") | .id')
 code=$(curl -s -o /dev/null -w "%{http_code}" -b $J "$B/objekt/$OID/plan/$GID")
 [ "$code" = "200" ] && ok "Planseite" || bad "Planseite $code"
+# Plan-Marker und Checklisten-Nummer hießen beide .marke; das legte die Nummer über den Text.
+curl -s -b $J "$B/objekt/$OID/plan/$GID" | grep -q "planmarke" \
+  && ok "Plan-Marker mit eigenem Namen" || bad "planmarke fehlt"
 curl -s -b $J "$B/objekt/$OID/plan/$GID/daten.json" \
   | jq -e '[.bauteile[] | select(.x != null)] | length == 3' >/dev/null \
   && ok "drei verortete Bauteile auf der Karte" || bad "Karte"

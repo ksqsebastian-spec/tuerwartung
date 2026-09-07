@@ -48,14 +48,14 @@
   }
 
   function zeichnen() {
-    var alt = buehne.querySelectorAll(".marke");
+    var alt = buehne.querySelectorAll(".planmarke");
     for (var i = 0; i < alt.length; i++) alt[i].remove();
 
     daten.bauteile.forEach(function (b) {
       if (b.x === null || b.y === null) return;
       var m = document.createElement("button");
       m.type = "button";
-      m.className = "marke bauteil";
+      m.className = "planmarke bauteil";
       m.style.left = b.x * 100 + "%";
       m.style.top = b.y * 100 + "%";
       m.textContent = b.nr;
@@ -70,7 +70,7 @@
       if (v.status === "angenommen") return;
       var m = document.createElement("button");
       m.type = "button";
-      m.className = "marke " + farbe(v) + (v.wartungspflichtig ? " pflicht" : "") +
+      m.className = "planmarke " + farbe(v) + (v.wartungspflichtig ? " pflicht" : "") +
         (gewaehlt === v.id ? " gewaehlt" : "");
       m.style.left = v.x * 100 + "%";
       m.style.top = v.y * 100 + "%";
@@ -81,7 +81,7 @@
 
     if (daten.start && daten.start.x !== null) {
       var s = document.createElement("div");
-      s.className = "marke start";
+      s.className = "planmarke start";
       s.style.left = daten.start.x * 100 + "%";
       s.style.top = daten.start.y * 100 + "%";
       s.textContent = "▶";
@@ -180,7 +180,7 @@
   var zieht = null, gezogen = false, start = null;
 
   flaeche.addEventListener("pointerdown", function (e) {
-    var marke = e.target.closest(".marke[data-id]");
+    var marke = e.target.closest(".planmarke[data-id]");
     if (marke) {
       zieht = { id: marke.dataset.id, marke: marke, x: e.clientX, y: e.clientY };
       gezogen = false;
