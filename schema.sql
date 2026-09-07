@@ -53,7 +53,12 @@ CREATE TABLE objekte (
   adresse          TEXT NOT NULL DEFAULT '',  -- Straße, PLZ Ort (eine Zeile)
   plz              TEXT NOT NULL DEFAULT '',  -- für die Tagestour
   betreiber        TEXT NOT NULL DEFAULT '',  -- Name, wie er aufs Protokoll gehört
-  betreiber_kontakt TEXT NOT NULL DEFAULT '', -- Name + Telefon des Ansprechpartners vor Ort
+  betreiber_kontakt TEXT NOT NULL DEFAULT '', -- Name des Ansprechpartners vor Ort
+  telefon          TEXT NOT NULL DEFAULT '',  -- Durchwahl des Ansprechpartners
+  email            TEXT NOT NULL DEFAULT '',
+  zugang           TEXT NOT NULL DEFAULT '',  -- „Schlüssel beim Hausmeister", „Codeschloss 1234"
+  vertrag          TEXT NOT NULL DEFAULT '',  -- Wartungsvertrag / Auftragsnummer
+  objektart        TEXT NOT NULL DEFAULT '',  -- „Kita", „Schule", „Bürogebäude"
   ident            TEXT NOT NULL DEFAULT '',  -- Ident-Nummer des Betreibers, falls vorhanden
   intervall_monate INTEGER NOT NULL DEFAULT 12,
   rechtsgrundlagen TEXT NOT NULL DEFAULT '',  -- leer = Standard je Vorlage

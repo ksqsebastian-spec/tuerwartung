@@ -232,6 +232,127 @@ const vorschlaegeAnlegenTool: ToolDef = {
   },
 };
 
+/**
+ * Der Bauplan-Import in einem Aufruf bis zur Freigabe.
+ *
+ * Sechs Schritte waren es: starten, lesen, melden, berichten, freigeben, abschließen. Vier davon
+ * sind Buchhaltung, die der Server selbst erledigen kann — nur zwei sind echte Arbeit: die Datei
+ * lesen (das kann nur der Agent) und die Freigabe (die muss ein Mensch geben, Leitsatz 6).
+ *
+ * Also: dieses Tool nimmt die gefundenen Türen entgegen, legt den Import nebenbei an und
+ * antwortet mit dem, was man vorlesen kann — samt fertiger Vorschläge, wie freigegeben werden
+ * kann. Danach nur noch 'vorschlaege_annehmen'; das schließt den Import selbst ab.
+ */
+const bauplanUebernehmenTool: ToolDef = {
+  name: "bauplan_uebernehmen",
+  title: "Bauplan oder Türliste übernehmen",
+  description:
+    "Der ganze Import in einem Aufruf: du liest den Grundriss oder die Türliste und gibst hier " +
+    "die gefundenen Türen ab. Der Import wird nebenbei angelegt. Daraus werden noch KEINE " +
+    "Bauteile — die Antwort sagt dir, was du berichten und wie du die Freigabe einholen sollst " +
+    "(Leitsatz: kein Import legt Bauteile ohne Menschen an). Danach nur noch " +
+    "'vorschlaege_annehmen'. Bei mehr als ~100 Türen mehrfach aufrufen und ab dem zweiten Mal " +
+    "die zurückgegebene 'import'-Kennung mitgeben. Nichts erfinden: eine Zelle, die du nicht " +
+    "liest, bleibt leer; eine Tür, die du nicht siehst, gibt es nicht.",
+  inputSchema: {
+    type: "object",
+    properties: {
+      objekt: str("ID, Name oder Adresse des Objekts"),
+      tueren: {
+        type: "array",
+        description: "Die gefundenen Türen, höchstens ~100 je Aufruf.",
+        items: KANDIDAT,
+      },
+      art: str("plan | tuerliste — Standard 'plan', wenn Positionen dabei sind, sonst 'tuerliste'"),
+      geschoss: str("Bei Plänen: Geschoss, z. B. 'EG' oder '1. OG'. Unbekannte Namen werden angelegt."),
+      dateiname: str("Name der Datei, die du gelesen hast — steht später in der Herkunft"),
+      import: str("Nur beim Nachreichen weiterer Stapel: die Kennung aus dem ersten Aufruf"),
+    },
+    required: ["objekt", "tueren"],
+    additionalProperties: false,
+  },
+  annotations: SCHREIBT,
+  async handler(args, ctx) {
+    const objekt = await holeObjekt(ctx, pflicht<string>(args, "objekt"));
+    const tueren = pflicht<Record<string, any>[]>(args, "tueren");
+    if (!Array.isArray(tueren) || !tueren.length) throw new Error("Keine Türen dabei.");
+    if (tueren.length > 200) {
+      throw new Error(
+        `${tueren.length} Türen auf einmal sind zu viele. In Stapeln von höchstens 100 abgeben ` +
+          "und ab dem zweiten Aufruf die 'import'-Kennung mitgeben.",
+      );
+    }
+    for (const t of tueren) if (t.art) vorlage(String(t.art));
+
+    /* Die Art muss niemand nennen: Positionen im Bild heißen Plan, sonst ist es eine Liste. */
+    const art =
+      String(args.art ?? "").toLowerCase() ||
+      (tueren.some((t) => t.x !== undefined && t.y !== undefined) ? "plan" : "tuerliste");
+    if (!["plan", "tuerliste"].includes(art)) {
+      throw new Error(`Art '${art}' gibt es nicht. Möglich: plan, tuerliste.`);
+    }
+
+    let imp = args.import ? await holeImport(ctx, String(args.import)) : null;
+    if (!imp) {
+      imp = await importAnlegen(ctx.env.DB, {
+        objekt_id: objekt.id,
+        art,
+        dateiname: String(args.dateiname ?? "").trim() || "ohne Dateinamen",
+        geschoss_id: art === "plan" ? await holeGeschoss(ctx, objekt, args.geschoss) : null,
+        angelegt_von: ctx.nutzer.benutzer,
+      });
+    }
+
+    await vorschlaegeAnlegen(ctx.env.DB, imp, tueren);
+    const alle = await vorschlaegeLesen(ctx.env.DB, { import_id: imp.id });
+    const zahlen = zaehlen(alle);
+    await importAendern(ctx.env.DB, imp.id, {
+      status: "ausgewertet",
+      ergebnis: { gefunden: alle.length, gemeldet_am: Date.now() },
+    });
+
+    const offene = alle.filter((v) => v.status === "offen");
+    const sicher = offene.filter((v) => v.konfidenz >= 0.85).length;
+    const pflichtig = offene.filter((v) => v.wartungspflichtig === 1).length;
+    const unsicher = offene.filter((v) => v.konfidenz < 0.6).length;
+
+    return {
+      import: imp.id,
+      objekt: objekt.name,
+      art,
+      gefunden: alle.length,
+      zahlen,
+      /* Ein Satz, den man vorlesen kann — nicht die ganze Liste. */
+      bericht:
+        `${alle.length} ${alle.length === 1 ? "Tür" : "Türen"} gefunden, davon ${pflichtig} ` +
+        `wartungspflichtig und ${sicher} sicher erkannt` +
+        (unsicher
+          ? `; ${unsicher} ${unsicher === 1 ? "ist unsicher" : "sind unsicher"} und würde ich ` +
+            "einzeln zeigen."
+          : "."),
+      freigabe_moeglichkeiten: [
+        { was: `alle ${offene.length} übernehmen`, aufruf: { alle: true } },
+        ...(sicher
+          ? [{ was: `nur die ${sicher} sicheren (ab 0.85)`, aufruf: { ab_konfidenz: 0.85 } }]
+          : []),
+        ...(pflichtig
+          ? [
+              {
+                was: `nur die ${pflichtig} wartungspflichtigen`,
+                aufruf: { nur_wartungspflichtige: true },
+              },
+            ]
+          : []),
+      ],
+      link: `${ctx.origin}/objekt/${objekt.id}/import/${imp.id}`,
+      weiter:
+        "Den Bericht vorlesen und fragen, was übernommen werden soll. Dann " +
+        "'vorschlaege_annehmen' mit dieser Import-Kennung — mehr ist nicht nötig, der Import " +
+        "schließt sich danach selbst.",
+    };
+  },
+};
+
 const vorschlaegeLesenTool: ToolDef = {
   name: "vorschlaege_lesen",
   title: "Vorschläge eines Imports lesen",
@@ -316,13 +437,22 @@ const vorschlaegeAnnehmenTool: ToolDef = {
 
     const { angelegt } = await vorschlaegeAnnehmen(ctx.env.DB, auswahl);
     const rest = await vorschlaegeLesen(ctx.env.DB, { import_id: imp.id, status: "alle" });
+    const zahlenRest = zaehlen(rest);
+    /*
+     * Bleibt nichts offen, ist der Import fertig — dann muss ihn niemand eigens abschließen.
+     * Bleibt etwas offen, bleibt er offen: dort steckt noch eine Entscheidung.
+     */
+    const offenDanach = rest.filter((v) => v.status === "offen").length;
     await importAendern(ctx.env.DB, imp.id, {
-      ergebnis: { angenommen: zaehlen(rest).angenommen },
+      status: offenDanach ? undefined : "bestaetigt",
+      ergebnis: { angenommen: zahlenRest.angenommen },
     });
     return {
       angelegt: angelegt.length,
       bauteile: angelegt.map((b) => ({ nr: b.nr, kennung: b.kennung || undefined, art: b.art })),
-      zahlen: zaehlen(rest),
+      zahlen: zahlenRest,
+      noch_offen: offenDanach,
+      import_abgeschlossen: offenDanach === 0,
       link: `${ctx.origin}/objekt/${imp.objekt_id}`,
     };
   },
@@ -501,6 +631,7 @@ const geschossAnlegenTool: ToolDef = {
 };
 
 export const IMPORT_TOOLS: ToolDef[] = [
+  bauplanUebernehmenTool,
   importAnleitung,
   importeAuflistenTool,
   vorschlaegeLesenTool,

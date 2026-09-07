@@ -35,6 +35,16 @@ Bestandsaufnahme. Hängt an einer Tür noch ein Mangel aus dem Vorjahr, fragt Cl
 „Fertig" liest Claude zurück, nennt die fälligen Türen die noch fehlen — und erzeugt in
 demselben Zug die Berichte und den Sammelbericht.
 
+**Ein neues Objekt** richtet der Assistent ein: `/einrichten` im Chat, dann stellt Claude eine
+Frage nach der anderen, bis die Stammdaten stehen — Adresse, Betreiber, Ansprechpartner mit
+Telefon, Wartungsvertrag und vor allem **wie man reinkommt** („Schlüssel beim Hausmeister",
+„Anmeldung im Sekretariat"). Der Zugang steht danach auf der Objektseite und in jeder Tagestour;
+er ist das Feld, das die vergebliche Anfahrt verhindert.
+
+**Ein Bauplan** ist zwei Schritte: Claude liest die Datei und gibt die gefundenen Türen mit
+`bauplan_uebernehmen` ab, dann liest es vor, was gefunden wurde, und holt die Freigabe. Ohne
+Freigabe entstehen keine Bauteile — das ist der Punkt, an dem ein Mensch entscheidet.
+
 **So wenig Eingabe wie möglich.** Was der Server ausrechnen kann, fragt er nicht: die Etage einer
 Tür erkennt er aus Raumnummer, ETAGE oder Flur; `lage` beantwortet „was ist zu tun?" in einem
 Aufruf statt in vieren; `tour_vorschlagen` plant den Fahrtag nach Dringlichkeit und Nähe, ohne
@@ -78,7 +88,7 @@ src/
   web/rundgang.client.js.txt, web/plan.client.js.txt, web/sw.js.txt
                       die Browser-Skripte, als Text einkompiliert
   auth/               Anmeldung (Benutzer + Passwort), Sitzungs-Cookies, OAuth 2.1
-  mcp/                MCP-Protokoll, die 41 Tools (werkzeuge + import_werkzeuge),
+  mcp/                MCP-Protokoll, die 43 Tools (werkzeuge + import_werkzeuge),
                       dazu prompts.ts: die vier Schrägstrich-Befehle und die Ressourcen
   import/             Anleitung für den Agenten, Zusammenführung Liste + Plan
   daten/              D1-Zugriff: objekte, bauteile, begehungen, maengel, fotos,
@@ -165,7 +175,7 @@ abgeleitet, wer nur KV lesen kann, bekommt Chiffretext.
 Der öffentliche Katalog steht unter `/tools.json`, gleiche Machart wie bei `hero-mcp` und
 `tarifcheck` — der Hub kann ihn abgreifen.
 
-Neben den Tools bietet der Server **Prompts** (`/wartung`, `/tag`, `/abschluss`, `/bauplan` —
+Neben den Tools bietet der Server **Prompts** (`/wartung`, `/tag`, `/abschluss`, `/einrichten`, `/bauplan` —
 fertige Gesprächsanfänge, die im Client als Befehle erscheinen) und **Ressourcen**
 (`tuerwerk://bestand`, `tuerwerk://anleitung/import`, `tuerwerk://pruefpunkte/<vorlage>` —
 Nachschlagewissen, das der Client anhängen kann, ohne dass ein Tool-Aufruf im Gespräch steht).

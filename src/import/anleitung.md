@@ -4,20 +4,26 @@ Türwerk liest keine Pläne. Du liest sie — du hast die Datei ohnehin im Gespr
 Türwerk, was du gefunden hast. Türwerk verwahrt es als **Vorschläge**, bis ein Mensch sie
 freigibt. Erst dann entstehen Bauteile.
 
-## Ablauf
+## Ablauf — zwei Schritte
 
-1. **`import_starten`** mit dem Objekt, der Art (`plan` oder `tuerliste`), dem Dateinamen und
-   — bei Plänen — dem Geschoss. Kennt Türwerk das Geschoss nicht, legt das Argument es an
-   („EG", „1. OG", „UG"). Du bekommst eine Import-Kennung.
-2. **Datei lesen.** Grundriss als Bild, Türliste als Tabelle oder PDF. Sorgfältig, aber ohne zu
-   raten (siehe unten).
-3. **`vorschlaege_anlegen`** mit der Import-Kennung und den Kandidaten, in Stapeln von höchstens
-   ~100. Bei einem großen Plan lieber mehrere Aufrufe als einer, der abbricht.
-4. **Kurz berichten**, was gefunden wurde: wie viele Türen, wie viele davon wartungspflichtig,
-   was unklar blieb. Nicht die ganze Liste vorlesen.
-5. **Freigabe einholen.** Der Mensch entscheidet — im Gespräch („nimm alle mit T30",
-   „alle ab 0.85") oder auf der Planseite im Browser. Dann **`vorschlaege_annehmen`**.
-6. **`import_abschliessen`**, wenn nichts mehr offen ist.
+Nur zwei Dinge sind echte Arbeit: die Datei lesen (das kann nur du) und die Freigabe (die muss
+ein Mensch geben). Alles andere macht der Server.
+
+1. **Datei lesen und `bauplan_uebernehmen`.** Objekt, die gefundenen Türen, bei Plänen das
+   Geschoss („EG", „1. OG", „UG" — unbekannte Namen werden angelegt). Ob Plan oder Türliste
+   erkennt der Server an den Positionen; der Import wird nebenbei angelegt. Mehr als ~100 Türen:
+   mehrfach aufrufen und ab dem zweiten Mal die zurückgegebene `import`-Kennung mitgeben.
+
+   Die Antwort enthält einen fertigen **`bericht`** — den vorlesen, nicht die ganze Liste — und
+   **`freigabe_moeglichkeiten`**: die üblichen Auswahlen samt Aufruf.
+
+2. **Freigabe einholen und `vorschlaege_annehmen`.** Der Mensch entscheidet („nimm alle mit
+   T30", „alle ab 0.85") — im Gespräch oder auf der Planseite im Browser. Bleibt danach nichts
+   offen, schließt sich der Import selbst.
+
+Bleibt etwas Unklares übrig, kannst du es mit `vorschlaege_verwerfen` wegräumen oder mit
+`vorschlaege_lesen` einzeln zeigen. Und wenn Plan **und** Türliste vorliegen, siehe unten:
+beides einzeln übernehmen, dann `import_zusammenfuehren`.
 
 ## Ein Kandidat
 
@@ -69,7 +75,7 @@ freigibt. Erst dann entstehen Bauteile.
 
 ## Türliste und Plan zusammen
 
-Liegt beides vor, wird beides einzeln importiert (zwei `import_starten`) und danach einmal
+Liegt beides vor, wird beides einzeln übernommen (zwei `bauplan_uebernehmen`) und danach einmal
 **`import_zusammenfuehren`** aufgerufen. Türwerk paart, was sicher zusammengehört: gleiche
 Kennung, sonst gleiche Raumnummer, wenn dort auf beiden Seiten genau eine Tür steht. Der Rest
 bleibt getrennt stehen. Position kommt vom Plan, Felder von der Liste.

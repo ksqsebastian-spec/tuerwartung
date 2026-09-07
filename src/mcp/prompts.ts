@@ -85,13 +85,31 @@ const bauplan: PromptDef = {
   arguments: [arg("objekt", "Name oder Adresse des Objekts", true)],
   bauen: ({ objekt }) =>
     `Hier ist ein Bauplan für „${objekt}“.\n\n` +
-    "Lies zuerst `import_anleitung` und geh dann danach vor. Kurz: `import_starten`, die Datei " +
-    "selbst lesen, die gefundenen Türen mit `vorschlaege_anlegen` melden, mir berichten was du " +
-    "gefunden hast — und **die Freigabe einholen**, bevor daraus Bauteile werden. Sag mir dazu, " +
-    "wie sicher du dir bei den einzelnen Funden bist.",
+    "Zwei Schritte: lies die Datei und gib die gefundenen Türen mit `bauplan_uebernehmen` ab — " +
+    "der Import legt sich dabei selbst an. Lies mir dann den `bericht` aus der Antwort vor, " +
+    "nicht die ganze Liste, und nenn die `freigabe_moeglichkeiten`. Erst auf mein Wort " +
+    "`vorschlaege_annehmen`: **ohne Freigabe entstehen keine Bauteile.**\n\n" +
+    "Wenn du beim Lesen unsicher bist, sag es lieber — eine niedrige Konfidenz ist besser als " +
+    "eine erfundene Tür. Details stehen in `import_anleitung`, falls du sie brauchst.",
 };
 
-export const PROMPTS: PromptDef[] = [wartung, tag, abschluss, bauplan];
+const einrichten: PromptDef = {
+  name: "einrichten",
+  title: "Neues Objekt einrichten",
+  description:
+    "Führt durch die Stammdaten eines neuen Objekts — eine Frage nach der anderen, bis alles " +
+    "steht, was der Bericht braucht und was eine vergebliche Anfahrt verhindert.",
+  arguments: [arg("objekt", "Name des neuen Objekts", true)],
+  bauen: ({ objekt }) =>
+    `Ich möchte „${objekt}“ neu anlegen.\n\n` +
+    "Ruf `objekt_einrichten` auf und stell mir **immer nur die eine Frage**, die in " +
+    "`naechste_frage` steht — nicht die ganze Liste. Meine Antwort gibst du im nächsten Aufruf " +
+    "mit, so lange, bis `fertig: true` kommt. Weiß ich etwas nicht und es ist freiwillig, nimm " +
+    "es in `ueberspringen` auf statt noch einmal zu fragen.\n\n" +
+    "Wenn es steht, sag mir kurz, was als Nächstes sinnvoll ist.",
+};
+
+export const PROMPTS: PromptDef[] = [wartung, tag, abschluss, einrichten, bauplan];
 
 /* ── Ressourcen ────────────────────────────────────────────────────────────── */
 

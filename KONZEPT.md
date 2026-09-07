@@ -67,7 +67,12 @@ CREATE TABLE objekte (
   adresse          TEXT NOT NULL DEFAULT '',  -- Straße, PLZ Ort (eine Zeile)
   plz              TEXT NOT NULL DEFAULT '',  -- für die Tagestour
   betreiber        TEXT NOT NULL DEFAULT '',  -- Name, wie er aufs Protokoll gehört
-  betreiber_kontakt TEXT NOT NULL DEFAULT '', -- Name + Telefon des Ansprechpartners vor Ort
+  betreiber_kontakt TEXT NOT NULL DEFAULT '', -- Name des Ansprechpartners vor Ort
+  telefon          TEXT NOT NULL DEFAULT '',
+  email            TEXT NOT NULL DEFAULT '',
+  zugang           TEXT NOT NULL DEFAULT '',  -- wie man reinkommt (siehe unten)
+  vertrag          TEXT NOT NULL DEFAULT '',  -- Wartungsvertrag / Auftragsnummer
+  objektart        TEXT NOT NULL DEFAULT '',  -- „Kita", „Schule", „Bürogebäude"
   ident            TEXT NOT NULL DEFAULT '',  -- Ident-Nummer des Betreibers, falls vorhanden
   intervall_monate INTEGER NOT NULL DEFAULT 12,
   rechtsgrundlagen TEXT NOT NULL DEFAULT '',  -- leer = Standard je Vorlage
@@ -297,6 +302,25 @@ CREATE TABLE sync_ops (
   heute), `bald` (≤ 30 Tage), `ok`.
 - **„Nächste Prüfung" im PDF** = Fälligkeit des Bauteils nach dieser Prüfung.
 - **„Letzte Prüfung" im PDF** = Datum der vorangegangenen Prüfung dieses Bauteils, sonst leer.
+
+---
+
+### 1.1 Stammdaten eines Objekts
+
+Neben Name, Adresse und Betreiber trägt ein Objekt, was einen Monteur sonst einen Anruf oder
+eine vergebliche Anfahrt kostet:
+
+| Feld | Wofür |
+|---|---|
+| `objektart` | „Kita", „Schule", „Bürogebäude" — Einordnung und Suche |
+| `betreiber_kontakt`, `telefon`, `email` | wer vor Ort aufmacht und wie man ihn erreicht |
+| **`zugang`** | „Schlüssel beim Hausmeister, Herr Kern 0171-…", „Anmeldung im Sekretariat", „Codeschloss 1234" |
+| `vertrag` | Wartungsvertrag oder Auftragsnummer, gehört auf die Papiere |
+
+`zugang` ist das wichtigste davon und wird deshalb überall mitgeführt, wo jemand gleich losfährt:
+sichtbar auf der Objektseite unter der Adresse, in `objekt_lesen`, `tour_lesen` und
+`tour_vorschlagen`. Gefüllt werden sie am bequemsten über `objekt_einrichten` (Abschnitt 9),
+das genau eine Frage nach der anderen stellt.
 
 ---
 
@@ -602,7 +626,7 @@ Also:
 2. Claude liest die Anleitung des Servers (`import_anleitung`, dazu die Seite
    `/anleitung/import` zum Nachlesen für Menschen) und weiß damit, was Türwerk erwartet.
 3. Claude **liest den Plan selbst** — Grundriss als Bild, Türliste als Tabelle oder PDF — und
-   ruft `vorschlaege_anlegen` mit den Kandidaten: normierte Position, Kennung, Raumnummer, Art,
+   ruft `bauplan_uebernehmen` mit den Kandidaten: normierte Position, Kennung, Raumnummer, Art,
    Wartungspflicht, Konfidenz, gefundene Beschriftungen.
 4. Bestätigt wird **im Gespräch** („nimm alle mit T30-Kennzeichnung") über
    `vorschlaege_annehmen` / `vorschlaege_verwerfen`, oder auf der Planseite im Browser.
@@ -624,6 +648,23 @@ Was das bedeutet:
 
 Die folgenden Abschnitte 7.1 bis 7.6 stehen als Hintergrund weiter da; wo sie der Entscheidung
 oben widersprechen, gilt oben.
+
+**Nachtrag: zwei Schritte statt sechs.** Der erste Zuschnitt brauchte `import_starten`,
+`vorschlaege_anlegen`, `import_abschliessen` und dazwischen Berichten und Freigeben — sechs
+Schritte, von denen vier Buchhaltung waren. Echte Arbeit sind nur zwei: die Datei lesen (das kann
+nur der Agent) und die Freigabe (die muss ein Mensch geben). Also:
+
+1. **`bauplan_uebernehmen(objekt, tueren[], geschoss?, art?, dateiname?, import?)`** — legt den
+   Import nebenbei an, erkennt Plan gegen Türliste an den Positionen, und antwortet mit einem
+   fertigen `bericht` zum Vorlesen sowie `freigabe_moeglichkeiten` (alle / ab 0.85 / nur
+   wartungspflichtige) samt Aufruf. Große Pläne: mehrfach rufen und ab dem zweiten Mal die
+   `import`-Kennung mitgeben.
+2. **`vorschlaege_annehmen(...)`** — die Freigabe. Bleibt danach nichts offen, setzt sie den
+   Import selbst auf `bestaetigt`.
+
+`import_starten`, `vorschlaege_anlegen` und `import_abschliessen` bleiben als Feinweg bestehen —
+für das Zusammenführen von Plan und Liste (7.7) und für Fälle, in denen einzeln gesteuert werden
+soll. Der Regelweg sind die zwei Schritte.
 
 ### 7.1 Grundsatz (überholt, siehe 7.0)
 
@@ -855,7 +896,8 @@ Namen deutsch, `readOnlyHint` gesetzt wie in v1. Alle Argumente optional außer 
 
 | Tool | Argumente | Wirkung |
 |---|---|---|
-| `objekt_anlegen` | name*, adresse, plz, betreiber, betreiber_kontakt, ident, intervall_monate, rechtsgrundlagen | legt Objekt + Hauptgebäude + Geschoss „EG" an |
+| `objekt_einrichten` | objekt*, alle Stammdatenfelder, ueberspringen[] | **Der geführte Einstieg.** Legt an oder setzt fort, übernimmt Mitgegebenes und nennt `naechste_frage` — genau EINE Frage. Mehrfach aufrufen, bis `fertig`. `weiter_mit` sagt, was danach lohnt |
+| `objekt_anlegen` | name*, adresse, plz, betreiber, betreiber_kontakt, telefon, email, zugang, vertrag, objektart, ident, intervall_monate, rechtsgrundlagen | legt Objekt + Hauptgebäude an |
 | `objekt_aendern` | objekt*, Felder | nur genannte Felder |
 | `bauteil_anlegen` | objekt*, art*, nr, kennung, geschoss, raumnummer, raum, flur, felder, wartungspflichtig | einzelnes Bauteil ohne Import |
 | `bauteile_anlegen` | objekt*, bauteile[]*, art, geschoss | Stapel bis 200; belegte Nummern werden übersprungen, nie überschrieben |
@@ -874,6 +916,7 @@ Namen deutsch, `readOnlyHint` gesetzt wie in v1. Alle Argumente optional außer 
 | `tour_planen` | datum*, objekte[]*, person | Tagestour setzen |
 | `tour_vorschlagen` | datum=heute, anzahl=4, vorlauf_tage=30, naehe, uebernehmen=false, person | **Rechnet den Fahrtag aus**: dringendstes Objekt zuerst, danach jeweils das nächstgelegene (Nähe über PLZ). Niemand zählt Objekte auf. `uebernehmen=true` setzt den Tag gleich |
 | `geschoss_anlegen` | objekt*, name*, reihenfolge | Geschoss, Reihenfolge aus dem Namen |
+| `bauplan_uebernehmen` | objekt*, tueren[]*, art, geschoss, dateiname, import | **Der Regelweg** (Abschnitt 7.0): Import anlegen und Fundstücke abgeben in einem Aufruf, mit fertigem Bericht und Freigabe-Möglichkeiten |
 | `import_starten` | objekt*, art*, dateiname, geschoss | Abschnitt 7.0 |
 | `vorschlaege_anlegen` | import*, kandidaten[]* | was der Agent gefunden hat |
 | `vorschlaege_annehmen` | import*, ids\|ab_konfidenz\|nur_wartungspflichtige\|alle | die Freigabe — hier entstehen Bauteile |
@@ -893,6 +936,7 @@ dann leere Listen. Beide sind jetzt gefüllt, weil beide dasselbe tun wie der Re
 | Prompt | Argumente | Wofür |
 |---|---|---|
 | `wartung` | objekt* | „Ich stehe an X und fange an" — Prüfpunkte, `begehung_starten`, dann zuhören |
+| `einrichten` | objekt* | führt mit `objekt_einrichten` durch die Stammdaten, eine Frage nach der anderen |
 | `tag` | datum, anzahl | `lage` lesen, zusammenfassen, mit `tour_vorschlagen` einen Fahrtag anbieten |
 | `abschluss` | objekt | Rücklesen und `begehung_abschliessen`, bis `fertig` |
 | `bauplan` | objekt* | `import_anleitung` lesen und danach vorgehen, Freigabe einholen |

@@ -14,6 +14,11 @@ export interface Objekt {
   plz: string;
   betreiber: string;
   betreiber_kontakt: string;
+  telefon: string;
+  email: string;
+  zugang: string;
+  vertrag: string;
+  objektart: string;
   ident: string;
   intervall_monate: number;
   rechtsgrundlagen: string;
@@ -107,6 +112,11 @@ export interface ObjektPatch {
   plz?: string;
   betreiber?: string;
   betreiber_kontakt?: string;
+  telefon?: string;
+  email?: string;
+  zugang?: string;
+  vertrag?: string;
+  objektart?: string;
   ident?: string;
   intervall_monate?: number;
   rechtsgrundlagen?: string;
@@ -115,8 +125,8 @@ export interface ObjektPatch {
 }
 
 const OBJEKT_SPALTEN = [
-  "name", "adresse", "plz", "betreiber", "betreiber_kontakt", "ident",
-  "intervall_monate", "rechtsgrundlagen", "notizen", "aktiv",
+  "name", "adresse", "plz", "betreiber", "betreiber_kontakt", "telefon", "email", "zugang",
+  "vertrag", "objektart", "ident", "intervall_monate", "rechtsgrundlagen", "notizen", "aktiv",
 ] as const;
 
 /** Legt Objekt, Hauptgebäude und ein Geschoss „EG" an — ein Objekt ist nie ohne Ort. */
@@ -132,6 +142,11 @@ export async function objektAnlegen(
     plz: daten.plz ?? plzAusAdresse(daten.adresse ?? ""),
     betreiber: daten.betreiber ?? "",
     betreiber_kontakt: daten.betreiber_kontakt ?? "",
+    telefon: daten.telefon ?? "",
+    email: daten.email ?? "",
+    zugang: daten.zugang ?? "",
+    vertrag: daten.vertrag ?? "",
+    objektart: daten.objektart ?? "",
     ident: daten.ident ?? "",
     intervall_monate: daten.intervall_monate ?? 12,
     rechtsgrundlagen: daten.rechtsgrundlagen ?? "",
@@ -147,14 +162,15 @@ export async function objektAnlegen(
   await db.batch([
     db
       .prepare(
-        `INSERT INTO objekte (id, name, adresse, plz, betreiber, betreiber_kontakt, ident,
-           intervall_monate, rechtsgrundlagen, notizen, hero_kunde_id, hero_projekt_id, aktiv,
-           angelegt_von, angelegt_am, geaendert_am)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+        `INSERT INTO objekte (id, name, adresse, plz, betreiber, betreiber_kontakt, telefon,
+           email, zugang, vertrag, objektart, ident, intervall_monate, rechtsgrundlagen, notizen,
+           hero_kunde_id, hero_projekt_id, aktiv, angelegt_von, angelegt_am, geaendert_am)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
       )
       .bind(
-        o.id, o.name, o.adresse, o.plz, o.betreiber, o.betreiber_kontakt, o.ident,
-        o.intervall_monate, o.rechtsgrundlagen, o.notizen, null, null, o.aktiv,
+        o.id, o.name, o.adresse, o.plz, o.betreiber, o.betreiber_kontakt, o.telefon,
+        o.email, o.zugang, o.vertrag, o.objektart, o.ident, o.intervall_monate,
+        o.rechtsgrundlagen, o.notizen, null, null, o.aktiv,
         o.angelegt_von, o.angelegt_am, o.geaendert_am,
       ),
     db

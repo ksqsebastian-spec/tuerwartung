@@ -107,11 +107,13 @@ ${eintrag("/berichte", "Berichte", "berichte")}
 
 /** Kopfzeile: Name, Adresse, Betreiber. Ohne Kennzahlenleiste — der Satz darunter sagt es. */
 function objektKopf(o: Objekt): string {
-  return `<div class="eyebrow">Objekt</div>
+  const kontakt = [o.betreiber_kontakt, o.telefon].filter(Boolean).join(" · ");
+  return `<div class="eyebrow">${esc(o.objektart || "Objekt")}</div>
 <h1 class="seite" style="margin-top:8px">${esc(o.name)}</h1>
 <p class="meta" style="margin-top:8px">${esc(o.adresse || "ohne Adresse")}${
     o.betreiber ? ` · ${esc(o.betreiber)}` : ""
-  }</p>`;
+  }${kontakt ? ` · ${esc(kontakt)}` : ""}</p>
+${o.zugang ? `<p class="zugang">${esc(o.zugang)}</p>` : ""}`;
 }
 
 /** Was an diesem Objekt gerade zu tun ist — für den Satz und den einen Knopf. */
@@ -507,11 +509,20 @@ function stammdatenFormular(o: Objekt): string {
 ${textfeld("name", "Name", o.name)}
 ${textfeld("adresse", "Adresse", o.adresse)}
 ${textfeld("plz", "PLZ", o.plz)}
+${textfeld("objektart", "Objektart", o.objektart, 'placeholder="Kita, Schule, Bürogebäude"')}
 ${textfeld("betreiber", "Betreiber", o.betreiber)}
 ${textfeld("betreiber_kontakt", "Ansprechpartner vor Ort", o.betreiber_kontakt)}
+${textfeld("telefon", "Telefon", o.telefon)}
+${textfeld("email", "E-Mail", o.email)}
+${textfeld("vertrag", "Wartungsvertrag / Auftrag", o.vertrag)}
 ${textfeld("ident", "Ident-Nummer", o.ident)}
 ${textfeld("intervall_monate", "Intervall (Monate)", String(o.intervall_monate))}
 </div>
+<div class="feld" style="margin-top:16px"><label for="zugang">Zugang</label>
+<textarea class="field" id="zugang" name="zugang"
+  placeholder="Schlüssel beim Hausmeister · Anmeldung im Sekretariat · Codeschloss">${esc(o.zugang)}</textarea>
+<p class="meta" style="margin-top:6px">Steht in der Tour und beim Objekt — das Feld, das die
+vergebliche Anfahrt verhindert.</p></div>
 <div class="feld" style="margin-top:16px"><label for="rechtsgrundlagen">Rechtsgrundlagen</label>
 <textarea class="field" id="rechtsgrundlagen" name="rechtsgrundlagen" placeholder="leer = Standard je Vorlage">${esc(o.rechtsgrundlagen)}</textarea></div>
 <div class="feld" style="margin-top:16px"><label for="notizen">Notizen</label>

@@ -102,6 +102,12 @@ details.klapp > summary:hover { color: var(--ink); }
 details.klapp > summary .meta { font-weight: 400; }
 
 /* ── Der nächste Schritt ──────────────────────────────────────────────── */
+/* Wie man reinkommt — steht direkt unter der Adresse, weil man es vor der Abfahrt liest. */
+.zugang {
+  margin: 10px 0 0; padding: 9px 13px; border-radius: 12px; background: var(--wash);
+  font-size: .89rem; color: var(--ink-2); max-width: 60ch;
+}
+
 .naechster { margin: 4px 0 16px; }
 .naechster .satz { font-size: 1.06rem; letter-spacing: -.015em; margin: 0 0 14px; max-width: 60ch; }
 .leiseleiste {

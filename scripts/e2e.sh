@@ -371,8 +371,8 @@ echo "$V" | jq -e '.objekte | type == "array"' >/dev/null && ok "Route berechnet
 echo "== 13c. Prompts und Ressourcen =="
 rpc() { curl -s -X POST $B/mcp -H "authorization: Bearer $AT" -H 'content-type: application/json' -d "$1"; }
 rpc '{"jsonrpc":"2.0","id":1,"method":"prompts/list"}' \
-  | jq -e '[.result.prompts[].name] | index("wartung") and index("tag") and index("abschluss") and index("bauplan")' >/dev/null \
-  && ok "vier Prompts" || bad "prompts/list"
+  | jq -e '[.result.prompts[].name] | index("wartung") and index("tag") and index("abschluss") and index("einrichten") and index("bauplan")' >/dev/null \
+  && ok "fünf Prompts" || bad "prompts/list"
 rpc '{"jsonrpc":"2.0","id":1,"method":"prompts/get","params":{"name":"wartung","arguments":{"objekt":"Kita X"}}}' \
   | jq -e '.result.messages[0].content.text | contains("Kita X")' >/dev/null \
   && ok "Prompt trägt das Argument" || bad "prompts/get"
@@ -500,6 +500,55 @@ curl -s -b $J "$B/objekt/$OID/plan/$GID" | grep -q "planmarke" \
 curl -s -b $J "$B/objekt/$OID/plan/$GID/daten.json" \
   | jq -e '[.bauteile[] | select(.x != null)] | length == 3' >/dev/null \
   && ok "drei verortete Bauteile auf der Karte" || bad "Karte"
+
+echo "== 17b. Einrichtungs-Assistent =="
+NEU="E2E Einrichtung $STEMPEL"
+E=$(ruf objekt_einrichten "$(jq -nc --arg o "$NEU" '{objekt:$o}')")
+echo "$E" | jq -e '.neu_angelegt == true and .fertig == false' >/dev/null \
+  && ok "legt an und ist noch nicht fertig" || bad "einrichten: $E"
+echo "$E" | jq -e '.naechste_frage.feld == "adresse" and (.naechste_frage.frage | length > 0)' >/dev/null \
+  && ok "erste Frage: Adresse" || bad "naechste_frage"
+echo "$E" | jq -e '.pflicht_offen == ["adresse","betreiber"]' >/dev/null \
+  && ok "Pflichtfelder benannt" || bad "pflicht_offen"
+E=$(ruf objekt_einrichten "$(jq -nc --arg o "$NEU" '{objekt:$o,adresse:"Musterallee 7, 22087 Hamburg"}')")
+echo "$E" | jq -e '.neu_angelegt == false and (.uebernommen | index("adresse"))' >/dev/null \
+  && ok "setzt fort statt zu verdoppeln" || bad "verdoppelt: $E"
+echo "$E" | jq -e '.naechste_frage.feld == "betreiber"' >/dev/null \
+  && ok "nächste Frage rückt nach" || bad "Reihenfolge"
+E=$(ruf objekt_einrichten "$(jq -nc --arg o "$NEU" \
+  '{objekt:$o,betreiber:"Schulbau",objektart:"Schule",zugang:"Schluessel beim Hausmeister",
+    ueberspringen:["betreiber_kontakt","telefon","vertrag","ident"]}')")
+echo "$E" | jq -e '.fertig == true and .naechste_frage == null' >/dev/null \
+  && ok "fertig, wenn nichts mehr offen ist" || bad "nicht fertig: $E"
+echo "$E" | jq -e '[.weiter_mit[]] | any(startswith("bauplan_uebernehmen"))' >/dev/null \
+  && ok "sagt, was als Nächstes lohnt" || bad "weiter_mit"
+ruf objekt_lesen "$(jq -nc --arg o "$NEU" '{objekt:$o}')" \
+  | jq -e '.objekt.zugang == "Schluessel beim Hausmeister" and .objekt.objektart == "Schule"' >/dev/null \
+  && ok "neue Stammdaten gespeichert und lesbar" || bad "Stammdaten"
+
+echo "== 17c. Bauplan in zwei Schritten =="
+BP=$(ruf bauplan_uebernehmen "$(jq -nc --arg o "$NEU" '{objekt:$o,geschoss:"EG",dateiname:"eg.png",tueren:[
+ {kennung:"B-1",raumnummer:"0.01",raum:"Eingang",x:0.2,y:0.3,wartungspflichtig:true,konfidenz:0.95},
+ {kennung:"B-2",raumnummer:"0.02",raum:"Flur",x:0.4,y:0.3,wartungspflichtig:true,konfidenz:0.9},
+ {kennung:"B-3",raumnummer:"0.03",raum:"Abstell",x:0.6,y:0.5,konfidenz:0.45}]}')")
+echo "$BP" | jq -e '.art == "plan"' >/dev/null && ok "Plan an den Positionen erkannt" || bad "art: $BP"
+echo "$BP" | jq -e '.gefunden == 3 and (.bericht | contains("3 Türen"))' >/dev/null \
+  && ok "fertiger Bericht zum Vorlesen" || bad "bericht"
+echo "$BP" | jq -e '[.freigabe_moeglichkeiten[].was] | length >= 2' >/dev/null \
+  && ok "Freigabe-Möglichkeiten genannt" || bad "freigabe_moeglichkeiten"
+BPI=$(echo "$BP" | jq -r .import)
+ruf vorschlaege_annehmen "$(jq -nc --arg i "$BPI" '{import:$i,ab_konfidenz:0.85}')" \
+  | jq -e '.angelegt == 2 and .import_abgeschlossen == false' >/dev/null \
+  && ok "Teilfreigabe lässt den Import offen" || bad "Teilfreigabe"
+ruf vorschlaege_annehmen "$(jq -nc --arg i "$BPI" '{import:$i,alle:true}')" \
+  | jq -e '.angelegt == 1 and .import_abgeschlossen == true' >/dev/null \
+  && ok "Rest freigegeben, Import schließt sich selbst" || bad "Selbstabschluss"
+# Ohne Positionen ist es eine Türliste — das muss der Server selbst merken.
+ruf bauplan_uebernehmen "$(jq -nc --arg o "$NEU" '{objekt:$o,dateiname:"liste.csv",tueren:[
+ {kennung:"L-1",raumnummer:"1.01",raum:"Buero",konfidenz:1.0}]}')" \
+  | jq -e '.art == "tuerliste"' >/dev/null && ok "Türliste ohne Positionen erkannt" || bad "Listenerkennung"
+EIN_OID2=$(ruf objekt_lesen "$(jq -nc --arg o "$NEU" '{objekt:$o}')" | jq -r .objekt.id)
+curl -s -o /dev/null -b $J -X POST "$B/objekt/$EIN_OID2/loeschen"
 
 echo "== 18. Zugriffsschutz =="
 code=$(curl -s -o /dev/null -w "%{http_code}" "$B/datei/$V1")

@@ -116,11 +116,27 @@ Ist noch nichts erfasst, verschwindet die Begehung; ist schon etwas erfasst, ble
 und die Begehung geht auf „abgebrochen". Kurz quittieren, was davon zutraf.
 
 ## „Hier ist der Bauplan"
-Schickt jemand einen Grundriss oder eine Türliste mit, ist das der **Bauplan-Import**: einmal
-`import_anleitung` lesen, dann danach vorgehen. Kurz gesagt — Import starten, die Datei selbst
-lesen, die gefundenen Türen mit `vorschlaege_anlegen` melden, berichten, was gefunden wurde, und
-**die Freigabe einholen**, bevor daraus Bauteile werden. Mitten im Diktat lohnt das nicht: dann
-lieber vertrösten und nach der Begehung machen.
+Zwei Schritte, mehr nicht:
+
+1. **Datei lesen und `bauplan_uebernehmen`** mit dem Objekt und den gefundenen Türen (bei Plänen
+   das Geschoss). Der Import legt sich dabei selbst an.
+2. Den **`bericht`** aus der Antwort vorlesen — nicht die ganze Liste — und die
+   **`freigabe_moeglichkeiten`** nennen. Erst auf sein Wort `vorschlaege_annehmen`. **Ohne
+   Freigabe entstehen keine Bauteile.** Danach schließt sich der Import selbst.
+
+Unsicher beim Lesen? Niedrige Konfidenz angeben. Eine erfundene Tür ist schlimmer als eine
+fehlende. Details stehen in `import_anleitung`, falls du sie brauchst. Mitten im Diktat lohnt
+das nicht: dann lieber vertrösten und nach der Begehung machen.
+
+## „Das Objekt ist neu"
+`objekt_einrichten` führt durch die Stammdaten. Es nennt **genau eine** nächste Frage — die
+stellst du, seine Antwort gibst du im nächsten Aufruf mit, bis `fertig: true` kommt. Nicht die
+ganze Liste vorlesen. Weiß er etwas nicht und es ist freiwillig, nimm es in `ueberspringen` auf,
+statt noch einmal zu fragen.
+
+Das wichtigste Feld ist **`zugang`** — „Schlüssel beim Hausmeister, Herr Kern 0171-…",
+„Anmeldung im Sekretariat", „Codeschloss 1234". Es steht danach in jeder Tagestour und erspart
+die vergebliche Anfahrt.
 
 ## „Was ist los?" / „Was fahre ich morgen?"
 **`lage`** beantwortet „was steht an?" in einem Aufruf: überfällige Objekte, Mängel über ihrer
@@ -161,7 +177,8 @@ danach fragt oder die Begehung abgeschlossen ist.
 ## Befehle im Client
 Der Connector bringt vier Schrägstrich-Befehle mit, falls der Monteur sie lieber antippt als
 diktiert: **/wartung** (Objekt nennen, dann losdiktieren), **/tag** (Lagebild und ein geplanter
-Fahrtag), **/abschluss** (Rücklesen und Berichte), **/bauplan** (Grundriss einlesen). Sie tun
+Fahrtag), **/abschluss** (Rücklesen und Berichte), **/einrichten** (Stammdaten eines neuen
+Objekts), **/bauplan** (Grundriss einlesen). Sie tun
 dasselbe wie dieser Skill — nur ohne dass jemand den Einstieg formulieren muss.
 
 ## Wenn etwas schiefgeht

@@ -151,9 +151,15 @@ function objektAnsicht(o: Objekt) {
   return {
     id: o.id,
     name: o.name,
+    objektart: o.objektart || undefined,
     adresse: o.adresse,
     betreiber: o.betreiber,
-    betreiber_kontakt: o.betreiber_kontakt,
+    betreiber_kontakt: o.betreiber_kontakt || undefined,
+    telefon: o.telefon || undefined,
+    email: o.email || undefined,
+    /* Der wichtigste Satz für jemanden, der gleich hinfährt — deshalb steht er mit drin. */
+    zugang: o.zugang || undefined,
+    vertrag: o.vertrag || undefined,
     ident: o.ident,
     intervall_monate: o.intervall_monate,
     rechtsgrundlagen: o.rechtsgrundlagen,
@@ -589,6 +595,168 @@ const objektAnlegenTool: ToolDef = {
   },
 };
 
+/* ── Einrichten ────────────────────────────────────────────────────────────── */
+
+/**
+ * Was ein Objekt braucht, damit die Berichte vollständig sind und niemand vergeblich hinfährt —
+ * in der Reihenfolge, in der man vernünftig danach fragt. Die Frage steht gleich dabei, damit
+ * Claude nicht selbst formulieren muss und über alle Objekte dieselbe Sprache spricht.
+ */
+const EINRICHTUNG: { feld: string; frage: string; pflicht: boolean; warum: string }[] = [
+  {
+    feld: "adresse",
+    frage: "Wie lautet die Adresse? (Straße, PLZ Ort)",
+    pflicht: true,
+    warum: "steht im Bericht und plant die Tagestour",
+  },
+  {
+    feld: "betreiber",
+    frage: "Wer ist der Betreiber?",
+    pflicht: true,
+    warum: "steht im Bericht",
+  },
+  {
+    feld: "objektart",
+    frage: "Was ist das für ein Objekt — Kita, Schule, Bürogebäude?",
+    pflicht: false,
+    warum: "hilft beim Einordnen und Suchen",
+  },
+  {
+    feld: "betreiber_kontakt",
+    frage: "Wer ist vor Ort der Ansprechpartner?",
+    pflicht: false,
+    warum: "damit man weiß, bei wem man klingelt",
+  },
+  {
+    feld: "telefon",
+    frage: "Welche Nummer hat er?",
+    pflicht: false,
+    warum: "spart die Suche, wenn vor Ort niemand aufmacht",
+  },
+  {
+    feld: "zugang",
+    frage:
+      "Wie kommt man rein? Schlüssel beim Hausmeister, Anmeldung im Sekretariat, Codeschloss?",
+    pflicht: false,
+    warum: "verhindert die vergebliche Anfahrt",
+  },
+  {
+    feld: "vertrag",
+    frage: "Gibt es eine Wartungsvertrags- oder Auftragsnummer?",
+    pflicht: false,
+    warum: "gehört auf die Papiere",
+  },
+  {
+    feld: "ident",
+    frage: "Hat der Betreiber eine Ident-Nummer für das Objekt?",
+    pflicht: false,
+    warum: "steht im Formular",
+  },
+];
+
+/**
+ * Der Einrichtungs-Assistent: ein Tool, das führt, statt nur zu speichern.
+ *
+ * Ein neues Objekt anzulegen hieß bisher: `objekt_anlegen`, dann selbst überlegen, welche
+ * Stammdaten fehlen, dann `objekt_aendern`. Was dabei nicht gefragt wurde, fehlte später im
+ * Bericht — und fiel erst auf, wenn er beim Kunden lag. Dieses Tool kehrt das um: es nimmt
+ * mit, was schon gesagt wurde, und nennt **eine** nächste Frage. Mehrfach aufgerufen führt es
+ * durch die Einrichtung, ohne dass jemand eine Reihenfolge im Kopf haben muss.
+ */
+const objektEinrichtenTool: ToolDef = {
+  name: "objekt_einrichten",
+  title: "Neues Objekt einrichten (geführt)",
+  description:
+    "Der Assistent für ein neues Objekt. Legt es an, wenn es das noch nicht gibt, übernimmt " +
+    "alles Mitgegebene und antwortet mit 'naechste_frage' — genau eine Frage, die du dem " +
+    "Menschen stellst. Seine Antwort im nächsten Aufruf mitgeben, bis 'fertig: true' kommt. " +
+    "Stell immer nur die eine genannte Frage und lies nicht die ganze Liste vor. Fehlt etwas " +
+    "Freiwilliges und der Mensch weiß es nicht, 'ueberspringen' mit dem Feldnamen mitgeben. " +
+    "Am Ende sagt 'weiter_mit', was sich lohnt: Bauplan einlesen oder gleich losdiktieren.",
+  inputSchema: {
+    type: "object",
+    properties: {
+      objekt: str("Name des Objekts — oder die ID, wenn es schon angelegt ist"),
+      ...Object.fromEntries(
+        EINRICHTUNG.map((e) => [e.feld, str(`Antwort auf: ${e.frage}`)]),
+      ),
+      intervall_monate: int("Prüfintervall in Monaten, Standard 12"),
+      notizen: str("Was sonst noch wichtig ist"),
+      ueberspringen: wortliste("Felder, die der Mensch nicht weiß und die nicht nachgefragt werden sollen"),
+    },
+    required: ["objekt"],
+    additionalProperties: false,
+  },
+  annotations: SCHREIBT,
+  async handler(args, ctx) {
+    const name = String(pflicht<string>(args, "objekt")).trim();
+
+    /* Vorhandenes fortsetzen statt verdoppeln — der Assistent wird ja mehrfach gerufen. */
+    let objekt = await objektSuchen(ctx.env.DB, name);
+    let neu = false;
+    if (!objekt) {
+      objekt = await objektAnlegen(ctx.env.DB, {
+        name,
+        angelegt_von: ctx.nutzer.benutzer,
+      });
+      neu = true;
+    }
+
+    const patch: Record<string, unknown> = {};
+    for (const feld of [...EINRICHTUNG.map((e) => e.feld), "notizen"]) {
+      const wert = args[feld];
+      if (wert !== undefined && String(wert).trim()) patch[feld] = String(wert).trim();
+    }
+    const intervall = Number(args.intervall_monate);
+    if (Number.isFinite(intervall) && intervall > 0) patch.intervall_monate = intervall;
+    if (Object.keys(patch).length) {
+      objekt = (await objektAendern(ctx.env.DB, objekt.id, patch))!;
+    }
+
+    const uebersprungen = new Set(
+      (Array.isArray(args.ueberspringen) ? args.ueberspringen : []).map((w: unknown) =>
+        String(w).trim(),
+      ),
+    );
+    const offen = EINRICHTUNG.filter(
+      (e) => !String((objekt as any)[e.feld] ?? "").trim() && !uebersprungen.has(e.feld),
+    );
+    const naechste = offen[0] ?? null;
+    const pflichtOffen = offen.filter((e) => e.pflicht);
+
+    const bauteile = await bauteileMitStand(ctx.env.DB, objekt);
+    const fertig = !naechste;
+
+    return {
+      objekt: objektAnsicht(objekt),
+      neu_angelegt: neu,
+      uebernommen: Object.keys(patch),
+      fertig,
+      naechste_frage: naechste
+        ? { feld: naechste.feld, frage: naechste.frage, warum: naechste.warum, pflicht: naechste.pflicht }
+        : null,
+      noch_offen: offen.map((e) => e.feld),
+      pflicht_offen: pflichtOffen.map((e) => e.feld),
+      bestand: bauteile.length,
+      weiter_mit: fertig
+        ? bauteile.length
+          ? ["begehung_starten — der Bestand steht, es kann losgehen"]
+          : [
+              "bauplan_uebernehmen — wenn ein Grundriss oder eine Türliste da ist",
+              "begehung_starten — sonst legt die erste Begehung den Bestand an",
+            ]
+        : [],
+      link: `${ctx.origin}/objekt/${objekt.id}`,
+    };
+  },
+};
+
+/** Die Textfelder eines Objekts, die überall gleich behandelt werden. */
+const STAMMFELDER = [
+  "name", "adresse", "plz", "betreiber", "betreiber_kontakt", "telefon", "email", "zugang",
+  "vertrag", "objektart", "ident", "rechtsgrundlagen", "notizen",
+] as const;
+
 const objektAendernTool: ToolDef = {
   name: "objekt_aendern",
   title: "Objekt-Stammdaten ändern",
@@ -602,9 +770,17 @@ const objektAendernTool: ToolDef = {
       name: str("Name des Objekts"),
       adresse: str("Straße, PLZ Ort"),
       plz: str("Postleitzahl"),
-      betreiber: str("Betreiber"),
-      betreiber_kontakt: str("Ansprechpartner vor Ort"),
-      ident: str("Ident-Nummer"),
+      betreiber: str("Betreiber, wie er aufs Protokoll gehört"),
+      betreiber_kontakt: str("Ansprechpartner vor Ort — Name"),
+      telefon: str("Durchwahl des Ansprechpartners"),
+      email: str("E-Mail des Ansprechpartners"),
+      zugang: str(
+        "Wie kommt man rein? Etwa 'Schlüssel beim Hausmeister, Herr Kern 0171-…', 'Anmeldung " +
+        "im Sekretariat', 'Codeschloss 1234'. Das Feld verhindert die vergebliche Anfahrt.",
+      ),
+      vertrag: str("Wartungsvertrag oder Auftragsnummer des Betreibers"),
+      objektart: str("'Kita', 'Schule', 'Bürogebäude' …"),
+      ident: str("Ident-Nummer des Betreibers"),
       intervall_monate: int("Prüfintervall in Monaten"),
       rechtsgrundlagen: str("Rechtsgrundlagen"),
       notizen: str("Freie Notizen"),
@@ -616,10 +792,7 @@ const objektAendernTool: ToolDef = {
   async handler(args, ctx) {
     const o = await holeObjekt(ctx, pflicht<string>(args, "objekt"));
     const patch: Record<string, unknown> = {};
-    for (const feld of [
-      "name", "adresse", "plz", "betreiber", "betreiber_kontakt", "ident", "rechtsgrundlagen",
-      "notizen",
-    ]) {
+    for (const feld of STAMMFELDER) {
       if (args[feld] !== undefined) patch[feld] = String(args[feld]);
     }
     if (args.intervall_monate !== undefined) patch.intervall_monate = Number(args.intervall_monate);
@@ -1663,6 +1836,10 @@ const tourVorschlagenTool: ToolDef = {
         id: o.id,
         name: o.name,
         adresse: o.adresse,
+        /* Wer die Tour liest, fährt gleich los — dann muss der Zugang mit dabei sein. */
+        zugang: o.zugang || undefined,
+        ansprechpartner:
+          [o.betreiber_kontakt, o.telefon].filter(Boolean).join(", ") || undefined,
         faellige_bauteile: o.faellige_bauteile,
         offene_maengel: o.offene_maengel,
         grund: o.stand.nie_geprueft
@@ -1947,6 +2124,7 @@ export const TOOLS: ToolDef[] = [
   pruefpunkte,
   vorlagenAuflisten,
   vorgabenLesen,
+  objektEinrichtenTool,
   objektAnlegenTool,
   objektAendernTool,
   bauteilAnlegenTool,
@@ -1991,6 +2169,13 @@ export const ANLEITUNG =
   "(5) Auf 'Fertig' 'begehung_abschliessen' — das liest zurück UND erzeugt die Berichte samt " +
   "Sammelbericht in einem Zug; bei 'fertig: false' einfach noch einmal aufrufen. Den Rückblick " +
   "kompakt vorlesen, samt der fälligen Bauteile, die noch fehlen. " +
+  "Ein neues Objekt: 'objekt_einrichten' führt durch die Stammdaten — es nennt genau EINE " +
+  "nächste Frage, die du stellst; die Antwort im nächsten Aufruf mitgeben, bis 'fertig'. Nicht " +
+  "die ganze Liste vorlesen. " +
+  "Ein Bauplan oder eine Türliste: die Datei selbst lesen und mit 'bauplan_uebernehmen' " +
+  "abgeben — der Import legt sich dabei an. Den 'bericht' aus der Antwort vorlesen und die " +
+  "Freigabe einholen; erst 'vorschlaege_annehmen' macht Bauteile daraus, und danach schließt " +
+  "sich der Import selbst. " +
   "Selbst rechnen lassen statt nachfragen: 'lage' beantwortet 'was ist zu tun?' in einem " +
   "Aufruf (überfällige Objekte, Mängel über der Frist, ausstehende Berichte, dazu konkrete " +
   "nächste Schritte), und 'tour_vorschlagen' plant einen Fahrtag nach Dringlichkeit und Nähe, " +

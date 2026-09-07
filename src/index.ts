@@ -574,8 +574,8 @@ async function objektRoute(
       const form = await formDaten(request);
       const patch: Record<string, unknown> = {};
       for (const feld of [
-        "name", "adresse", "plz", "betreiber", "betreiber_kontakt", "ident",
-        "rechtsgrundlagen", "notizen",
+        "name", "adresse", "plz", "betreiber", "betreiber_kontakt", "telefon", "email",
+        "zugang", "vertrag", "objektart", "ident", "rechtsgrundlagen", "notizen",
       ]) {
         if (form.get(feld) !== null) patch[feld] = String(form.get(feld));
       }
