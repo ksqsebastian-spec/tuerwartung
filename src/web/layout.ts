@@ -86,6 +86,39 @@ a.posten:hover { background: var(--wash); }
 .chip.bald { border-color: #a9761b; color: #a9761b; }
 .chip.leise { border-color: var(--line); color: var(--ink-3); }
 
+/* ── Einklappbares ────────────────────────────────────────────────────── */
+details.klapp { border-top: 1px solid var(--line); margin-top: 40px; }
+details.klapp > summary {
+  cursor: pointer; list-style: none; padding: 16px 2px;
+  font-size: 1.06rem; font-weight: 600; letter-spacing: -.02em;
+  display: flex; align-items: center; gap: 10px;
+}
+details.klapp > summary::-webkit-details-marker { display: none; }
+details.klapp > summary::after {
+  content: "aufklappen"; margin-left: auto; font-size: .8rem; font-weight: 500; color: var(--ink-3);
+}
+details.klapp[open] > summary::after { content: "zuklappen"; }
+details.klapp > summary:hover { color: var(--ink); }
+details.klapp > summary .meta { font-weight: 400; }
+
+/* ── Ablauf einer Begehung ────────────────────────────────────────────── */
+.ablauf { display: flex; gap: 8px; flex-wrap: wrap; align-items: stretch; margin: 4px 0 22px; }
+.ablauf > *, .ablauf form { flex: 1 1 165px; display: flex; }
+.schritt {
+  flex: 1; border: 1px solid var(--line); border-radius: 14px; padding: 11px 15px;
+  display: flex; flex-direction: column; justify-content: center; gap: 3px;
+  text-decoration: none; color: inherit;
+}
+.schritt .was { font-size: .74rem; letter-spacing: .04em; color: var(--ink-3); }
+.schritt .wie { font-weight: 620; letter-spacing: -.015em; font-size: .95rem; }
+.schritt.fertig { border-color: color-mix(in srgb, #12833f 35%, transparent); }
+.schritt.fertig .was { color: #12833f; }
+.schritt.dran { border-color: var(--ink); background: var(--ink); color: var(--bg); }
+.schritt.dran .was { color: color-mix(in srgb, var(--bg) 70%, transparent); }
+.schritt.gesperrt { opacity: .5; }
+button.schritt { cursor: pointer; font: inherit; text-align: left; }
+button.schritt.gesperrt { cursor: default; }
+
 /* ── Formular ─────────────────────────────────────────────────────────── */
 form.karte { border: 1px solid var(--line); border-radius: var(--radius); padding: 24px; }
 .felder { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 16px 20px; }
@@ -223,6 +256,13 @@ pre.code code { background: none; padding: 0; }
   background: var(--bg); cursor: pointer; font-size: 15px; color: var(--ink);
 }
 .planknoepfe button.aktiv { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+.legende {
+  display: flex; gap: 16px; flex-wrap: wrap; align-items: center;
+  margin-top: 12px; font-size: .8rem; color: var(--ink-2);
+}
+.legende span { display: inline-flex; align-items: center; gap: 6px; }
+.legende i.marke { position: static; transform: none; width: 14px; height: 14px; min-width: 14px; padding: 0; }
+
 .plankarte {
   border: 1px solid var(--ink); border-radius: var(--radius); padding: 16px 18px; margin-top: 14px;
 }
@@ -263,10 +303,20 @@ pre.code code { background: none; padding: 0; }
 
 @media (max-width: 620px) {
   .wrap { padding: 0 18px; }
-  /* Vier Ziele passen auf einem Telefon nicht neben die Marke — also darunter, ganze Breite. */
-  .kopf .innen { padding: 12px 18px; gap: 12px; flex-wrap: wrap; }
-  .kopf nav { gap: 18px; font-size: .9rem; width: 100%; margin-left: 0; }
+  /* Fünf Ziele passen nicht neben die Marke — also darunter, ganze Breite, umbrechend. */
+  .kopf .innen { padding: 12px 18px; gap: 10px; flex-wrap: wrap; }
+  .kopf nav { gap: 10px 18px; font-size: .9rem; width: 100%; margin-left: 0; flex-wrap: wrap; }
   .kopf .wer { display: none; }
+
+  /*
+   * Die wichtigste Liste der Anwendung steht auf einem Telefon. Ohne Umbruch quetschen die
+   * Merkmale den Text auf vier Zeichen Breite — also: Nummer und Text in die erste Zeile,
+   * die Merkmale darunter.
+   */
+  .posten { flex-wrap: wrap; row-gap: 9px; column-gap: 12px; }
+  .posten .haupt { flex: 1 1 60%; }
+  .posten .chip { order: 3; }
+  .posten .nr { width: 34px; height: 34px; }
   .punkt { flex-wrap: wrap; }
   .wahl { width: 100%; }
   .wahl label { flex: 1; text-align: center; }

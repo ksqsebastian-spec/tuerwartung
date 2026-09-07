@@ -764,6 +764,7 @@ Namen deutsch, `readOnlyHint` gesetzt wie in v1. Alle Argumente optional außer 
 | `objekt_anlegen` | name*, adresse, plz, betreiber, betreiber_kontakt, ident, intervall_monate, rechtsgrundlagen | legt Objekt + Hauptgebäude + Geschoss „EG" an |
 | `objekt_aendern` | objekt*, Felder | nur genannte Felder |
 | `bauteil_anlegen` | objekt*, art*, nr, kennung, geschoss, raumnummer, raum, flur, felder, wartungspflichtig | einzelnes Bauteil ohne Import |
+| `bauteile_anlegen` | objekt*, bauteile[]*, art, geschoss | Stapel bis 200; belegte Nummern werden übersprungen, nie überschrieben |
 | `bauteil_aendern` | objekt*, nr*, Felder, aktiv | Stammdaten fortschreiben, stilllegen |
 | `begehung_starten` | objekt*, datum, pruefer, befaehigung, ort, beteiligte, art_vorgabe | Abschnitt 2.1 — legt fehlendes Objekt an |
 | `begehung_aendern` | begehung*, Felder, status | Stammdaten, Status |
@@ -818,6 +819,7 @@ Alle mit Sitzung, außer den in v1 öffentlichen (OAuth, `/tools.json`, `/anmeld
 | `POST /objekt/:id/begehung` | starten → `/begehung/:id` |
 | `GET /begehung/:id` | Prüfungen, fehlende Bauteile, Berichte (Versionen), Sammelbericht, ZIP, Unterschrift, „Im Rundgang öffnen" |
 | `GET /begehung/:id/checkliste`, `GET /begehung/:id/stand.json` | Abschnitt 4.5 |
+| `POST /begehung/:id/abschliessen`, `POST /begehung/:id/oeffnen` | Abschnitt 2.4 |
 | `POST /begehung/:id/abbrechen` | Abschnitt 2.5 |
 | `GET/POST /begehung/:id/pruefung/:nr` | Prüfraster wie v1 `tuerSeite` + Fotos |
 | `GET/POST /begehung/:id/unterschrift` | Abschnitt 4.2 |

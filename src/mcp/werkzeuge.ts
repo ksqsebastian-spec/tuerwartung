@@ -36,6 +36,7 @@ import type { Objekt } from "../daten/objekte";
 import {
   bauteilAendern,
   bauteilAnlegen,
+  bauteileAnlegen,
   bauteilPerKennung,
   bauteilPerNr,
   bauteileMitStand,
@@ -681,6 +682,122 @@ const bauteilAnlegenTool: ToolDef = {
     };
   },
 };
+
+const bauteileAnlegenTool: ToolDef = {
+  name: "bauteile_anlegen",
+  title: "Mehrere Bauteile auf einmal anlegen",
+  description:
+    "Legt einen Stapel Bauteile im Bestand an — für eine gepflegte Türliste, die ohne " +
+    "Bestätigungsschleife übernommen werden soll. Kommt die Liste aus einem Plan oder einer " +
+    "Datei, die du selbst gelesen hast, ist 'import_starten' + 'vorschlaege_anlegen' der " +
+    "richtige Weg: dort bestätigt ein Mensch, bevor Bauteile entstehen. " +
+    "Nummern: die genannte, sonst die Kennung, wenn sie eine reine Zahl und frei ist, sonst " +
+    "die nächste freie. Eine belegte Nummer wird übersprungen und gemeldet, nie überschrieben.",
+  inputSchema: {
+    type: "object",
+    properties: {
+      objekt: str("ID, Name oder Adresse"),
+      art: str(`Vorlage für alle, sofern die Zeile keine eigene nennt: ${VORLAGEN_IDS.join(", ")}`),
+      geschoss: str("Geschoss für alle, sofern die Zeile keines nennt — Name oder ID"),
+      bauteile: {
+        type: "array",
+        description: "Die Bauteile, höchstens 200 je Aufruf.",
+        items: {
+          type: "object",
+          properties: {
+            nr: int("Eigene Nummer; ohne Angabe vergibt Türwerk sie"),
+            kennung: str("Kennung aus Türliste oder Plan, z. B. T-2.14"),
+            art: str("Eigene Vorlage für diese Zeile"),
+            geschoss: str("Eigenes Geschoss für diese Zeile"),
+            raumnummer: str("Raumnummer, z. B. 2.14 — treibt die Laufreihenfolge"),
+            raum: str("Raumbezeichnung"),
+            flur: str("Flur"),
+            bezeichnung: str("Freier Name"),
+            wartungspflichtig: bool("false = im Bestand, aber nicht Teil der Wartung"),
+            intervall_monate: int("Eigenes Prüfintervall; ohne Angabe gilt das des Objekts"),
+            felder: {
+              type: "object",
+              description: "Bauteilfelder: HERSTELLER, ZULASSUNG, OTS, ABSENKDICHTUNG …",
+              additionalProperties: { type: "string" },
+            },
+          },
+          additionalProperties: false,
+        },
+      },
+    },
+    required: ["objekt", "bauteile"],
+    additionalProperties: false,
+  },
+  annotations: SCHREIBT,
+  async handler(args, ctx) {
+    const objekt = await holeObjekt(ctx, pflicht<string>(args, "objekt"));
+    const eingaben = pflicht<Record<string, any>[]>(args, "bauteile");
+    if (!Array.isArray(eingaben) || !eingaben.length) throw new Error("Keine Bauteile dabei.");
+    if (eingaben.length > 200) {
+      throw new Error(
+        `${eingaben.length} Bauteile auf einmal sind zu viele. In Stapeln von höchstens 200.`,
+      );
+    }
+    const standardArt = String(args.art ?? "") || (await haeufigsteArtImObjekt(ctx, objekt.id));
+    vorlage(standardArt);
+
+    /* Geschosse einmal auflösen, nicht je Zeile — sonst legt eine Tippfehler-Zeile eins an. */
+    const geschossFuer = new Map<string, string | undefined>();
+    const auflösen = async (wunsch: unknown) => {
+      const schluessel = String(wunsch ?? "");
+      if (!geschossFuer.has(schluessel)) {
+        geschossFuer.set(schluessel, await geschossFinden(ctx, objekt, schluessel || args.geschoss));
+      }
+      return geschossFuer.get(schluessel);
+    };
+
+    const liste = [];
+    for (const e of eingaben) {
+      const art = String(e.art ?? "") || standardArt;
+      vorlage(art);
+      liste.push({
+        art,
+        nr: e.nr,
+        kennung: e.kennung,
+        geschoss_id: (await auflösen(e.geschoss)) ?? null,
+        raumnummer: e.raumnummer,
+        raum: e.raum,
+        flur: e.flur,
+        bezeichnung: e.bezeichnung,
+        felder: e.felder,
+        intervall_monate: e.intervall_monate ?? null,
+        wartungspflichtig: e.wartungspflichtig === false ? 0 : 1,
+        quelle: "tuerliste",
+      });
+    }
+    const { angelegt, uebersprungen } = await bauteileAnlegen(ctx.env.DB, objekt.id, liste);
+    return {
+      angelegt: angelegt.length,
+      bauteile: angelegt.map((b) => ({
+        nr: b.nr,
+        kennung: b.kennung || undefined,
+        raum: b.raum || undefined,
+      })),
+      uebersprungen: uebersprungen.length ? uebersprungen : undefined,
+      naechste_nr: await naechsteNr(ctx.env.DB, objekt.id),
+      link: `${ctx.origin}/objekt/${objekt.id}`,
+      hinweis: uebersprungen.length
+        ? "Übersprungene Zeilen tragen eine belegte Nummer. Mit 'objekt_lesen' nachsehen, " +
+          "was dort schon steht, und die Zeile ohne 'nr' erneut schicken."
+        : undefined,
+    };
+  },
+};
+
+/** Die Art, die an diesem Objekt vorherrscht — Vorgabe für einen Stapel ohne eigene Angabe. */
+async function haeufigsteArtImObjekt(ctx: Kontext, objektId: string): Promise<string> {
+  const zeile = await ctx.env.DB.prepare(
+    "SELECT art, COUNT(*) AS n FROM bauteile WHERE objekt_id = ? GROUP BY art ORDER BY n DESC LIMIT 1",
+  )
+    .bind(objektId)
+    .first<{ art: string }>();
+  return zeile?.art ?? "wartung_drehfluegel";
+}
 
 const bauteilAendernTool: ToolDef = {
   name: "bauteil_aendern",
@@ -1414,6 +1531,7 @@ export const TOOLS: ToolDef[] = [
   objektAnlegenTool,
   objektAendernTool,
   bauteilAnlegenTool,
+  bauteileAnlegenTool,
   bauteilAendernTool,
   begehungStarten,
   begehungAendernTool,

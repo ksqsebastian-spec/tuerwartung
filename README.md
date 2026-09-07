@@ -62,7 +62,7 @@ src/
   web/rundgang.client.js.txt, web/plan.client.js.txt, web/sw.js.txt
                       die Browser-Skripte, als Text einkompiliert
   auth/               Anmeldung (Benutzer + Passwort), Sitzungs-Cookies, OAuth 2.1
-  mcp/                MCP-Protokoll und die 38 Tools (werkzeuge + import_werkzeuge)
+  mcp/                MCP-Protokoll und die 39 Tools (werkzeuge + import_werkzeuge)
   import/             Anleitung für den Agenten, Zusammenführung Liste + Plan
   daten/              D1-Zugriff: objekte, bauteile, begehungen, maengel, fotos,
                       berichte, touren, sync, personen, basis (IDs, Fristen, Zugriff)

@@ -311,7 +311,30 @@ code=$(curl -s -o /dev/null -w "%{http_code}" -b $J -X POST "$B/touren" \
   -d "woche=$MONTAG" -d "datum=$HEUTE" -d "objekt=$OID" -d "tun=weg")
 [ "$code" = "302" ] && ok "Objekt aus der Tour genommen" || bad "Tour entfernen $code"
 
-echo "== 15. Bauplan-Import über den Agenten =="
+echo "== 15. Bestand als Stapel =="
+ST=$(ruf bauteile_anlegen "$(jq -nc --arg o "$OID" '{objekt:$o,geschoss:"2. OG",bauteile:[
+ {kennung:"S-1",raumnummer:"2.01",raum:"Stapel eins",felder:{HERSTELLER:"Teckentrup"}},
+ {kennung:"S-2",raumnummer:"2.02",raum:"Stapel zwei"},
+ {nr:1,kennung:"S-3",raum:"Kollision"}]}')")
+echo "$ST" | jq -e '.angelegt == 2' >/dev/null && ok "zwei Bauteile angelegt" || bad "Stapel: $ST"
+echo "$ST" | jq -e '.uebersprungen[0].grund | contains("belegt")' >/dev/null \
+  && ok "belegte Nummer übersprungen statt überschrieben" || bad "Kollision"
+ruf objekt_lesen "$(jq -nc --arg o "$OID" '{objekt:$o}')" \
+  | jq -e '[.geschosse[].name] | index("2. OG")' >/dev/null \
+  && ok "Geschoss aus dem Stapel angelegt" || bad "Geschoss"
+ruf bauteil_lesen "$(jq -nc --arg o "$OID" '{objekt:$o,kennung:"S-1"}')" \
+  | jq -e '.bauteil.felder.HERSTELLER == "Teckentrup"' >/dev/null \
+  && ok "Felder übernommen" || bad "Felder"
+
+echo "== 16. Begehung abschließen und wieder öffnen =="
+code=$(curl -s -o /dev/null -w "%{http_code}" -b $J -X POST "$B/begehung/$BEG2/abschliessen")
+[ "$code" = "302" ] && ok "abgeschlossen" || bad "abschliessen $code"
+curl -s -b $J "$B/begehung/$BEG2/stand.json" | jq -e '.status == "abgeschlossen"' >/dev/null \
+  && ok "Status steht" || bad "Status"
+code=$(curl -s -o /dev/null -w "%{http_code}" -b $J -X POST "$B/begehung/$BEG2/oeffnen")
+[ "$code" = "302" ] && ok "wieder geöffnet" || bad "oeffnen $code"
+
+echo "== 17. Bauplan-Import über den Agenten =="
 ruf import_anleitung '{}' | jq -e '.anleitung | contains("Türwerk liest keine Pläne")' >/dev/null \
   && ok "Anleitung liegt bereit" || bad "Anleitung"
 code=$(curl -s -o /dev/null -w "%{http_code}" -b $J "$B/anleitung/import")
@@ -362,7 +385,7 @@ curl -s -b $J "$B/objekt/$OID/plan/$GID/daten.json" \
   | jq -e '[.bauteile[] | select(.x != null)] | length == 3' >/dev/null \
   && ok "drei verortete Bauteile auf der Karte" || bad "Karte"
 
-echo "== 16. Zugriffsschutz =="
+echo "== 18. Zugriffsschutz =="
 code=$(curl -s -o /dev/null -w "%{http_code}" "$B/datei/$V1")
 [ "$code" = "302" ] && ok "Datei ohne Anmeldung gesperrt" || bad "Datei ohne Anmeldung $code"
 code=$(curl -s -o /dev/null -w "%{http_code}" -b $J "$B/datei/vorlagen/wartung_drehfluegel.pdf")
@@ -371,7 +394,7 @@ FEHL=$(ruf pruefung_erfassen "$(jq -nc --arg b "$BEG2" '{begehung:$b,nr:1,checks
 echo "$FEHL" | grep -q "^FEHLER" && ok "ungültiger Punkt abgewiesen" || bad "Punktprüfung"
 
 if [ "$AUFRAEUMEN" = "1" ]; then
-  echo "== 17. Testdaten entfernen =="
+  echo "== 19. Testdaten entfernen =="
   code=$(curl -s -o /dev/null -w "%{http_code}" -b $J -X POST "$B/objekt/$OID/loeschen")
   [ "$code" = "302" ] && ok "Objekt samt Begehungen entfernt" || bad "Aufräumen $code"
   ruf objekte_auflisten "$(jq -nc --arg s "$OBJEKT" '{suche:$s}')" \

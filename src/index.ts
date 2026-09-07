@@ -607,6 +607,22 @@ async function objektRoute(
     if (request.method === "GET") return geschosseSeite(env, nutzer, objekt.id, meldung);
     if (request.method === "POST") {
       const form = await request.formData();
+      const weg = String(form.get("loeschen") ?? "");
+      if (weg) {
+        /* Nur ein leeres Geschoss verschwindet — an einem mit Bauteilen hängt Historie. */
+        const belegt = await env.DB.prepare(
+          "SELECT COUNT(*) AS n FROM bauteile WHERE geschoss_id = ?",
+        )
+          .bind(weg)
+          .first<{ n: number }>();
+        if (Number(belegt?.n ?? 0) > 0) {
+          return umleitung(
+            `/objekt/${objekt.id}/geschosse?meldung=Das+Geschoss+hat+noch+Bauteile.`,
+          );
+        }
+        await env.DB.prepare("DELETE FROM geschosse WHERE id = ?").bind(weg).run();
+        return umleitung(`/objekt/${objekt.id}/geschosse?meldung=Geschoss+entfernt.`);
+      }
       for (const g of await geschosseListe(env.DB, objekt.id)) {
         const name = form.get(`name_${g.id}`);
         const reihenfolge = form.get(`reihenfolge_${g.id}`);
@@ -717,6 +733,16 @@ async function begehungRoute(
     } catch (e) {
       return json({ fehler: (e as Error).message }, 404);
     }
+  }
+
+  if (teile.length === 3 && teile[2] === "abschliessen" && request.method === "POST") {
+    await begehungAendern(env.DB, begehung.id, { status: "abgeschlossen" });
+    return umleitung(`/begehung/${begehung.id}?meldung=Begehung+abgeschlossen.`);
+  }
+
+  if (teile.length === 3 && teile[2] === "oeffnen" && request.method === "POST") {
+    await begehungAendern(env.DB, begehung.id, { status: "laufend" });
+    return umleitung(`/begehung/${begehung.id}?meldung=Begehung+wieder+geöffnet.`);
   }
 
   if (teile.length === 3 && teile[2] === "abbrechen" && request.method === "POST") {

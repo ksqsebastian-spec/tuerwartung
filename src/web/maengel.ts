@@ -43,7 +43,7 @@ export async function maengelSeite(
           return `<a class="posten" href="/mangel/${esc(m.id)}">
 <span class="nr">${m.bauteil_nr}</span>
 <div class="haupt"><div class="name">${esc(m.beschreibung || "ohne Beschreibung")}</div>
-<div class="unter">${esc(m.objekt_name)}${
+<div class="unter">${esc(m.objekt_name)} · Tür ${m.bauteil_nr}${
             m.bauteil_raum ? ` · ${esc(m.bauteil_raum)}` : ""
           } · ${esc(m.zustaendig)}${m.punkte.length ? ` · Punkt ${esc(m.punkte.join(", "))}` : ""}</div></div>
 ${
@@ -56,9 +56,30 @@ ${
         .join("")}</div>`
     : `<div class="leer">Nichts offen.</div>`;
 
+  const gefiltert = Boolean(filter.objekt || filter.faellig_bis || (filter.status && filter.status !== "offen"));
+  const ueberschrift =
+    status === "offen"
+      ? `${liste.length} ${liste.length === 1 ? "offener Mangel" : "offene Mängel"}`
+      : `${liste.length} ${liste.length === 1 ? "Mangel" : "Mängel"} · ${status}`;
+
   return seite(
-    `<div class="zeile oben"><h1 class="seite">Mängel</h1></div>
-<form method="get" class="karte" style="margin-bottom:26px">
+    `<div class="zeile oben"><h1 class="seite">Mängel</h1>
+<span class="meta">${esc(ueberschrift)}</span></div>
+<details class="klapp" style="margin-top:0;border-top:0"${gefiltert ? " open" : ""}>
+<summary>Filter <span class="meta">${
+      gefiltert
+        ? esc(
+            [
+              filter.objekt ? objekte.find((o) => o.id === filter.objekt)?.name : "",
+              status !== "offen" ? status : "",
+              filter.faellig_bis ? `Frist bis ${datumAnzeige(filter.faellig_bis)}` : "",
+            ]
+              .filter(Boolean)
+              .join(" · "),
+          )
+        : "offen, alle Objekte"
+    }</span></summary>
+<form method="get" class="karte" style="margin:8px 0 26px">
 <div class="felder">
 ${auswahlfeld(
   "objekt",
@@ -77,6 +98,7 @@ ${datumsfeld("faellig_bis", "Frist bis", filter.faellig_bis ?? "")}
 <div class="knopfleiste"><button class="btn schmal" type="submit">Filtern</button>
 <a class="btn schmal leise" href="/maengel">Zurücksetzen</a></div>
 </form>
+</details>
 ${zeilen}`,
     { titel: "Mängel", nutzer, aktiv: "maengel" },
   );

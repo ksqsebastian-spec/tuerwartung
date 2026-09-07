@@ -246,3 +246,52 @@ export function istFaellig(b: BauteilMitStand): boolean {
   if (!b.aktiv || !b.wartungspflichtig) return false;
   return b.stand.nie_geprueft || (b.stand.tage ?? 0) <= 0;
 }
+
+/**
+ * Einen Stapel Bauteile anlegen — die gepflegte Türliste, die jemand ohne Umweg über den
+ * Import übernehmen will.
+ *
+ * Nummern: die genannte, sonst die Kennung, wenn sie eine reine Zahl und noch frei ist, sonst
+ * die nächste freie. Eine belegte Nummer wird **nicht** überschrieben, sondern übersprungen und
+ * gemeldet — stillschweigend Bestand zu überschreiben wäre der teuerste Fehler dieser Anwendung.
+ */
+export async function bauteileAnlegen(
+  db: D1Database,
+  objektId: string,
+  liste: (BauteilPatch & { art: string })[],
+): Promise<{ angelegt: Bauteil[]; uebersprungen: { nr?: number; kennung?: string; grund: string }[] }> {
+  const angelegt: Bauteil[] = [];
+  const uebersprungen: { nr?: number; kennung?: string; grund: string }[] = [];
+  let naechste = await naechsteNr(db, objektId);
+  const belegt = new Set<number>();
+  const { results } = await db
+    .prepare("SELECT nr FROM bauteile WHERE objekt_id = ?")
+    .bind(objektId)
+    .all();
+  for (const z of results ?? []) belegt.add(Number((z as { nr: number }).nr));
+
+  for (const eintrag of liste) {
+    let nr: number | undefined;
+    if (eintrag.nr !== undefined && eintrag.nr !== null) {
+      nr = Number(eintrag.nr);
+      if (belegt.has(nr)) {
+        uebersprungen.push({ nr, kennung: eintrag.kennung, grund: `Nummer ${nr} ist belegt` });
+        continue;
+      }
+    } else {
+      const ausKennung = /^\d{1,4}$/.test(String(eintrag.kennung ?? ""))
+        ? Number(eintrag.kennung)
+        : NaN;
+      if (Number.isFinite(ausKennung) && ausKennung > 0 && !belegt.has(ausKennung)) {
+        nr = ausKennung;
+      } else {
+        while (belegt.has(naechste)) naechste++;
+        nr = naechste;
+      }
+    }
+    belegt.add(nr);
+    if (nr >= naechste) naechste = nr + 1;
+    angelegt.push(await bauteilAnlegen(db, { ...eintrag, objekt_id: objektId, nr }));
+  }
+  return { angelegt, uebersprungen };
+}

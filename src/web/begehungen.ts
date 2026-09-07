@@ -85,12 +85,62 @@ export async function begehungSeite(
 <div class="zahl"><div class="wert">${posten.length}</div><div class="was">BERICHTE</div></div>
 </div>`;
 
-  const werkzeuge = `<div class="knopfleiste" style="margin-top:0">
-<a class="btn schmal leise" href="/begehung/${esc(begehung.id)}/checkliste">Checkliste</a>
+  /*
+   * Eine Begehung ist ein Ablauf, kein Menü: erfassen, abschließen, Berichte, Sammelbericht.
+   * Fünf gleich aussehende Knöpfe nebeneinander sagen nicht, was jetzt dran ist — die Leiste
+   * zeigt den Stand und hebt genau den nächsten Schritt hervor.
+   */
+  const abgeschlossen = begehung.status === "abgeschlossen";
+  const erfasstFertig = pruefungen.length > 0 && fehlend.length === 0;
+  const berichteFertig = posten.length > 0 && ohneBericht === 0 && veraltet === 0;
+  const sammelFertig = sammel.length > 0;
+  const dran = !erfasstFertig
+    ? "erfassen"
+    : !abgeschlossen
+      ? "abschliessen"
+      : !berichteFertig
+        ? "berichte"
+        : !sammelFertig
+          ? "sammel"
+          : "fertig";
+  const zustand = (name: string, fertig: boolean, gesperrt = false) =>
+    `schritt ${gesperrt ? "gesperrt" : fertig ? "fertig" : dran === name ? "dran" : ""}`;
+
+  const werkzeuge = `<div class="ablauf">
+<a class="${zustand("erfassen", erfasstFertig)}" href="/begehung/${esc(begehung.id)}/checkliste">
+<span class="was">${erfasstFertig ? "ERFASST" : "1 · ERFASSEN"}</span>
+<span class="wie">${pruefungen.length} von ${pruefungen.length + fehlend.length} Bauteilen</span></a>
+
+<form method="post" action="/begehung/${esc(begehung.id)}/${abgeschlossen ? "oeffnen" : "abschliessen"}" style="margin:0">
+<button class="${zustand("abschliessen", abgeschlossen)}" type="submit">
+<span class="was">${abgeschlossen ? "ABGESCHLOSSEN" : "2 · ABSCHLIESSEN"}</span>
+<span class="wie">${abgeschlossen ? "wieder öffnen" : "Erfassung beenden"}</span></button></form>
+
+<button class="${zustand("berichte", berichteFertig, pruefungen.length === 0)}" id="erzeugen"
+  ${pruefungen.length ? "" : "disabled"}>
+<span class="was">3 · BERICHTE</span>
+<span class="wie">${
+    pruefungen.length === 0
+      ? "erst erfassen"
+      : ohneBericht + veraltet > 0
+        ? `${ohneBericht + veraltet} erzeugen`
+        : `${posten.length} aktuell`
+  }</span></button>
+
+<button class="${zustand("sammel", sammelFertig, posten.length === 0)}" id="sammel"
+  ${posten.length ? "" : "disabled"}>
+<span class="was">4 · SAMMELBERICHT</span>
+<span class="wie">${
+    posten.length === 0
+      ? "erst Berichte erzeugen"
+      : sammel.length
+        ? `v${sammel[0].version} · neu erzeugen`
+        : "für den Betreiber"
+  }</span></button>
+</div>
+
+<div class="knopfleiste" style="margin-top:0">
 <a class="btn schmal leise" href="/rundgang/${esc(begehung.id)}">Im Rundgang öffnen</a>
-<button class="btn schmal" id="erzeugen" ${pruefungen.length ? "" : "disabled"}>
-${ohneBericht || veraltet ? `${ohneBericht + veraltet} Berichte erzeugen` : "Berichte prüfen"}</button>
-<button class="btn schmal leise" id="sammel" ${posten.length ? "" : "disabled"}>Sammelbericht erzeugen</button>
 <a class="btn schmal leise" href="/begehung/${esc(begehung.id)}/unterschrift">
 ${begehung.betreiber_unterschrift ? "Unterschrift ändern" : "Betreiber unterschreiben"}</a>
 ${posten.length ? `<a class="btn schmal leise" href="/begehung/${esc(begehung.id)}/paket.zip">Alles als ZIP</a>` : ""}
@@ -131,7 +181,8 @@ ${
     : `<div class="leer">Noch keine Prüfung erfasst.<br>Diktiere im Chat oder erfasse hier.</div>`;
 
   const fehlendListe = fehlend.length
-    ? `<h2 class="abschnitt">Fällig, noch nicht geprüft</h2><div class="liste">${fehlend
+    ? `<h2 class="abschnitt">Fällig, noch nicht geprüft</h2>
+<p class="meta">Antippen öffnet das Prüfraster.</p><div class="liste">${fehlend
         .map(
           (b) => `<a class="posten" href="/begehung/${esc(begehung.id)}/pruefung/${b.nr}">
 <span class="nr">${b.nr}</span>
@@ -227,8 +278,11 @@ ${stammdatenFormular(begehung)}`,
 }
 
 function stammdatenFormular(b: Begehung): string {
-  return `<h2 class="abschnitt">Stammdaten</h2>
-<form class="karte" method="post" action="/begehung/${esc(b.id)}">
+  return `<details class="klapp">
+<summary>Stammdaten <span class="meta">${esc(
+    [b.pruefer, b.befaehigung, b.ort].filter(Boolean).join(" · "),
+  )}</span></summary>
+<form class="karte" method="post" action="/begehung/${esc(b.id)}" style="margin-top:8px">
 <div class="felder">
 ${datumsfeld("datum", "Prüfdatum", b.datum)}
 ${textfeld("pruefer", "Prüfer", b.pruefer)}
@@ -244,7 +298,8 @@ ${["geplant", "laufend", "abgeschlossen"]
 </div>
 <div class="knopfleiste"><button class="btn schmal" type="submit">Speichern</button>
 <span class="meta">Ändert sich etwas davon, entsteht beim nächsten Erzeugen eine neue Berichtsversion.</span></div>
-</form>`;
+</form>
+</details>`;
 }
 
 /* ── Prüfraster ────────────────────────────────────────────────────────────── */

@@ -54,7 +54,7 @@ export async function bauteilSeite(
     b ? b.nr : "neu"
   }">
 <div class="felder">
-${textfeld("nr", "Nummer", String(b?.nr ?? naechste))}
+${textfeld("nr", "Nummer", String(b?.nr ?? naechste), b ? 'aria-describedby="nrhinweis"' : "")}
 ${textfeld("kennung", "Kennung (Türliste/Plan)", b?.kennung ?? "")}
 ${auswahlfeld(
   "art",
@@ -70,6 +70,8 @@ ${textfeld("bezeichnung", "Bezeichnung", b?.bezeichnung ?? "")}
 ${textfeld("intervall_monate", "Eigenes Intervall (Monate)", b?.intervall_monate ? String(b.intervall_monate) : "")}
 </div>
 
+${b ? '<p class="meta" id="nrhinweis" style="margin-top:-8px">Die Nummer ist die, die diktiert wird. Ändern verschiebt sie für alle Jahre — nur tun, wenn die Nummerierung wirklich falsch war.</p>' : ""}
+
 <h2 class="abschnitt">Felder</h2>
 <p class="meta">Stammdaten des Bauteils — sie gelten fürs nächste Jahr weiter.</p>
 <div class="felder" style="margin-top:14px">
@@ -79,13 +81,17 @@ ${v.bauteilfelder
   .join("")}
 </div>
 
-<div class="knopfleiste">
-<label style="display:flex;align-items:center;gap:8px;font-size:.88rem">
-  <input type="checkbox" name="wartungspflichtig" value="1" ${
+<div style="margin-top:22px;display:grid;gap:10px">
+<label style="display:flex;align-items:center;gap:10px;font-size:.9rem">
+  <input type="checkbox" name="wartungspflichtig" value="1" style="width:18px;height:18px" ${
     !b || b.wartungspflichtig ? "checked" : ""
-  }> wartungspflichtig</label>
-<label style="display:flex;align-items:center;gap:8px;font-size:.88rem">
-  <input type="checkbox" name="aktiv" value="1" ${!b || b.aktiv ? "checked" : ""}> in Betrieb</label>
+  }> wartungspflichtig
+  <span class="meta">ohne Haken bleibt das Bauteil im Bestand, wird aber nie fällig</span></label>
+<label style="display:flex;align-items:center;gap:10px;font-size:.9rem">
+  <input type="checkbox" name="aktiv" value="1" style="width:18px;height:18px" ${
+    !b || b.aktiv ? "checked" : ""
+  }> in Betrieb
+  <span class="meta">ohne Haken ausgebaut oder stillgelegt — die Historie bleibt</span></label>
 </div>
 <div class="knopfleiste">
 <button class="btn schmal" type="submit">${b ? "Speichern" : "Bauteil anlegen"}</button>
@@ -136,7 +142,7 @@ ${
     ? `<span class="chip mangel">${abweichungen.length} Abweichungen</span>`
     : '<span class="chip gut">i.O.</span>'
 }
-<a class="chip" href="/begehung/${esc(p.begehung_id)}">Begehung</a></div>`;
+<a class="chip" href="/begehung/${esc(p.begehung_id)}">Begehung ansehen ›</a></div>`;
         })
         .join("")}</div>`
     : `<div class="leer">Noch nie geprüft.</div>`;
@@ -182,9 +188,15 @@ ${pruefungListe}
 ${mangelListe}
 ${fotoListe}
 
-<h2 class="abschnitt">Stammdaten</h2>
+<details class="klapp">
+<summary>Stammdaten <span class="meta">${esc(
+      [b.kennung && `Kennung ${b.kennung}`, VORLAGEN[b.art]?.label ?? b.art, b.felder.HERSTELLER]
+        .filter(Boolean)
+        .join(" · "),
+    )}</span></summary>
 ${stammdaten}
-<p class="meta" style="margin-top:14px">Angelegt ${esc(zeitpunkt(b.angelegt_am))} · Quelle ${esc(b.quelle)}</p>`,
+<p class="meta" style="margin-top:14px">Angelegt ${esc(zeitpunkt(b.angelegt_am))} · Quelle ${esc(b.quelle)}</p>
+</details>`,
     { titel: `Tür ${b.nr}`, nutzer, aktiv: "objekte" },
   );
 }

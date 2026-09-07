@@ -25,6 +25,7 @@ import type { Objekt } from "../daten/objekte";
 import { bauteileMitStand, inLaufreihenfolge, istFaellig } from "../daten/bauteile";
 import type { BauteilMitStand } from "../daten/bauteile";
 import { begehungenListe } from "../daten/begehungen";
+import { heute as heuteIso } from "../daten/basis";
 import { maengelListe } from "../daten/maengel";
 
 export async function objekteSeite(
@@ -86,6 +87,10 @@ export async function objektSeite(
   const faellige = alle.filter(istFaellig);
   const gezeigt = optionen.nurFaellige ? faellige : alle;
   const begehungen = await begehungenListe(env.DB, { objekt_id: o.id, limit: 10 });
+  /* Läuft heute schon eine? Dann setzt der Knopf sie fort — und sagt das auch. */
+  const laufende = begehungen.find(
+    (b) => b.datum === heuteIso() && b.status !== "abgeschlossen" && b.status !== "abgebrochen",
+  );
   const maengel = await maengelListe(env.DB, { objekt_id: o.id, status: "offen" });
   const geschossName = new Map(geschosse.map((g) => [g.id, g.name]));
 
@@ -104,7 +109,10 @@ export async function objektSeite(
 </div>
 
 <form method="post" action="/objekt/${esc(o.id)}/begehung" class="knopfleiste" style="margin-top:0">
-<button class="btn schmal" type="submit">Begehung starten</button>
+<button class="btn schmal" type="submit">${
+    laufende ? "Begehung fortsetzen" : "Begehung starten"
+  }</button>
+${laufende ? `<span class="meta">vom ${esc(datumAnzeige(laufende.datum))}, ${laufende.pruefungen} von ${alle.length} erfasst</span>` : ""}
 <a class="btn schmal leise" href="/objekt/${esc(o.id)}/bauteil/neu">Bauteil hinzufügen</a>
 <a class="btn schmal leise" href="/objekt/${esc(o.id)}/import">Import</a>
 <a class="btn schmal leise" href="/objekt/${esc(o.id)}/geschosse">Geschosse</a>
@@ -139,7 +147,9 @@ ${b.betreiber_unterschrift ? '<span class="chip voll">unterschrieben</span>' : "
           (m) => `<a class="posten" href="/mangel/${esc(m.id)}">
 <span class="nr">${m.bauteil_nr}</span>
 <div class="haupt"><div class="name">${esc(m.beschreibung || "ohne Beschreibung")}</div>
-<div class="unter">${esc(m.zustaendig)}${m.frist ? ` · Frist ${esc(datumAnzeige(m.frist))}` : ""}</div></div>
+<div class="unter">Tür ${m.bauteil_nr}${m.bauteil_raum ? ` · ${esc(m.bauteil_raum)}` : ""} · ${esc(
+            m.zustaendig,
+          )}${m.frist ? ` · Frist ${esc(datumAnzeige(m.frist))}` : ""}</div></div>
 <span class="chip${m.prioritaet === "hoch" ? " mangel" : ""}">${esc(m.prioritaet)}</span></a>`,
         )
         .join("")}</div>`
@@ -178,8 +188,13 @@ ${b.aktiv ? faelligChip(b.stand) : '<span class="chip leise">stillgelegt</span>'
 type BauteilBeschreibung = BauteilMitStand;
 
 function stammdatenFormular(o: Objekt): string {
-  return `<h2 class="abschnitt">Stammdaten</h2>
-<form class="karte" method="post" action="/objekt/${esc(o.id)}">
+  return `<details class="klapp">
+<summary>Stammdaten <span class="meta">${esc(
+    [o.betreiber, o.ident && `Ident ${o.ident}`, `alle ${o.intervall_monate} Monate`]
+      .filter(Boolean)
+      .join(" · "),
+  )}</span></summary>
+<form class="karte" method="post" action="/objekt/${esc(o.id)}" style="margin-top:8px">
 <div class="felder">
 ${textfeld("name", "Name", o.name)}
 ${textfeld("adresse", "Adresse", o.adresse)}
@@ -200,7 +215,8 @@ ${textfeld("intervall_monate", "Intervall (Monate)", String(o.intervall_monate))
   onsubmit="return confirm('${esc(o.name)} mit allen Begehungen, Prüfungen, Mängeln und Berichten löschen?')">
 <button class="btn schmal gefahr" type="submit">Objekt löschen</button>
 <span class="meta">Endgültig. Im Alltag lieber stilllegen — die Historie ist der Wert.</span>
-</form>`;
+</form>
+</details>`;
 }
 
 /* ── Geschosse ─────────────────────────────────────────────────────────────── */
@@ -214,45 +230,68 @@ export async function geschosseSeite(
   const o = await objektLesen(env.DB, id);
   if (!o) return umleitung("/objekte");
   const geschosse = await geschosseListe(env.DB, o.id);
-  const bauteile = await bauteileMitStand(env.DB, o);
+  const bauteile = await bauteileMitStand(env.DB, o, { auch_stillgelegte: true });
   const zahl = new Map<string, number>();
   for (const b of bauteile) {
     const k = b.geschoss_id ?? "";
     zahl.set(k, (zahl.get(k) ?? 0) + 1);
   }
 
+  const zeilen = geschosse
+    .map(
+      (g) => `<div class="posten" style="align-items:flex-end">
+<div class="feld" style="flex:1 1 200px;margin:0">
+  <label for="name_${esc(g.id)}">Name</label>
+  <input class="field" id="name_${esc(g.id)}" name="name_${esc(g.id)}" value="${esc(g.name)}">
+</div>
+<div class="feld" style="flex:0 0 110px;margin:0">
+  <label for="reihenfolge_${esc(g.id)}">Reihenfolge</label>
+  <input class="field" id="reihenfolge_${esc(g.id)}" name="reihenfolge_${esc(g.id)}"
+    value="${g.reihenfolge}" inputmode="numeric">
+</div>
+<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding-bottom:9px">
+<span class="chip leise">${zahl.get(g.id) ?? 0} Bauteile</span>
+<a class="chip" href="/objekt/${esc(o.id)}/plan/${esc(g.id)}">${
+        g.plan_schluessel ? "Plan ansehen" : "Plan hinterlegen"
+      }</a>
+${
+  (zahl.get(g.id) ?? 0) === 0 && geschosse.length > 1
+    ? `<button class="chip mangel" name="loeschen" value="${esc(g.id)}"
+        style="background:none;cursor:pointer;font:inherit;font-size:.78rem"
+        onclick="return confirm('Geschoss ${esc(g.name)} entfernen?')">entfernen</button>`
+    : ""
+}
+</div></div>`,
+    )
+    .join("");
+
   return seite(
-    `<div class="eyebrow">${esc(o.name)}</div>
+    `<div class="eyebrow"><a href="/objekt/${esc(o.id)}">${esc(o.name)}</a></div>
 <h1 class="seite" style="margin-top:8px">Geschosse</h1>
-<p class="meta" style="margin-top:10px">Die Reihenfolge bestimmt, wie das Haus abgegangen wird:
-UG −1, EG 0, 1. OG 1 und so fort.</p>
+<p class="lede" style="margin-top:12px;max-width:52ch">Die Reihenfolge bestimmt, wie das Haus
+abgegangen wird: Untergeschoss −1, Erdgeschoss 0, erstes Obergeschoss 1 und so fort. Sie kommt
+beim Anlegen aus dem Namen und lässt sich hier nachziehen.</p>
 ${meldung ? `<div class="note" style="margin:22px 0">${esc(meldung)}</div>` : ""}
 
-<form class="karte" method="post" action="/objekt/${esc(o.id)}/geschosse" style="margin-top:22px">
-<div class="liste" style="margin-bottom:20px">
-${geschosse
-  .map(
-    (g) => `<div class="posten">
-<span class="nr">${g.reihenfolge}</span>
-<div class="haupt">
-  <input class="field" name="name_${esc(g.id)}" value="${esc(g.name)}" aria-label="Name">
-</div>
-<input class="field" style="width:90px" name="reihenfolge_${esc(g.id)}" value="${g.reihenfolge}"
-  aria-label="Reihenfolge" inputmode="numeric">
-<span class="chip leise">${zahl.get(g.id) ?? 0} Bauteile</span></div>`,
-  )
-  .join("")}
-</div>
+<form method="post" action="/objekt/${esc(o.id)}/geschosse" style="margin-top:24px">
+<div class="liste">${zeilen}</div>
+<div class="knopfleiste"><button class="btn schmal" type="submit">Änderungen speichern</button>
+<a class="btn schmal leise" href="/objekt/${esc(o.id)}">Zurück zum Objekt</a></div>
+</form>
+
+<h2 class="abschnitt">Geschoss hinzufügen</h2>
+<form class="karte" method="post" action="/objekt/${esc(o.id)}/geschosse">
 <div class="felder">
-${textfeld("neu", "Geschoss hinzufügen", "", 'placeholder="1. OG"')}
+${textfeld("neu", "Name", "", 'placeholder="z. B. UG, 2. OG, Anbau" required')}
 </div>
-<div class="knopfleiste"><button class="btn schmal" type="submit">Speichern</button>
-<a class="btn schmal leise" href="/objekt/${esc(o.id)}">Zurück</a></div>
+<div class="knopfleiste"><button class="btn schmal" type="submit">Hinzufügen</button>
+<span class="meta">Aus „UG", „EG", „2. OG" liest Türwerk die Reihenfolge selbst.</span></div>
 </form>
 ${
   zahl.get("")
-    ? `<p class="meta" style="margin-top:18px">${zahl.get("")} Bauteile hängen an keinem Geschoss —
-sie laufen in der Reihenfolge hinten mit.</p>`
+    ? `<p class="meta" style="margin-top:22px">${zahl.get("")} Bauteile hängen an keinem
+Geschoss — sie laufen in der Reihenfolge hinten mit. Auf der Bauteilseite lässt sich das
+nachtragen.</p>`
     : ""
 }`,
     { titel: "Geschosse", nutzer, aktiv: "objekte" },
