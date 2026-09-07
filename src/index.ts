@@ -120,6 +120,19 @@ const json = (data: unknown, status = 200) =>
     headers: { "content-type": "application/json", "cache-control": "no-store", ...CORS },
   });
 
+/**
+ * Formulardaten lesen, ohne an einem fehlenden Content-Type zu zerbrechen. Ein Knopf ohne
+ * Felder schickt einen leeren Rumpf; `request.formData()` wirft dann, und aus einem Klick
+ * wird ein Serverfehler.
+ */
+async function formDaten(request: Request): Promise<FormData> {
+  try {
+    return await request.formData();
+  } catch {
+    return new FormData();
+  }
+}
+
 /** Nur eigene Pfade sind als Weiterleitungsziel zulässig — sonst wird die Anmeldung zur Schleuder. */
 function sicheresZiel(wert: string | null): string {
   return wert && wert.startsWith("/") && !wert.startsWith("//") ? wert : "/objekte";
@@ -287,7 +300,7 @@ export default {
         return objekteSeite(env, nutzer, url.searchParams.get("suche") ?? "", meldung);
 
       case "POST /objekte": {
-        const form = await request.formData();
+        const form = await formDaten(request);
         const o = await objektAnlegen(env.DB, {
           name: String(form.get("name") ?? "").trim(),
           adresse: String(form.get("adresse") ?? ""),
@@ -324,7 +337,7 @@ export default {
         return einstellungenSeite(env, nutzer, meldung);
 
       case "POST /einstellungen": {
-        const form = await request.formData();
+        const form = await formDaten(request);
         const vorgaben: Record<string, string> = {};
         for (const feld of ["pruefer", "befaehigung", "ort", "rechtsgrundlagen"]) {
           vorgaben[feld] = String(form.get(feld) ?? "").trim();
@@ -334,7 +347,7 @@ export default {
       }
 
       case "POST /einstellungen/unterschrift": {
-        const form = await request.formData();
+        const form = await formDaten(request);
         const datei = form.get("bild") as unknown as
           | { size: number; arrayBuffer(): Promise<ArrayBuffer> }
           | null;
@@ -393,7 +406,7 @@ async function konten(env: Env): Promise<{ benutzer: string; name: string }[]> {
 }
 
 async function anmelden(request: Request, env: Env, origin: string): Promise<Response> {
-  const form = await request.formData();
+  const form = await formDaten(request);
   const benutzer = String(form.get("benutzer") ?? "").trim().toLowerCase();
   const passwort = String(form.get("passwort") ?? "");
   const weiter = sicheresZiel(String(form.get("weiter") ?? "") || null);
@@ -439,7 +452,7 @@ async function authorize(
   origin: string,
   nutzer: Nutzer | null,
 ): Promise<Response> {
-  const quelle = request.method === "POST" ? await request.formData() : url.searchParams;
+  const quelle = request.method === "POST" ? await formDaten(request) : url.searchParams;
   const parsed = leseAuthParams(quelle as URLSearchParams | FormData);
   if ("error" in parsed) return fehlerSeite("Ungültige Anfrage", parsed.error);
 
@@ -530,7 +543,7 @@ async function objektRoute(
       });
     }
     if (request.method === "POST") {
-      const form = await request.formData();
+      const form = await formDaten(request);
       const patch: Record<string, unknown> = {};
       for (const feld of [
         "name", "adresse", "plz", "betreiber", "betreiber_kontakt", "ident",
@@ -553,7 +566,7 @@ async function objektRoute(
   }
 
   if (teile.length === 3 && teile[2] === "begehung" && request.method === "POST") {
-    const form = await request.formData();
+    const form = await formDaten(request);
     const person = await personLesen(env.DB, nutzer.benutzer);
     const v = person?.vorgaben ?? {};
     const { begehung } = await begehungFuerTag(
@@ -606,7 +619,7 @@ async function objektRoute(
   if (teile.length === 3 && teile[2] === "geschosse") {
     if (request.method === "GET") return geschosseSeite(env, nutzer, objekt.id, meldung);
     if (request.method === "POST") {
-      const form = await request.formData();
+      const form = await formDaten(request);
       const weg = String(form.get("loeschen") ?? "");
       if (weg) {
         /* Nur ein leeres Geschoss verschwindet — an einem mit Bauteilen hängt Historie. */
@@ -650,7 +663,7 @@ async function objektRoute(
       return bauteilSeite(env, nutzer, objekt.id, nr, meldung);
     }
     if (request.method === "POST") {
-      const form = await request.formData();
+      const form = await formDaten(request);
       const art = String(form.get("art") ?? "wartung_drehfluegel");
       const v = vorlage(art);
       const felder: Record<string, string> = {};
@@ -713,7 +726,7 @@ async function begehungRoute(
   if (teile.length === 2) {
     if (request.method === "GET") return begehungSeite(env, nutzer, begehung.id, meldung);
     if (request.method === "POST") {
-      const form = await request.formData();
+      const form = await formDaten(request);
       const patch: Record<string, string> = {};
       for (const feld of ["datum", "pruefer", "befaehigung", "ort", "beteiligte", "status"]) {
         if (form.get(feld) !== null) patch[feld] = String(form.get(feld));
@@ -790,7 +803,7 @@ async function begehungRoute(
   if (teile.length === 3 && teile[2] === "unterschrift") {
     if (request.method === "GET") return unterschriftSeite(env, nutzer, begehung.id, meldung);
     if (request.method === "POST") {
-      const form = await request.formData();
+      const form = await formDaten(request);
       const bild = String(form.get("bild") ?? "");
       const name = String(form.get("name") ?? "").trim();
       const treffer = /^data:image\/png;base64,([A-Za-z0-9+/=]+)$/.exec(bild);
@@ -830,7 +843,7 @@ async function begehungRoute(
     if (request.method === "POST") {
       const objekt = await objektLesen(env.DB, begehung.objekt_id);
       if (!objekt) return fehlerSeite("Nicht gefunden", "Objekt fehlt.", 404);
-      const form = await request.formData();
+      const form = await formDaten(request);
       const art = String(form.get("art") ?? "") || undefined;
       const bestehende = await bauteileMitStand(env.DB, objekt, { auch_stillgelegte: true });
       const vorhanden = nr === null ? null : bestehende.find((b) => b.nr === nr);
@@ -893,7 +906,7 @@ async function mangelRoute(
       return mangelSeite(env, nutzer, m.id, url.searchParams.get("meldung") ?? undefined);
     }
     if (request.method === "POST") {
-      const form = await request.formData();
+      const form = await formDaten(request);
       const patch: Record<string, unknown> = {};
       for (const feld of ["beschreibung", "prioritaet", "zustaendig", "status"]) {
         if (form.get(feld) !== null) patch[feld] = String(form.get(feld));
@@ -906,7 +919,7 @@ async function mangelRoute(
   }
 
   if (teile.length === 3 && teile[2] === "schliessen" && request.method === "POST") {
-    const form = await request.formData();
+    const form = await formDaten(request);
     await mangelSchliessen(
       env.DB,
       m.id,
@@ -1021,7 +1034,7 @@ async function apiRoute(
 
 /** Ein Foto entgegennehmen: Bild in R2, Zeile in die Datenbank, idempotent über `op_id`. */
 async function fotoRoute(request: Request, env: Env, nutzer: Nutzer): Promise<Response> {
-  const form = await request.formData();
+  const form = await formDaten(request);
   const opId = String(form.get("op_id") ?? "").trim();
   if (!opId) return json({ fehler: "op_id fehlt." }, 400);
 
@@ -1083,7 +1096,7 @@ async function fotoRoute(request: Request, env: Env, nutzer: Nutzer): Promise<Re
  * Begehung für diesen Tag anlegt (oder die vorhandene nimmt) und gleich in den Rundgang führt.
  */
 async function tourRoute(request: Request, env: Env, nutzer: Nutzer): Promise<Response> {
-  const form = await request.formData();
+  const form = await formDaten(request);
   const datum = String(form.get("datum") ?? "").trim();
   const objektId = String(form.get("objekt") ?? "").trim();
   const tun = String(form.get("tun") ?? "dazu");
@@ -1148,7 +1161,7 @@ async function importAktion(
   }
   zugriffPruefen(nutzer.benutzer, imp.objekt_id);
 
-  const form = await request.formData();
+  const form = await formDaten(request);
   const tun = String(form.get("tun") ?? "");
   const ziel = `/objekt/${objektId}/import/${importId}`;
   const gewaehlt = new Set(form.getAll("id").map(String));
@@ -1188,7 +1201,7 @@ async function importAktion(
  * abgelegt — der Worker braucht weder Canvas noch PDF-Bibliothek.
  */
 async function planRoute(request: Request, env: Env, nutzer: Nutzer): Promise<Response> {
-  const form = await request.formData();
+  const form = await formDaten(request);
   const geschossId = String(form.get("geschoss_id") ?? "");
   const objektId = await objektZuGeschoss(env.DB, geschossId);
   if (!objektId) return json({ fehler: "Geschoss gibt es nicht." }, 404);

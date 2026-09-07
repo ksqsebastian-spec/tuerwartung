@@ -101,23 +101,20 @@ details.klapp[open] > summary::after { content: "zuklappen"; }
 details.klapp > summary:hover { color: var(--ink); }
 details.klapp > summary .meta { font-weight: 400; }
 
-/* ── Ablauf einer Begehung ────────────────────────────────────────────── */
-.ablauf { display: flex; gap: 8px; flex-wrap: wrap; align-items: stretch; margin: 4px 0 22px; }
-.ablauf > *, .ablauf form { flex: 1 1 165px; display: flex; }
-.schritt {
-  flex: 1; border: 1px solid var(--line); border-radius: 14px; padding: 11px 15px;
-  display: flex; flex-direction: column; justify-content: center; gap: 3px;
-  text-decoration: none; color: inherit;
+/* ── Der nächste Schritt ──────────────────────────────────────────────── */
+.naechster { margin: 4px 0 16px; }
+.naechster .satz { font-size: 1.06rem; letter-spacing: -.015em; margin: 0 0 14px; max-width: 60ch; }
+.leiseleiste {
+  display: flex; gap: 6px 20px; flex-wrap: wrap; align-items: center;
+  font-size: .87rem; margin-bottom: 8px;
 }
-.schritt .was { font-size: .74rem; letter-spacing: .04em; color: var(--ink-3); }
-.schritt .wie { font-weight: 620; letter-spacing: -.015em; font-size: .95rem; }
-.schritt.fertig { border-color: color-mix(in srgb, #12833f 35%, transparent); }
-.schritt.fertig .was { color: #12833f; }
-.schritt.dran { border-color: var(--ink); background: var(--ink); color: var(--bg); }
-.schritt.dran .was { color: color-mix(in srgb, var(--bg) 70%, transparent); }
-.schritt.gesperrt { opacity: .5; }
-button.schritt { cursor: pointer; font: inherit; text-align: left; }
-button.schritt.gesperrt { cursor: default; }
+.leiseleiste a, .leiseleiste .alsLink { color: var(--ink-2); }
+.leiseleiste a:hover, .leiseleiste .alsLink:hover { color: var(--ink); }
+.alsLink {
+  appearance: none; background: none; border: 0; padding: 0; cursor: pointer;
+  font: inherit; color: var(--ink-2); text-decoration: none;
+}
+.alsLink.gefaehrlich { color: #c8382f; }
 
 /* ── Formular ─────────────────────────────────────────────────────────── */
 form.karte { border: 1px solid var(--line); border-radius: var(--radius); padding: 24px; }

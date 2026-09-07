@@ -74,93 +74,101 @@ export async function begehungSeite(
     begehung.betreiber_unterschrift
       ? ` · unterschrieben von ${esc(begehung.betreiber_name)}`
       : ""
-  }</p></div></div>
-
-<div class="zahlen">
-<div class="zahl"><div class="wert">${pruefungen.length}</div><div class="was">PRÜFUNGEN</div></div>
-<div class="zahl"><div class="wert">${
-    pruefungen.filter((p) => Object.keys(p.checks).length).length
-  }</div><div class="was">MIT ABWEICHUNG</div></div>
-<div class="zahl"><div class="wert">${fehlend.length}</div><div class="was">FÄLLIG, OFFEN</div></div>
-<div class="zahl"><div class="wert">${posten.length}</div><div class="was">BERICHTE</div></div>
-</div>`;
+  }</p></div></div>`;
 
   /*
-   * Eine Begehung ist ein Ablauf, kein Menü: erfassen, abschließen, Berichte, Sammelbericht.
-   * Fünf gleich aussehende Knöpfe nebeneinander sagen nicht, was jetzt dran ist — die Leiste
-   * zeigt den Stand und hebt genau den nächsten Schritt hervor.
+   * Eine Begehung hat immer genau einen nächsten Schritt. Also steht hier ein Satz, der sagt
+   * wo man ist, und ein Knopf, der weiterführt — der Rest leise darunter. Keine Kennzahlen:
+   * was sie sagen, sagt der Satz schon, und darunter steht die Liste selbst. Der Regelweg ist
+   * ohnehin das Diktat; die Website ist zum Nachsehen und für den einen Griff, der gerade dran
+   * ist, nicht für eine zweite vollständige Bedienung.
    */
   const abgeschlossen = begehung.status === "abgeschlossen";
-  const erfasstFertig = pruefungen.length > 0 && fehlend.length === 0;
-  const berichteFertig = posten.length > 0 && ohneBericht === 0 && veraltet === 0;
-  const sammelFertig = sammel.length > 0;
-  const dran = !erfasstFertig
-    ? "erfassen"
-    : !abgeschlossen
-      ? "abschliessen"
-      : !berichteFertig
-        ? "berichte"
-        : !sammelFertig
-          ? "sammel"
-          : "fertig";
-  const zustand = (name: string, fertig: boolean, gesperrt = false) =>
-    `schritt ${gesperrt ? "gesperrt" : fertig ? "fertig" : dran === name ? "dran" : ""}`;
+  const ohneBestand = bauteile.length === 0;
+  const offen = ohneBericht + veraltet;
 
-  const werkzeuge = `<div class="ablauf">
-<a class="${zustand("erfassen", erfasstFertig)}" href="/begehung/${esc(begehung.id)}/checkliste">
-<span class="was">${erfasstFertig ? "ERFASST" : "1 · ERFASSEN"}</span>
-<span class="wie">${pruefungen.length} von ${pruefungen.length + fehlend.length} Bauteilen</span></a>
+  let satz: string;
+  let knopf: string;
+  if (ohneBestand) {
+    satz =
+      "Dieses Objekt hat noch keinen Bestand — diese Begehung ist die Bestandsaufnahme. " +
+      "Jede diktierte Tür legt sich selbst an.";
+    knopf = `<a class="btn schmal" href="/begehung/${esc(begehung.id)}/pruefung/neu">Erste Tür erfassen</a>`;
+  } else if (fehlend.length) {
+    satz = pruefungen.length
+      ? `${pruefungen.length} von ${pruefungen.length + fehlend.length} erfasst — ${fehlend.length} ${
+          fehlend.length === 1 ? "fällige Tür fehlt" : "fällige Türen fehlen"
+        } noch.`
+      : `${fehlend.length} fällige ${fehlend.length === 1 ? "Tür" : "Türen"} stehen an, noch nichts erfasst.`;
+    knopf = `<a class="btn schmal" href="/begehung/${esc(begehung.id)}/checkliste">Checkliste öffnen</a>`;
+  } else if (!abgeschlossen) {
+    satz = `Alle ${pruefungen.length} fälligen Bauteile sind erfasst.`;
+    knopf = `<button class="btn schmal" type="submit">Begehung abschließen</button>`;
+  } else if (offen) {
+    satz = `Abgeschlossen. ${offen} ${offen === 1 ? "Bericht steht" : "Berichte stehen"} aus.`;
+    knopf = `<button class="btn schmal" id="erzeugen">${offen} ${offen === 1 ? "Bericht" : "Berichte"} erzeugen</button>`;
+  } else if (!sammel.length) {
+    satz = `${posten.length} ${posten.length === 1 ? "Bericht" : "Berichte"} erzeugt.`;
+    knopf = `<button class="btn schmal" id="sammel">Sammelbericht erzeugen</button>`;
+  } else {
+    satz = `Fertig: ${posten.length} ${
+      posten.length === 1 ? "Bericht" : "Berichte"
+    }, Sammelbericht v${sammel[0].version}.`;
+    knopf = `<a class="btn schmal" href="/begehung/${esc(begehung.id)}/paket.zip">Alles als ZIP</a>`;
+  }
 
-<form method="post" action="/begehung/${esc(begehung.id)}/${abgeschlossen ? "oeffnen" : "abschliessen"}" style="margin:0">
-<button class="${zustand("abschliessen", abgeschlossen)}" type="submit">
-<span class="was">${abgeschlossen ? "ABGESCHLOSSEN" : "2 · ABSCHLIESSEN"}</span>
-<span class="wie">${abgeschlossen ? "wieder öffnen" : "Erfassung beenden"}</span></button></form>
+  /* Was gerade nicht dran ist, bleibt trotzdem erreichbar — nur leise. */
+  const weitere: string[] = [];
+  if (!ohneBestand) {
+    weitere.push(`<a href="/rundgang/${esc(begehung.id)}">Im Rundgang öffnen</a>`);
+  }
+  if (pruefungen.length && abgeschlossen && !offen) {
+    weitere.push(`<button id="erzeugen" class="alsLink">Berichte neu erzeugen</button>`);
+  }
+  if (posten.length && sammel.length) {
+    weitere.push(`<button id="sammel" class="alsLink">Sammelbericht neu erzeugen</button>`);
+  }
+  if (posten.length && !(sammel.length && !offen)) {
+    weitere.push(`<a href="/begehung/${esc(begehung.id)}/paket.zip">Alles als ZIP</a>`);
+  }
+  weitere.push(
+    `<a href="/begehung/${esc(begehung.id)}/unterschrift">${
+      begehung.betreiber_unterschrift ? "Unterschrift ändern" : "Betreiber unterschreiben"
+    }</a>`,
+  );
+  if (abgeschlossen) {
+    weitere.push(
+      `<button form="wiederOeffnen" class="alsLink" type="submit">Wieder öffnen</button>`,
+    );
+  }
 
-<button class="${zustand("berichte", berichteFertig, pruefungen.length === 0)}" id="erzeugen"
-  ${pruefungen.length ? "" : "disabled"}>
-<span class="was">3 · BERICHTE</span>
-<span class="wie">${
-    pruefungen.length === 0
-      ? "erst erfassen"
-      : ohneBericht + veraltet > 0
-        ? `${ohneBericht + veraltet} erzeugen`
-        : `${posten.length} aktuell`
-  }</span></button>
-
-<button class="${zustand("sammel", sammelFertig, posten.length === 0)}" id="sammel"
-  ${posten.length ? "" : "disabled"}>
-<span class="was">4 · SAMMELBERICHT</span>
-<span class="wie">${
-    posten.length === 0
-      ? "erst Berichte erzeugen"
-      : sammel.length
-        ? `v${sammel[0].version} · neu erzeugen`
-        : "für den Betreiber"
-  }</span></button>
-</div>
-
-<div class="knopfleiste" style="margin-top:0">
-<a class="btn schmal leise" href="/rundgang/${esc(begehung.id)}">Im Rundgang öffnen</a>
-<a class="btn schmal leise" href="/begehung/${esc(begehung.id)}/unterschrift">
-${begehung.betreiber_unterschrift ? "Unterschrift ändern" : "Betreiber unterschreiben"}</a>
-${posten.length ? `<a class="btn schmal leise" href="/begehung/${esc(begehung.id)}/paket.zip">Alles als ZIP</a>` : ""}
-<span class="stand" id="stand">${meldung ? esc(meldung) : ""}</span></div>
-
-<form method="post" action="/begehung/${esc(begehung.id)}/abbrechen" class="knopfleiste"
-  style="margin-top:14px" onsubmit="return confirm(${
+  const werkzeuge = `<form method="post" action="/begehung/${esc(begehung.id)}/abschliessen"
+  class="naechster">
+<p class="satz">${esc(satz)}</p>
+<div class="knopfleiste" style="margin:0">${knopf}<span class="stand" id="stand">${
+    meldung ? esc(meldung) : ""
+  }</span></div>
+</form>
+<form method="post" action="/begehung/${esc(begehung.id)}/oeffnen" id="wiederOeffnen"></form>
+<div class="leiseleiste">${weitere.join("")}
+<form method="post" action="/begehung/${esc(begehung.id)}/abbrechen" style="display:inline"
+  onsubmit="return confirm(${
     pruefungen.length
       ? `'Begehung abbrechen? Die ${pruefungen.length} erfassten Prüfungen bleiben erhalten.'`
       : "'Begehung abbrechen? Sie ist leer und verschwindet dann ganz.'"
-  })">
-<button class="btn schmal gefahr" type="submit">Begehung abbrechen</button>
-<span class="meta">${
-    pruefungen.length
-      ? "Der Termin platzt — die Prüfungen bleiben, die Begehung geht auf abgebrochen."
-      : "Die Begehung ist leer und verschwindet ganz."
-  }</span></form>`;
+  })"><button class="alsLink gefaehrlich" type="submit">Begehung abbrechen</button></form>
+</div>`;
 
+  /*
+   * Solange nichts erfasst ist, sagt der Satz oben schon alles — dann fällt der ganze
+   * Abschnitt weg. Zwei Knöpfe für denselben Griff sind ein Knopf zu viel.
+   */
   const pruefungListe = geprueft.length
-    ? `<div class="liste">${geprueft
+    ? `<div class="zeile" style="justify-content:space-between;align-items:center;margin-top:36px">
+<h2 class="abschnitt" style="margin:0">Prüfungen</h2>
+<a class="btn schmal leise" href="/begehung/${esc(begehung.id)}/pruefung/neu">Prüfung erfassen</a></div>
+<div style="height:14px"></div>
+<div class="liste">${geprueft
         .map((b) => {
           const p = nachBauteil.get(b.id)!;
           const abweichungen = abweichungenKlartext(b.art, p.checks);
@@ -178,7 +186,7 @@ ${
 }</a>`;
         })
         .join("")}</div>`
-    : `<div class="leer">Noch keine Prüfung erfasst.<br>Diktiere im Chat oder erfasse hier.</div>`;
+    : "";
 
   const fehlendListe = fehlend.length
     ? `<h2 class="abschnitt">Fällig, noch nicht geprüft</h2>
@@ -264,10 +272,6 @@ document.getElementById('sammel')?.addEventListener('click', function () {
 ${kopf}
 ${werkzeuge}
 ${meldung ? `<div class="note" style="margin:22px 0">${esc(meldung)}</div>` : ""}
-<div class="zeile" style="justify-content:space-between;align-items:center;margin-top:36px">
-<h2 class="abschnitt" style="margin:0">Prüfungen</h2>
-<a class="btn schmal leise" href="/begehung/${esc(begehung.id)}/pruefung/neu">Prüfung erfassen</a></div>
-<div style="height:14px"></div>
 ${pruefungListe}
 ${fehlendListe}
 ${berichtListe}
@@ -590,6 +594,8 @@ export async function checklisteSeite(
   const anteil = bauteile.length
     ? Math.round(((bauteile.length - offen.length) / bauteile.length) * 100)
     : 0;
+  /* Ohne Bestand ist nichts „fertig" — dann ist diese Begehung die Bestandsaufnahme. */
+  const leer = bauteile.length === 0;
 
   const skript = `
 /* Alle zehn Sekunden nachsehen, was Claude inzwischen geschrieben hat. */
@@ -607,13 +613,20 @@ async function auffrischen() {
         b.geprueft ? (b.abweichungen ? String(b.abweichungen) : '✓') : String(b.nr);
       if (b.geprueft) reihe.querySelector('small').textContent = b.zeile;
     }
-    document.getElementById('zahl').textContent = d.geprueft + ' von ' + d.gesamt;
-    document.getElementById('fuellung').style.width = d.anteil + '%';
+    const zahl = document.getElementById('zahl');
+    if (zahl) zahl.textContent = d.geprueft + ' von ' + d.gesamt;
+    const fuellung = document.getElementById('fuellung');
+    if (fuellung) fuellung.style.width = d.anteil + '%';
     const dran = document.getElementById('dran');
     if (dran) {
       if (d.naechste) {
+        dran.querySelector('.was').textContent = 'JETZT DRAN';
         dran.querySelector('.wer').textContent = 'Tür ' + d.naechste.nr;
         dran.querySelector('.wo').textContent = d.naechste.ort;
+      } else if (!d.gesamt) {
+        dran.querySelector('.was').textContent = 'BESTANDSAUFNAHME';
+        dran.querySelector('.wer').textContent = 'Noch keine Tür';
+        dran.querySelector('.wo').textContent = 'Diktier einfach los — jede Tuer legt sich selbst an.';
       } else {
         dran.querySelector('.was').textContent = 'FERTIG';
         dran.querySelector('.wer').textContent = 'Alle Türen geprüft';
@@ -640,15 +653,27 @@ document.querySelectorAll('.reiter button').forEach((k) => {
 <div class="eyebrow">${esc(objekt.name)} · ${esc(datumAnzeige(begehung.datum))}</div>
 <h1 class="seite" style="margin-top:8px">Checkliste</h1>
 
-<div class="fortschritt"><b id="zahl">${bauteile.length - offen.length} von ${bauteile.length}</b>
+${
+      bauteile.length
+        ? `<div class="fortschritt"><b id="zahl">${bauteile.length - offen.length} von ${
+            bauteile.length
+          }</b>
 <span class="meta">geprüft</span></div>
-<div class="balken"><i id="fuellung" style="width:${anteil}%"></i></div>
+<div class="balken"><i id="fuellung" style="width:${anteil}%"></i></div>`
+        : ""
+    }
 
 <div class="dran" id="dran">
-<div class="was">${dran ? "JETZT DRAN" : "FERTIG"}</div>
-<div class="wer">${dran ? `Tür ${dran.nr}` : "Alle Türen geprüft"}</div>
+<div class="was">${leer ? "BESTANDSAUFNAHME" : dran ? "JETZT DRAN" : "FERTIG"}</div>
+<div class="wer">${
+      leer ? "Noch keine Tür" : dran ? `Tür ${dran.nr}` : "Alle Türen geprüft"
+    }</div>
 <div class="wo">${
-      dran ? esc(ort(dran) || "ohne Ortsangabe") : "Sag Fertig, dann liest Claude zurück."
+      leer
+        ? "Diktier einfach los — jede Tür legt sich selbst an."
+        : dran
+          ? esc(ort(dran) || "ohne Ortsangabe")
+          : "Sag Fertig, dann liest Claude zurück."
     }</div>
 </div>
 
@@ -661,7 +686,7 @@ document.querySelectorAll('.reiter button').forEach((k) => {
 ${
   bauteile.length
     ? `<div class="haken">${zeilen}</div>`
-    : `<div class="leer">Noch kein Bauteil im Bestand.<br>Diktier einfach los — jede Tür legt eines an.</div>`
+    : `<div class="leer">Sobald die erste Tür erfasst ist, steht sie hier.</div>`
 }
 </div>
 
