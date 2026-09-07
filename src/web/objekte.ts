@@ -27,7 +27,12 @@ import type { BauteilMitStand } from "../daten/bauteile";
 import { begehungenListe } from "../daten/begehungen";
 import { maengelListe } from "../daten/maengel";
 
-export async function objekteSeite(env: Env, nutzer: Nutzer, suche: string): Promise<Response> {
+export async function objekteSeite(
+  env: Env,
+  nutzer: Nutzer,
+  suche: string,
+  meldung?: string,
+): Promise<Response> {
   const liste = await objekteListe(env.DB, { suche: suche || undefined, limit: 200 });
 
   const zeilen = liste.length
@@ -61,6 +66,7 @@ ${faelligChip(o.stand)}</a>`,
 <form method="get" style="min-width:220px">
 <input class="field" name="suche" value="${esc(suche)}" placeholder="Suchen …" aria-label="Suchen">
 </form></div>
+${meldung ? `<div class="note" style="margin-bottom:22px">${esc(meldung)}</div>` : ""}
 ${zeilen}
 ${neu}`,
     { titel: "Objekte", nutzer, aktiv: "objekte" },
@@ -188,6 +194,11 @@ ${textfeld("intervall_monate", "Intervall (Monate)", String(o.intervall_monate))
 <textarea class="field" id="notizen" name="notizen">${esc(o.notizen)}</textarea></div>
 <div class="knopfleiste"><button class="btn schmal" type="submit">Stammdaten speichern</button>
 <span class="meta">Wirkt auf künftige Berichte; erzeugte Versionen bleiben.</span></div>
+</form>
+<form method="post" action="/objekt/${esc(o.id)}/loeschen" class="knopfleiste"
+  onsubmit="return confirm('${esc(o.name)} mit allen Begehungen, Prüfungen, Mängeln und Berichten löschen?')">
+<button class="btn schmal gefahr" type="submit">Objekt löschen</button>
+<span class="meta">Endgültig. Im Alltag lieber stilllegen — die Historie ist der Wert.</span>
 </form>`;
 }
 

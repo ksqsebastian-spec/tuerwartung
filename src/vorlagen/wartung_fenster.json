@@ -26,8 +26,8 @@
     "HINWEISE": [470, 704, 30]
   },
   "signature": {"x": 190, "top": 762, "w": 92, "h": 42},
-  "signature_betreiber": {"x": 318, "top": 766, "w": 110, "h": 40},
-  "betreiber_name": {"x": 318, "top": 810, "size": 7},
+  "signature_betreiber": {"x": 318, "top": 752, "w": 110, "h": 32},
+  "betreiber_name": {"x": 318, "top": 786, "size": 7},
   "check_columns": {
     "L": {"io": 241, "nio": 263, "nz": 282, "sb": 301},
     "R": {"io": 510, "nio": 530, "nz": 548, "sb": 567}

@@ -52,6 +52,7 @@ import {
   objektAendern,
   objektAnlegen,
   objektLesen,
+  objektLoeschen,
 } from "./daten/objekte";
 import { bauteilAendern, bauteilAnlegen, bauteileMitStand } from "./daten/bauteile";
 import {
@@ -225,7 +226,7 @@ export default {
         return umleitung("/objekte");
 
       case "GET /objekte":
-        return objekteSeite(env, nutzer, url.searchParams.get("suche") ?? "");
+        return objekteSeite(env, nutzer, url.searchParams.get("suche") ?? "", meldung);
 
       case "POST /objekte": {
         const form = await request.formData();
@@ -468,6 +469,13 @@ async function objektRoute(
       await objektAendern(env.DB, objekt.id, patch);
       return umleitung(`/objekt/${objekt.id}?meldung=Stammdaten+gespeichert.`);
     }
+  }
+
+  if (teile.length === 3 && teile[2] === "loeschen" && request.method === "POST") {
+    /* Der Ausnahmefall: Fehlanlage oder Testlauf. Im Alltag wird stillgelegt, nicht gelöscht. */
+    const schluessel = await objektLoeschen(env.DB, objekt.id);
+    for (const k of schluessel) await env.R2.delete(k);
+    return umleitung("/objekte?meldung=Objekt+entfernt.");
   }
 
   if (teile.length === 3 && teile[2] === "begehung" && request.method === "POST") {

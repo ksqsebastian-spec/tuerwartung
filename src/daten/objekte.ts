@@ -398,3 +398,75 @@ export function rechtsgrundlagen(o: Objekt, vorlagenId: string): string {
 }
 
 export { heute, lies };
+
+/**
+ * Ein Objekt mit allem, was daran hängt, entfernen.
+ *
+ * Gedacht für Testläufe und Fehlanlagen — im Alltag wird ein Objekt stillgelegt (`aktiv = 0`),
+ * nicht gelöscht: die Historie ist der Wert dieser Anwendung. Die Funktion gibt die
+ * R2-Schlüssel zurück, die der Aufrufer danach wegräumt; die Datenschicht kennt R2 nicht.
+ */
+export async function objektLoeschen(db: D1Database, objektId: string): Promise<string[]> {
+  const schluessel: string[] = [];
+  const sammeln = async (sql: string) => {
+    const { results } = await db.prepare(sql).bind(objektId).all();
+    for (const z of results ?? []) {
+      const wert = (z as Record<string, unknown>).k;
+      if (wert) schluessel.push(String(wert));
+    }
+  };
+  await sammeln(
+    `SELECT r.r2_schluessel AS k FROM berichte r JOIN pruefungen p ON p.id = r.pruefung_id
+      JOIN begehungen g ON g.id = p.begehung_id WHERE g.objekt_id = ?`,
+  );
+  await sammeln(
+    `SELECT s.r2_schluessel AS k FROM sammelberichte s JOIN begehungen g ON g.id = s.begehung_id
+      WHERE g.objekt_id = ?`,
+  );
+  await sammeln("SELECT r2_schluessel AS k FROM fotos WHERE objekt_id = ?");
+  await sammeln(
+    "SELECT betreiber_unterschrift AS k FROM begehungen WHERE objekt_id = ? AND betreiber_unterschrift IS NOT NULL",
+  );
+  await sammeln(
+    `SELECT plan_schluessel AS k FROM geschosse g JOIN gebaeude b ON b.id = g.gebaeude_id
+      WHERE b.objekt_id = ? AND g.plan_schluessel IS NOT NULL`,
+  );
+
+  /* Reihenfolge von innen nach außen, damit keine Zeile ohne ihr Gegenüber zurückbleibt. */
+  await db.batch([
+    db
+      .prepare(
+        `DELETE FROM berichte WHERE pruefung_id IN
+          (SELECT p.id FROM pruefungen p JOIN begehungen g ON g.id = p.begehung_id WHERE g.objekt_id = ?)`,
+      )
+      .bind(objektId),
+    db
+      .prepare(
+        "DELETE FROM sammelberichte WHERE begehung_id IN (SELECT id FROM begehungen WHERE objekt_id = ?)",
+      )
+      .bind(objektId),
+    db.prepare("DELETE FROM fotos WHERE objekt_id = ?").bind(objektId),
+    db.prepare("DELETE FROM maengel WHERE objekt_id = ?").bind(objektId),
+    db
+      .prepare(
+        "DELETE FROM pruefungen WHERE begehung_id IN (SELECT id FROM begehungen WHERE objekt_id = ?)",
+      )
+      .bind(objektId),
+    db.prepare("DELETE FROM begehungen WHERE objekt_id = ?").bind(objektId),
+    db
+      .prepare(
+        "DELETE FROM vorschlaege WHERE import_id IN (SELECT id FROM importe WHERE objekt_id = ?)",
+      )
+      .bind(objektId),
+    db.prepare("DELETE FROM importe WHERE objekt_id = ?").bind(objektId),
+    db.prepare("DELETE FROM bauteile WHERE objekt_id = ?").bind(objektId),
+    db
+      .prepare(
+        "DELETE FROM geschosse WHERE gebaeude_id IN (SELECT id FROM gebaeude WHERE objekt_id = ?)",
+      )
+      .bind(objektId),
+    db.prepare("DELETE FROM gebaeude WHERE objekt_id = ?").bind(objektId),
+    db.prepare("DELETE FROM objekte WHERE id = ?").bind(objektId),
+  ]);
+  return schluessel;
+}
