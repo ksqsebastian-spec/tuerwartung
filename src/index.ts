@@ -44,6 +44,7 @@ import {
   unterschriftSeite,
 } from "./web/begehungen";
 import { maengelSeite, mangelSeite } from "./web/maengel";
+import { rundgangDaten, rundgangSeite, serviceWorkerText } from "./web/rundgang";
 import { heute, zugriffPruefen } from "./daten/basis";
 import {
   personGesehen,
@@ -70,6 +71,11 @@ import {
   pruefungErfassen,
 } from "./daten/begehungen";
 import { mangelAendern, mangelLesen, mangelSchliessen } from "./daten/maengel";
+import { bauteilLesen, bauteilPerNr } from "./daten/bauteile";
+import { fotoAnlegen, fotoEntfernen, fotoLesen, darfFotoLoeschen } from "./daten/fotos";
+import { fotoOpGesehen, opsAnwenden } from "./daten/sync";
+import { pruefungZuBauteil } from "./daten/begehungen";
+import { ulid } from "./daten/basis";
 import { vorlage } from "./vorlagen";
 import type { Bewertung } from "./vorlagen";
 import { berichtePaket, berichteErzeugen, sammelberichtErzeugen } from "./pdf/berichte";
@@ -198,6 +204,19 @@ export default {
         return json(antwort);
       }
 
+      /**
+       * Der Service Worker des Rundgangs. Ohne Sitzung, weil er selbst keine Daten trägt und
+       * der Browser ihn auch dann laden können muss, wenn das Cookie gerade abgelaufen ist.
+       */
+      case "GET /sw.js":
+        return new Response(serviceWorkerText(SERVER_INFO.version), {
+          headers: {
+            "content-type": "text/javascript; charset=utf-8",
+            "cache-control": "no-cache",
+            "service-worker-allowed": "/",
+          },
+        });
+
       case "GET /anmeldung":
         return anmeldeSeite(origin, await konten(env), {
           weiter: url.searchParams.get("weiter") ?? undefined,
@@ -208,6 +227,20 @@ export default {
 
       case "GET /abmelden":
         return umleitung("/", abmeldeCookie);
+    }
+
+    /*
+     * Die Schnittstellen des Rundgangs nehmen die Sitzung **oder** ein Bearer-Token (Abschnitt 12):
+     * der Client am Handy hat die Sitzung, ein Agent hätte das Token — beide sollen schreiben
+     * dürfen, ohne sich zweimal anzumelden.
+     */
+    if (pfad.startsWith("/api/")) {
+      const wer =
+        (await angemeldet(request, env.SITZUNGS_SCHLUESSEL)) ??
+        (await bearerPruefen(request, env))?.nutzer ??
+        null;
+      if (!wer) return json({ fehler: "Anmeldung nötig." }, 401);
+      return apiRoute(request, env, pfad, wer);
     }
 
     /* ── Anmeldung prüfen ────────────────────────────────────────────────── */
@@ -303,6 +336,10 @@ export default {
 
     if (teile[0] === "begehung" && teile[1]) {
       return begehungRoute(request, env, nutzer, decodeURIComponent(teile[1]), teile, url);
+    }
+
+    if (teile[0] === "rundgang" && teile[1] && request.method === "GET") {
+      return rundgangSeite(env, nutzer, decodeURIComponent(teile[1]));
     }
 
     if (teile[0] === "mangel" && teile[1]) {
@@ -787,4 +824,132 @@ async function mangelRoute(
   }
 
   return fehlerSeite("Nicht gefunden", "Diesen Weg gibt es hier nicht.", 404);
+}
+
+/* ── Schnittstellen des Rundgangs ──────────────────────────────────────────── */
+
+/**
+ * Drei Wege, mehr braucht der Rundgang nicht: die Daten holen, die Warteschlange abliefern,
+ * ein Foto nachschieben. Alle drei vertragen Wiederholung — der Client sendet, so oft das
+ * Netz es zulässt, und doppelt Eingegangenes wird verworfen (Abschnitt 5.3).
+ */
+async function apiRoute(
+  request: Request,
+  env: Env,
+  pfad: string,
+  nutzer: Nutzer,
+): Promise<Response> {
+  const teile = pfad.split("/").filter(Boolean); // ["api", …]
+
+  if (request.method === "GET" && teile[1] === "rundgang" && teile[2]) {
+    try {
+      const begehung = await begehungLesen(env.DB, decodeURIComponent(teile[2]));
+      if (!begehung) return json({ fehler: "Diese Begehung gibt es nicht." }, 404);
+      zugriffPruefen(nutzer.benutzer, begehung.objekt_id);
+      return json(await rundgangDaten(env, begehung.id));
+    } catch (e) {
+      return json({ fehler: (e as Error).message }, 400);
+    }
+  }
+
+  if (request.method === "POST" && teile[1] === "sync") {
+    try {
+      const body = (await request.json()) as { begehung?: string; ops?: unknown[] };
+      const begehung = await begehungLesen(env.DB, String(body?.begehung ?? ""));
+      if (!begehung) return json({ fehler: "Diese Begehung gibt es nicht." }, 404);
+      zugriffPruefen(nutzer.benutzer, begehung.objekt_id);
+      const objekt = await objektLesen(env.DB, begehung.objekt_id);
+      if (!objekt) return json({ fehler: "Objekt fehlt." }, 404);
+      const ergebnisse = await opsAnwenden(
+        env.DB,
+        objekt,
+        begehung,
+        (body?.ops ?? []) as never[],
+        nutzer.benutzer,
+      );
+      return json({ ergebnisse, stand: Date.now() });
+    } catch (e) {
+      return json({ fehler: (e as Error).message }, 400);
+    }
+  }
+
+  if (request.method === "POST" && teile[1] === "foto") {
+    try {
+      return await fotoRoute(request, env, nutzer);
+    } catch (e) {
+      return json({ fehler: (e as Error).message }, 400);
+    }
+  }
+
+  if (request.method === "POST" && teile[1] === "foto-loeschen" && teile[2]) {
+    const foto = await fotoLesen(env.DB, decodeURIComponent(teile[2]));
+    if (!foto) return json({ fehler: "Dieses Foto gibt es nicht." }, 404);
+    zugriffPruefen(nutzer.benutzer, foto.objekt_id);
+    const person = await personLesen(env.DB, nutzer.benutzer);
+    if (!darfFotoLoeschen(foto, nutzer.benutzer, person?.rolle ?? "monteur")) {
+      return json({ fehler: "Löschen darf, wer es aufgenommen hat, und das Büro." }, 403);
+    }
+    const e = await fotoEntfernen(env.DB, foto);
+    if (!e.ausgeblendet) await env.R2.delete(e.r2_schluessel);
+    return json({ geloescht: !e.ausgeblendet, ausgeblendet: e.ausgeblendet });
+  }
+
+  return json({ fehler: `${request.method} ${pfad} gibt es hier nicht.` }, 404);
+}
+
+/** Ein Foto entgegennehmen: Bild in R2, Zeile in die Datenbank, idempotent über `op_id`. */
+async function fotoRoute(request: Request, env: Env, nutzer: Nutzer): Promise<Response> {
+  const form = await request.formData();
+  const opId = String(form.get("op_id") ?? "").trim();
+  if (!opId) return json({ fehler: "op_id fehlt." }, 400);
+
+  const begehung = await begehungLesen(env.DB, String(form.get("begehung_id") ?? ""));
+  if (!begehung) return json({ fehler: "Diese Begehung gibt es nicht." }, 404);
+  zugriffPruefen(nutzer.benutzer, begehung.objekt_id);
+
+  const bauteilId = String(form.get("bauteil_id") ?? "");
+  const nr = Number(form.get("bauteil_nr"));
+  const bauteil = bauteilId
+    ? await bauteilLesen(env.DB, bauteilId)
+    : Number.isFinite(nr)
+      ? await bauteilPerNr(env.DB, begehung.objekt_id, nr)
+      : null;
+  if (!bauteil) return json({ fehler: "Bauteil nicht gefunden." }, 404);
+
+  /* Doppelt gesendet ist kein Fehler — der Client darf wiederholen, bis er eine Antwort sieht. */
+  if (await fotoOpGesehen(env.DB, opId, nutzer.benutzer)) {
+    return json({ ok: true, doppelt: true });
+  }
+
+  const datei = form.get("bild") as unknown as
+    | { size: number; type: string; arrayBuffer(): Promise<ArrayBuffer> }
+    | null;
+  if (!datei || typeof datei.arrayBuffer !== "function" || !datei.size) {
+    return json({ fehler: "Kein Bild dabei." }, 400);
+  }
+  if (datei.size > 8 * 1024 * 1024) {
+    return json({ fehler: "Das Foto darf höchstens 8 MB haben." }, 413);
+  }
+  const typ = String(datei.type || "image/jpeg");
+  if (!/^image\/(jpeg|png|webp)$/.test(typ)) {
+    return json({ fehler: `Bildformat '${typ}' geht nicht.` }, 415);
+  }
+
+  const pruefung = await pruefungZuBauteil(env.DB, begehung.id, bauteil.id);
+  const id = ulid();
+  const endung = typ === "image/png" ? "png" : typ === "image/webp" ? "webp" : "jpg";
+  const schluessel = `fotos/${begehung.objekt_id}/${bauteil.id}/${id}.${endung}`;
+  await env.R2.put(schluessel, await datei.arrayBuffer(), { httpMetadata: { contentType: typ } });
+
+  const foto = await fotoAnlegen(env.DB, {
+    objekt_id: begehung.objekt_id,
+    bauteil_id: bauteil.id,
+    pruefung_id: pruefung?.id ?? null,
+    r2_schluessel: schluessel,
+    breite: Number(form.get("breite") ?? 0) || 0,
+    hoehe: Number(form.get("hoehe") ?? 0) || 0,
+    notiz: String(form.get("notiz") ?? "").trim(),
+    von: nutzer.benutzer,
+  });
+  return json({ ok: true, foto: foto.id, bauteil_nr: bauteil.nr, link: `/datei/${schluessel}` });
 }

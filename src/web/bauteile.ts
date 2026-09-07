@@ -22,6 +22,7 @@ import { bauteileMitStand } from "../daten/bauteile";
 import { pruefungenHistorie } from "../daten/begehungen";
 import { maengelZuBauteil } from "../daten/maengel";
 import { fotosZuBauteil } from "../daten/fotos";
+import { fotoBereich } from "./fotos";
 import { berichteZuPruefung } from "../daten/berichte";
 
 export async function bauteilSeite(
@@ -155,13 +156,8 @@ ${
 
   const fotoListe = fotos.length
     ? `<h2 class="abschnitt">Fotos</h2>
-<div style="display:flex;gap:12px;flex-wrap:wrap;margin-top:8px">${fotos
-        .map(
-          (f) => `<a href="/datei/${esc(f.r2_schluessel)}" title="${esc(f.notiz)}">
-<img src="/datei/${esc(f.r2_schluessel)}" alt="${esc(f.notiz)}"
-  style="height:120px;border-radius:12px;border:1px solid var(--line)"></a>`,
-        )
-        .join("")}</div>`
+<p class="meta">Alle Jahre, jüngste zuerst.</p>
+${fotoBereich(fotos, null)}`
     : "";
 
   const ort =

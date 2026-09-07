@@ -158,6 +158,30 @@ select.field { appearance: none; background-image: none; }
 .punktliste .reihe { align-items: flex-start; }
 .punktliste .reihe .marke { border-radius: 9px; }
 
+/* ── Rundgang ─────────────────────────────────────────────────────────── */
+.rundkopf {
+  position: sticky; top: 0; z-index: 10; background: var(--bg);
+  border-bottom: 1px solid var(--line); margin: 0 -18px 18px; padding: 12px 18px;
+  display: flex; align-items: center; gap: 12px;
+}
+.rundkopf .name { font-weight: 640; letter-spacing: -.02em; flex: 1; min-width: 0;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.abgleich { font-size: .8rem; color: #12833f; white-space: nowrap;
+  background: none; border: 0; font-family: inherit; padding: 4px 0; }
+.abgleich.wartet { color: #a9761b; }
+/*
+ * Die Leiste steht am Ende der Liste, nicht schwebend darüber: ein Balken über dem Inhalt
+ * verdeckt genau die Zeilen, die man antippen will — und „Unbekannte Tür" statt „Tür 7" ist
+ * ein teurer Fehlgriff. Der Abgleichsstand steht dafür oben in der Kopfzeile und ist selbst
+ * der Knopf zum Abgleichen.
+ */
+.fussleiste {
+  border-top: 1px solid var(--line);
+  margin: 26px -18px 0; padding: 18px; display: flex; gap: 10px; flex-wrap: wrap;
+}
+.abgleich { cursor: pointer; }
+button.reihe { width: 100%; text-align: left; background: none; font: inherit; color: inherit; cursor: pointer; }
+
 /* ── Kennzahlen ───────────────────────────────────────────────────────── */
 .zahlen { display: flex; gap: 34px; flex-wrap: wrap; margin: 4px 0 30px; }
 .zahl .wert { font-size: 1.9rem; font-weight: 660; letter-spacing: -.04em; line-height: 1; }
@@ -186,6 +210,10 @@ export interface SeitenOptionen {
   /** Zusätzliches Skript am Seitenende. */
   skript?: string;
   status?: number;
+  /** Attribute am `body` — der Rundgang hängt dort seine Begehungskennung hin. */
+  koerper?: string;
+  /** Ohne Kopfzeile: der Rundgang ist eine Arbeitsfläche, keine Website. */
+  ohneKopf?: boolean;
 }
 
 export function seite(inhalt: string, opt: SeitenOptionen): Response {
@@ -205,11 +233,15 @@ export function seite(inhalt: string, opt: SeitenOptionen): Response {
 <title>${esc(opt.titel)} · Türwerk</title>
 <link rel="icon" href="${logo}">
 <meta name="theme-color" content="#ffffff">
-<style>${BASE_CSS}${APP_CSS}</style></head><body>
-<header class="kopf"><div class="innen">
+<style>${BASE_CSS}${APP_CSS}</style></head><body${opt.koerper ? ` ${opt.koerper}` : ""}>
+${
+  opt.ohneKopf
+    ? ""
+    : `<header class="kopf"><div class="innen">
 <img class="logo" src="${logo}" alt="" width="30" height="30">
 <a href="/" class="titel">Türwerk</a>${nav}
-</div></header>
+</div></header>`
+}
 <main class="wrap rise">${inhalt}</main>
 ${opt.skript ? `<script>${opt.skript}</script>` : ""}
 </body></html>`;

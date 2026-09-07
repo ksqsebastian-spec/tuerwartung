@@ -7,6 +7,9 @@
  *
  * Die Koordinaten-Profile (.json), Cheatsheets (.md) und Formular-PDFs (.pdf) der Vorlagen werden
  * mit einkompiliert — sie ändern sich selten und gehören zum Programm, nicht in die Datenbank.
+ * Ebenso die Browser-Skripte (.txt): der Rundgang und sein Service Worker stehen als eigene
+ * Dateien im Baum, damit sie lesbar bleiben, und werden als Text eingebettet — kein
+ * ASSETS-Binding, kein zweiter Zustand beim Aufsetzen.
  *
  *   node scripts/bundle.mjs <entry.ts> <out.js>
  */
@@ -29,7 +32,7 @@ await build({
   minify: false, // lesbar halten: der Bundle ist das, was live läuft
   legalComments: "none",
   conditions: ["worker", "browser"],
-  loader: { ".md": "text", ".pdf": "base64" },
+  loader: { ".md": "text", ".txt": "text", ".pdf": "base64" },
   mainFields: ["module", "main"],
 });
 

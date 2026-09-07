@@ -20,6 +20,8 @@ import { heute, tageBis } from "../daten/basis";
 import { objektLesen, objekteListe } from "../daten/objekte";
 import { bauteilLesen } from "../daten/bauteile";
 import { mangelLesen, maengelListe } from "../daten/maengel";
+import { fotosZuBauteil } from "../daten/fotos";
+import { fotoBereich } from "./fotos";
 
 export async function maengelSeite(
   env: Env,
@@ -91,6 +93,7 @@ export async function mangelSeite(
   const objekt = await objektLesen(env.DB, m.objekt_id);
   const bauteil = await bauteilLesen(env.DB, m.bauteil_id);
   const offen = m.status === "offen" || m.status === "in_arbeit";
+  const fotos = await fotosZuBauteil(env.DB, m.bauteil_id);
 
   return seite(
     `<div class="eyebrow">${
@@ -128,6 +131,10 @@ ${auswahlfeld(
 <div class="knopfleiste"><button class="btn schmal" type="submit">Speichern</button>
 <a class="btn schmal leise" href="/maengel">Zur Liste</a></div>
 </form>
+
+${
+  fotos.length ? `<h2 class="abschnitt">Fotos am Bauteil</h2>${fotoBereich(fotos, null)}` : ""
+}
 
 ${
   offen
