@@ -324,6 +324,22 @@ export async function gebaeudeListe(db: D1Database, objektId: string): Promise<G
   return (results ?? []) as unknown as Gebaeude[];
 }
 
+export async function geschossLesen(db: D1Database, id: string): Promise<Geschoss | null> {
+  const zeile = await db.prepare("SELECT * FROM geschosse WHERE id = ?").bind(id).first();
+  return (zeile as unknown as Geschoss) ?? null;
+}
+
+/** Zu welchem Objekt gehört dieses Geschoss? */
+export async function objektZuGeschoss(db: D1Database, geschossId: string): Promise<string | null> {
+  const zeile = await db
+    .prepare(
+      "SELECT b.objekt_id AS o FROM geschosse g JOIN gebaeude b ON b.id = g.gebaeude_id WHERE g.id = ?",
+    )
+    .bind(geschossId)
+    .first<{ o: string }>();
+  return zeile?.o ?? null;
+}
+
 export async function geschosseListe(db: D1Database, objektId: string): Promise<Geschoss[]> {
   const { results } = await db
     .prepare(
@@ -377,11 +393,22 @@ export function reihenfolgeAusName(name: string): number {
 export async function geschossAendern(
   db: D1Database,
   id: string,
-  patch: { name?: string; reihenfolge?: number; start_x?: number; start_y?: number },
+  patch: {
+    name?: string;
+    reihenfolge?: number;
+    start_x?: number;
+    start_y?: number;
+    plan_schluessel?: string;
+    plan_breite?: number;
+    plan_hoehe?: number;
+    plan_quelle?: string;
+    einheiten_je_meter?: number;
+  },
 ): Promise<void> {
-  const felder = (["name", "reihenfolge", "start_x", "start_y"] as const).filter(
-    (f) => patch[f] !== undefined,
-  );
+  const felder = ([
+    "name", "reihenfolge", "start_x", "start_y",
+    "plan_schluessel", "plan_breite", "plan_hoehe", "plan_quelle", "einheiten_je_meter",
+  ] as const).filter((f) => patch[f] !== undefined);
   if (!felder.length) return;
   await db
     .prepare(`UPDATE geschosse SET ${felder.map((f) => `${f} = ?`).join(", ")} WHERE id = ?`)

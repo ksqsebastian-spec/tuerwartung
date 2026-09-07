@@ -1,0 +1,293 @@
+/*
+ * Die Planseite: Rasterbild, Marker, Bestätigen.
+ *
+ * Kein Framework. Pan und Zoom über Pointer Events und eine CSS-Transformation, die Marker
+ * liegen als Prozentwerte darüber — damit stimmen sie bei jeder Zoomstufe, ohne Rechnerei.
+ * Angenommen wird einzeln, in Auswahl oder per Tastatur; nichts davon passiert von selbst.
+ */
+(function () {
+  "use strict";
+
+  var flaeche = document.getElementById("flaeche");
+  if (!flaeche) return;
+  var buehne = document.getElementById("buehne");
+  var karte = document.getElementById("karte");
+  var GESCHOSS = document.body.dataset.geschoss;
+  var IMPORT = document.body.dataset.import || "";
+  var daten = JSON.parse(document.getElementById("daten").textContent);
+  var gewaehlt = null;
+  var zeigerModus = null; // 'start' | null
+
+  var zoom = 1, versatzX = 0, versatzY = 0;
+
+  function anwenden() {
+    buehne.style.transform =
+      "translate(" + versatzX + "px," + versatzY + "px) scale(" + zoom + ")";
+  }
+
+  /* Beim Öffnen den ganzen Plan zeigen — ein Hochformat ist sonst nur zur Hälfte da. */
+  function einpassen() {
+    var f = flaeche.getBoundingClientRect();
+    var b = buehne.getBoundingClientRect();
+    var roh = b.height / (zoom || 1);
+    if (!roh) return;
+    zoom = Math.min(f.height / roh, 1);
+    versatzX = (f.width - f.width * zoom) / 2;
+    versatzY = 0;
+    anwenden();
+  }
+
+  /* ── Marker ───────────────────────────────────────────────────────────── */
+
+  function farbe(v) {
+    if (v.status === "angenommen") return "an";
+    if (v.status === "verworfen") return "weg";
+    if (v.konfidenz >= 0.85) return "sicher";
+    if (v.konfidenz >= 0.6) return "unsicher";
+    return "vage";
+  }
+
+  function zeichnen() {
+    var alt = buehne.querySelectorAll(".marke");
+    for (var i = 0; i < alt.length; i++) alt[i].remove();
+
+    daten.bauteile.forEach(function (b) {
+      if (b.x === null || b.y === null) return;
+      var m = document.createElement("button");
+      m.type = "button";
+      m.className = "marke bauteil";
+      m.style.left = b.x * 100 + "%";
+      m.style.top = b.y * 100 + "%";
+      m.textContent = b.nr;
+      m.title = "Tür " + b.nr + (b.raum ? " · " + b.raum : "");
+      buehne.appendChild(m);
+    });
+
+    daten.vorschlaege.forEach(function (v) {
+      if (v.x === null || v.y === null) return;
+      /* Angenommene stecken schon als Bauteil auf der Karte — zwei Marken auf einer Tür
+         verwirren mehr, als sie zeigen. */
+      if (v.status === "angenommen") return;
+      var m = document.createElement("button");
+      m.type = "button";
+      m.className = "marke " + farbe(v) + (v.wartungspflichtig ? " pflicht" : "") +
+        (gewaehlt === v.id ? " gewaehlt" : "");
+      m.style.left = v.x * 100 + "%";
+      m.style.top = v.y * 100 + "%";
+      m.dataset.id = v.id;
+      m.textContent = v.kennung || v.raumnummer || "·";
+      buehne.appendChild(m);
+    });
+
+    if (daten.start && daten.start.x !== null) {
+      var s = document.createElement("div");
+      s.className = "marke start";
+      s.style.left = daten.start.x * 100 + "%";
+      s.style.top = daten.start.y * 100 + "%";
+      s.textContent = "▶";
+      s.title = "Startpunkt des Rundgangs";
+      buehne.appendChild(s);
+    }
+    zahlenZeigen();
+  }
+
+  function zahlenZeigen() {
+    var offen = 0, an = 0, weg = 0;
+    daten.vorschlaege.forEach(function (v) {
+      if (v.status === "offen") offen++;
+      else if (v.status === "angenommen") an++;
+      else weg++;
+    });
+    document.getElementById("zahlen").textContent =
+      offen + " offen · " + an + " angenommen · " + weg + " verworfen";
+  }
+
+  /* ── Kärtchen ─────────────────────────────────────────────────────────── */
+
+  function esc(s) {
+    return String(s == null ? "" : s).replace(/[&<>"']/g, function (z) {
+      return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[z];
+    });
+  }
+
+  function kaertchenZeigen(id) {
+    gewaehlt = id;
+    var v = daten.vorschlaege.filter(function (x) { return x.id === id; })[0];
+    if (!v) { karte.hidden = true; zeichnen(); return; }
+    karte.hidden = false;
+    karte.innerHTML =
+      '<div class="kopfzeile"><b>' + esc(v.kennung || v.raumnummer || "ohne Kennung") + "</b>" +
+      '<span class="chip ' + (v.konfidenz >= 0.85 ? "gut" : "leise") + '">' + v.konfidenz.toFixed(2) + "</span>" +
+      (v.wartungspflichtig ? '<span class="chip">wartungspflichtig</span>' : "") +
+      '<span class="chip leise">' + esc(v.status) + "</span></div>" +
+      '<div class="meta">' + esc([v.raumnummer, v.raum, (v.text_nahe || []).join(" ")].filter(Boolean).join(" · ")) + "</div>" +
+      '<div class="felder" style="margin-top:12px">' +
+      '<div class="feld"><label>Kennung</label><input class="field" id="k_kennung" value="' + esc(v.kennung) + '"></div>' +
+      '<div class="feld"><label>Raumnummer</label><input class="field" id="k_raumnummer" value="' + esc(v.raumnummer) + '"></div>' +
+      '<div class="feld"><label>Raum</label><input class="field" id="k_raum" value="' + esc(v.raum) + '"></div>' +
+      "</div>" +
+      '<label style="display:flex;gap:8px;align-items:center;margin-top:12px;font-size:.88rem">' +
+      '<input type="checkbox" id="k_pflicht"' + (v.wartungspflichtig ? " checked" : "") + "> wartungspflichtig</label>" +
+      '<div class="knopfleiste">' +
+      (v.status === "offen"
+        ? '<button class="btn schmal" data-tun="annehmen">Annehmen</button>' +
+          '<button class="btn schmal leise" data-tun="verwerfen">Verwerfen</button>'
+        : v.status === "verworfen"
+          ? '<button class="btn schmal leise" data-tun="oeffnen">Wieder öffnen</button>'
+          : '<span class="meta">Schon ' + esc(v.status) + ".</span>") +
+      '<button class="btn schmal leise" data-tun="speichern">Felder speichern</button>' +
+      '<button class="btn schmal leise" data-tun="zu">Schließen</button></div>';
+    zeichnen();
+  }
+
+  function eingaben() {
+    return {
+      kennung: (document.getElementById("k_kennung") || {}).value,
+      raumnummer: (document.getElementById("k_raumnummer") || {}).value,
+      raum: (document.getElementById("k_raum") || {}).value,
+      wartungspflichtig: (document.getElementById("k_pflicht") || {}).checked,
+    };
+  }
+
+  function senden(id, koerper) {
+    return fetch("/api/vorschlag/" + id, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(koerper),
+    }).then(function (r) { return r.json(); });
+  }
+
+  function auffrischen() {
+    return fetch(location.pathname + "/daten.json")
+      .then(function (r) { return r.json(); })
+      .then(function (d) { daten = d; zeichnen(); if (gewaehlt) kaertchenZeigen(gewaehlt); });
+  }
+
+  /* ── Bedienung ────────────────────────────────────────────────────────── */
+
+  karte.addEventListener("click", function (e) {
+    var knopf = e.target.closest("[data-tun]");
+    if (!knopf || !gewaehlt) return;
+    var tun = knopf.dataset.tun;
+    if (tun === "zu") { karte.hidden = true; gewaehlt = null; zeichnen(); return; }
+    senden(gewaehlt, Object.assign({ tun: tun }, eingaben())).then(function () {
+      if (tun === "annehmen" || tun === "verwerfen") { karte.hidden = true; gewaehlt = null; }
+      if (tun === "oeffnen") kaertchenZeigen(gewaehlt);
+      auffrischen();
+    });
+  });
+
+  var zieht = null, gezogen = false, start = null;
+
+  flaeche.addEventListener("pointerdown", function (e) {
+    var marke = e.target.closest(".marke[data-id]");
+    if (marke) {
+      zieht = { id: marke.dataset.id, marke: marke, x: e.clientX, y: e.clientY };
+      gezogen = false;
+      marke.setPointerCapture(e.pointerId);
+      return;
+    }
+    start = { x: e.clientX - versatzX, y: e.clientY - versatzY, roh: { x: e.clientX, y: e.clientY } };
+  });
+
+  flaeche.addEventListener("pointermove", function (e) {
+    if (zieht) {
+      if (Math.abs(e.clientX - zieht.x) + Math.abs(e.clientY - zieht.y) > 4) gezogen = true;
+      if (!gezogen) return;
+      var r = buehne.getBoundingClientRect();
+      var nx = Math.min(Math.max((e.clientX - r.left) / r.width, 0), 1);
+      var ny = Math.min(Math.max((e.clientY - r.top) / r.height, 0), 1);
+      zieht.marke.style.left = nx * 100 + "%";
+      zieht.marke.style.top = ny * 100 + "%";
+      zieht.neu = { x: nx, y: ny };
+      return;
+    }
+    if (start) {
+      versatzX = e.clientX - start.x;
+      versatzY = e.clientY - start.y;
+      anwenden();
+    }
+  });
+
+  flaeche.addEventListener("pointerup", function (e) {
+    if (zieht) {
+      var z = zieht;
+      zieht = null;
+      if (gezogen && z.neu) {
+        senden(z.id, { tun: "verschieben", x: z.neu.x, y: z.neu.y }).then(auffrischen);
+      } else {
+        kaertchenZeigen(z.id);
+      }
+      return;
+    }
+    if (start && zeigerModus === "start") {
+      var bewegt = Math.abs(e.clientX - start.roh.x) + Math.abs(e.clientY - start.roh.y);
+      if (bewegt < 5) {
+        var r = buehne.getBoundingClientRect();
+        var x = (e.clientX - r.left) / r.width;
+        var y = (e.clientY - r.top) / r.height;
+        fetch("/api/geschoss/" + GESCHOSS + "/start", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ x: x, y: y }),
+        }).then(function () {
+          zeigerModus = null;
+          document.getElementById("startknopf").classList.remove("aktiv");
+          auffrischen();
+        });
+      }
+    }
+    start = null;
+  });
+
+  flaeche.addEventListener(
+    "wheel",
+    function (e) {
+      e.preventDefault();
+      var vorher = zoom;
+      zoom = Math.min(Math.max(zoom * (e.deltaY < 0 ? 1.15 : 0.87), 0.4), 8);
+      /* Auf den Zeiger zoomen, nicht auf die Ecke. */
+      var r = flaeche.getBoundingClientRect();
+      var mx = e.clientX - r.left - versatzX;
+      var my = e.clientY - r.top - versatzY;
+      versatzX -= mx * (zoom / vorher - 1);
+      versatzY -= my * (zoom / vorher - 1);
+      anwenden();
+    },
+    { passive: false },
+  );
+
+  document.getElementById("groesser").addEventListener("click", function () {
+    zoom = Math.min(zoom * 1.3, 8); anwenden();
+  });
+  document.getElementById("kleiner").addEventListener("click", function () {
+    zoom = Math.max(zoom / 1.3, 0.4); anwenden();
+  });
+  document.getElementById("passend").addEventListener("click", einpassen);
+  document.getElementById("startknopf").addEventListener("click", function () {
+    zeigerModus = zeigerModus === "start" ? null : "start";
+    this.classList.toggle("aktiv", zeigerModus === "start");
+  });
+
+  /* Tastatur am Rechner: j/k durch die offenen, a annehmen, x verwerfen. */
+  document.addEventListener("keydown", function (e) {
+    if (/input|textarea/i.test((e.target.tagName || ""))) return;
+    var offene = daten.vorschlaege.filter(function (v) { return v.status === "offen"; });
+    if (!offene.length) return;
+    var pos = offene.findIndex(function (v) { return v.id === gewaehlt; });
+    if (e.key === "j") { kaertchenZeigen(offene[(pos + 1 + offene.length) % offene.length].id); }
+    if (e.key === "k") { kaertchenZeigen(offene[(pos - 1 + offene.length) % offene.length].id); }
+    if ((e.key === "a" || e.key === "x") && gewaehlt) {
+      senden(gewaehlt, { tun: e.key === "a" ? "annehmen" : "verwerfen" }).then(function () {
+        gewaehlt = null; karte.hidden = true; auffrischen();
+      });
+    }
+  });
+
+  zeichnen();
+  var bild = buehne.querySelector("img");
+  if (bild) {
+    if (bild.complete) einpassen();
+    else bild.addEventListener("load", einpassen);
+  }
+})();

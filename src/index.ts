@@ -46,6 +46,20 @@ import {
 import { maengelSeite, mangelSeite } from "./web/maengel";
 import { rundgangDaten, rundgangSeite, serviceWorkerText } from "./web/rundgang";
 import { tourenSeite } from "./web/touren";
+import { anleitungSeite, importSeite, importeSeite } from "./web/import";
+import { planDaten, planSeite } from "./web/plan";
+import {
+  importAnlegen,
+  importAendern,
+  importLesen,
+  importeListe,
+  vorschlagAendern,
+  vorschlagLesen,
+  vorschlaegeAnnehmen,
+  vorschlaegeLesen,
+  vorschlaegeVerwerfen,
+  zaehlen,
+} from "./daten/importe";
 import { heute, zugriffPruefen } from "./daten/basis";
 import {
   personGesehen,
@@ -56,7 +70,9 @@ import {
 import {
   geschossAendern,
   geschossAnlegen,
+  geschossLesen,
   geschosseListe,
+  objektZuGeschoss,
   objektAendern,
   objektAnlegen,
   objektLesen,
@@ -297,6 +313,9 @@ export default {
 
       case "POST /touren":
         return tourRoute(request, env, nutzer);
+
+      case "GET /anleitung/import":
+        return anleitungSeite(nutzer, origin);
 
       case "GET /verbinden":
         return verbindenSeite(origin, nutzer);
@@ -552,6 +571,36 @@ async function objektRoute(
     return umleitung(
       ziel === "rundgang" ? `/rundgang/${begehung.id}` : `/begehung/${begehung.id}`,
     );
+  }
+
+  if (teile[2] === "import") {
+    if (teile.length === 3 && request.method === "GET") {
+      return importeSeite(env, nutzer, objekt.id, meldung);
+    }
+    if (teile.length === 4) {
+      const importId = decodeURIComponent(teile[3]);
+      if (request.method === "GET") {
+        return importSeite(env, nutzer, objekt.id, importId, {
+          status: url.searchParams.get("status") ?? undefined,
+          meldung,
+        });
+      }
+      if (request.method === "POST") {
+        return importAktion(request, env, nutzer, objekt.id, importId);
+      }
+    }
+  }
+
+  if (teile[2] === "plan" && teile[3]) {
+    const geschossId = decodeURIComponent(teile[3]);
+    if (teile.length === 4 && request.method === "GET") {
+      return planSeite(env, nutzer, objekt.id, geschossId, meldung);
+    }
+    if (teile.length === 5 && teile[4] === "daten.json" && request.method === "GET") {
+      const geschoss = await geschossLesen(env.DB, geschossId);
+      if (!geschoss) return json({ fehler: "Geschoss gibt es nicht." }, 404);
+      return json(await planDaten(env, objekt, geschoss));
+    }
   }
 
   if (teile.length === 3 && teile[2] === "geschosse") {
@@ -891,6 +940,35 @@ async function apiRoute(
     }
   }
 
+  if (request.method === "POST" && teile[1] === "plan") {
+    try {
+      return await planRoute(request, env, nutzer);
+    } catch (e) {
+      return json({ fehler: (e as Error).message }, 400);
+    }
+  }
+
+  if (request.method === "POST" && teile[1] === "vorschlag" && teile[2]) {
+    try {
+      return await vorschlagRoute(request, env, nutzer, decodeURIComponent(teile[2]));
+    } catch (e) {
+      return json({ fehler: (e as Error).message }, 400);
+    }
+  }
+
+  if (request.method === "POST" && teile[1] === "geschoss" && teile[2] && teile[3] === "start") {
+    const geschossId = decodeURIComponent(teile[2]);
+    const objektId = await objektZuGeschoss(env.DB, geschossId);
+    if (!objektId) return json({ fehler: "Geschoss gibt es nicht." }, 404);
+    zugriffPruefen(nutzer.benutzer, objektId);
+    const body = (await request.json()) as { x?: number; y?: number };
+    await geschossAendern(env.DB, geschossId, {
+      start_x: Number(body?.x ?? 0),
+      start_y: Number(body?.y ?? 0),
+    });
+    return json({ ok: true });
+  }
+
   if (request.method === "POST" && teile[1] === "foto") {
     try {
       return await fotoRoute(request, env, nutzer);
@@ -1023,4 +1101,140 @@ async function tourRoute(request: Request, env: Env, nutzer: Nutzer): Promise<Re
 
   await tourSpeichern(env.DB, datum, nutzer.benutzer, liste);
   return umleitung(zurueck);
+}
+
+/* ── Freigabe der Import-Vorschläge ────────────────────────────────────────── */
+
+/**
+ * Der Knopfdruck, mit dem aus Vorschlägen Bauteile werden. Dieselbe Wirkung wie die Tools —
+ * nur dass hier ein Mensch klickt, was am Ende ohnehin die Bedingung ist (Leitsatz 6).
+ */
+async function importAktion(
+  request: Request,
+  env: Env,
+  nutzer: Nutzer,
+  objektId: string,
+  importId: string,
+): Promise<Response> {
+  const imp = await importLesen(env.DB, importId);
+  if (!imp || imp.objekt_id !== objektId) {
+    return fehlerSeite("Nicht gefunden", "Diesen Import gibt es hier nicht.", 404);
+  }
+  zugriffPruefen(nutzer.benutzer, imp.objekt_id);
+
+  const form = await request.formData();
+  const tun = String(form.get("tun") ?? "");
+  const ziel = `/objekt/${objektId}/import/${importId}`;
+  const gewaehlt = new Set(form.getAll("id").map(String));
+  const offene = await vorschlaegeLesen(env.DB, { import_id: imp.id, status: "offen" });
+
+  if (tun === "abschliessen") {
+    const alle = await vorschlaegeLesen(env.DB, { import_id: imp.id, status: "alle" });
+    await importAendern(env.DB, imp.id, {
+      status: "bestaetigt",
+      ergebnis: { ...zaehlen(alle), abgeschlossen_am: Date.now() },
+    });
+    return umleitung(`/objekt/${objektId}/import?meldung=Import+abgeschlossen.`);
+  }
+
+  let auswahl = offene.filter((v) => gewaehlt.has(v.id));
+  if (tun === "annehmen_ab_085") auswahl = offene.filter((v) => v.konfidenz >= 0.85);
+  if (tun === "annehmen_pflichtige") auswahl = offene.filter((v) => v.wartungspflichtig === 1);
+
+  if (!auswahl.length) {
+    return umleitung(`${ziel}?meldung=Nichts+ausgewählt.`);
+  }
+  if (tun === "verwerfen") {
+    const n = await vorschlaegeVerwerfen(env.DB, auswahl.map((v) => v.id));
+    return umleitung(`${ziel}?meldung=${n}+verworfen.`);
+  }
+
+  const { angelegt } = await vorschlaegeAnnehmen(env.DB, auswahl);
+  const rest = await vorschlaegeLesen(env.DB, { import_id: imp.id, status: "alle" });
+  await importAendern(env.DB, imp.id, { ergebnis: { angenommen: zaehlen(rest).angenommen } });
+  return umleitung(`${ziel}?meldung=${angelegt.length}+Bauteile+angelegt.`);
+}
+
+/* ── Planbild und Vorschläge ───────────────────────────────────────────────── */
+
+/**
+ * Das Rasterbild eines Geschosses. Gerendert hat es der Browser (auch PDFs), hier wird nur
+ * abgelegt — der Worker braucht weder Canvas noch PDF-Bibliothek.
+ */
+async function planRoute(request: Request, env: Env, nutzer: Nutzer): Promise<Response> {
+  const form = await request.formData();
+  const geschossId = String(form.get("geschoss_id") ?? "");
+  const objektId = await objektZuGeschoss(env.DB, geschossId);
+  if (!objektId) return json({ fehler: "Geschoss gibt es nicht." }, 404);
+  zugriffPruefen(nutzer.benutzer, objektId);
+
+  const datei = form.get("bild") as unknown as
+    | { size: number; type: string; arrayBuffer(): Promise<ArrayBuffer> }
+    | null;
+  if (!datei || typeof datei.arrayBuffer !== "function" || !datei.size) {
+    return json({ fehler: "Kein Bild dabei." }, 400);
+  }
+  if (datei.size > 40 * 1024 * 1024) {
+    return json({ fehler: "Der Plan darf höchstens 40 MB haben." }, 413);
+  }
+  const typ = String(datei.type || "image/png");
+  if (!/^image\/(png|jpeg|webp)$/.test(typ)) {
+    return json({ fehler: `Bildformat '${typ}' geht nicht.` }, 415);
+  }
+
+  const schluessel = `plaene/${objektId}/${geschossId}.png`;
+  await env.R2.put(schluessel, await datei.arrayBuffer(), { httpMetadata: { contentType: typ } });
+  await geschossAendern(env.DB, geschossId, {
+    plan_schluessel: schluessel,
+    plan_breite: Number(form.get("breite") ?? 0) || 0,
+    plan_hoehe: Number(form.get("hoehe") ?? 0) || 0,
+    plan_quelle: String(form.get("dateiname") ?? ""),
+  });
+  return json({ ok: true, bild: `/datei/${schluessel}` });
+}
+
+/** Ein einzelner Vorschlag auf der Karte: annehmen, verwerfen, verschieben, Felder ändern. */
+async function vorschlagRoute(
+  request: Request,
+  env: Env,
+  nutzer: Nutzer,
+  id: string,
+): Promise<Response> {
+  const v = await vorschlagLesen(env.DB, id);
+  if (!v) return json({ fehler: "Diesen Vorschlag gibt es nicht." }, 404);
+  zugriffPruefen(nutzer.benutzer, v.objekt_id);
+  const body = (await request.json()) as Record<string, unknown>;
+  const tun = String(body?.tun ?? "");
+
+  /* Was im Kärtchen steht, gilt — auch beim Annehmen, damit eine Korrektur nicht verlorengeht. */
+  const felder: Record<string, unknown> = {};
+  for (const feld of ["kennung", "raumnummer", "raum"]) {
+    if (body[feld] !== undefined) felder[feld] = String(body[feld]);
+  }
+  if (body.wartungspflichtig !== undefined) felder.wartungspflichtig = Boolean(body.wartungspflichtig);
+  if (Object.keys(felder).length) await vorschlagAendern(env.DB, v.id, felder);
+
+  if (tun === "verschieben") {
+    await vorschlagAendern(env.DB, v.id, {
+      x: Math.min(Math.max(Number(body.x ?? 0), 0), 1),
+      y: Math.min(Math.max(Number(body.y ?? 0), 0), 1),
+    });
+    return json({ ok: true });
+  }
+  if (tun === "verwerfen") {
+    await vorschlaegeVerwerfen(env.DB, [v.id]);
+    return json({ ok: true });
+  }
+  if (tun === "oeffnen") {
+    /* Verwerfen ist rücknehmbar, solange der Import nicht abgeschlossen ist. */
+    if (v.status !== "verworfen") return json({ fehler: "Nur Verworfene lassen sich öffnen." }, 400);
+    await vorschlagAendern(env.DB, v.id, { status: "offen" });
+    return json({ ok: true });
+  }
+  if (tun === "annehmen") {
+    const frisch = (await vorschlagLesen(env.DB, v.id))!;
+    const { angelegt } = await vorschlaegeAnnehmen(env.DB, [frisch]);
+    return json({ ok: true, bauteil_nr: angelegt[0]?.nr });
+  }
+  return json({ ok: true, gespeichert: Object.keys(felder) });
 }

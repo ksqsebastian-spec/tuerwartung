@@ -67,6 +67,7 @@ import { fotosZuBauteil } from "../daten/fotos";
 import { mapsLink, tourLesen, tourSpeichern } from "../daten/touren";
 import { berichteZuPruefung } from "../daten/berichte";
 import { berichteErzeugen, berichtsUebersicht, sammelberichtErzeugen } from "../pdf/berichte";
+import { IMPORT_TOOLS } from "./import_werkzeuge";
 
 const NUR_LESEN = { readOnlyHint: true, destructiveHint: false, openWorldHint: false };
 const SCHREIBT = { readOnlyHint: false, destructiveHint: false, openWorldHint: false };
@@ -1427,6 +1428,7 @@ export const TOOLS: ToolDef[] = [
   sammelberichtErzeugenTool,
   tourPlanenTool,
   vorgabenSpeichern,
+  ...IMPORT_TOOLS,
 ];
 
 export const ANLEITUNG =

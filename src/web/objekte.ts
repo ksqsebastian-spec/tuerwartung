@@ -106,6 +106,7 @@ export async function objektSeite(
 <form method="post" action="/objekt/${esc(o.id)}/begehung" class="knopfleiste" style="margin-top:0">
 <button class="btn schmal" type="submit">Begehung starten</button>
 <a class="btn schmal leise" href="/objekt/${esc(o.id)}/bauteil/neu">Bauteil hinzufügen</a>
+<a class="btn schmal leise" href="/objekt/${esc(o.id)}/import">Import</a>
 <a class="btn schmal leise" href="/objekt/${esc(o.id)}/geschosse">Geschosse</a>
 </form>`;
 

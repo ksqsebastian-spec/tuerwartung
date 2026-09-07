@@ -182,6 +182,52 @@ select.field { appearance: none; background-image: none; }
 .abgleich { cursor: pointer; }
 button.reihe { width: 100%; text-align: left; background: none; font: inherit; color: inherit; cursor: pointer; }
 
+/* ── Fließtext aus Markdown ───────────────────────────────────────────── */
+pre.code {
+  background: var(--wash); border: 1px solid var(--line); border-radius: 12px;
+  padding: 14px 16px; overflow-x: auto; font-size: .84rem; line-height: 1.5;
+}
+pre.code code { background: none; padding: 0; }
+.points.nummern { list-style: none; padding-left: 0; }
+.anleitung { max-width: 74ch; }
+.anleitung h2 { margin-top: 34px; }
+
+/* ── Planseite ────────────────────────────────────────────────────────── */
+.planflaeche {
+  position: relative; overflow: hidden; border: 1px solid var(--line);
+  border-radius: var(--radius); background: var(--wash); height: 62vh; min-height: 380px;
+  touch-action: none; cursor: grab;
+}
+/* Die Bühne ist genau so groß wie das Bild — sonst zeigen die Prozentwerte der Marker
+   auf den Container statt auf den Plan, und alles sitzt versetzt. */
+.planbuehne { position: absolute; top: 0; left: 0; width: 100%; transform-origin: 0 0; }
+.planbuehne img { display: block; width: 100%; height: auto; user-select: none; }
+.marke {
+  position: absolute; transform: translate(-50%, -50%); cursor: pointer;
+  min-width: 22px; height: 22px; padding: 0 5px; border-radius: 999px;
+  border: 2px solid #fff; font: 600 11px/1 system-ui; color: #fff;
+  display: grid; place-items: center; box-shadow: 0 1px 4px rgba(0,0,0,.35);
+}
+.marke.sicher { background: #12833f; }
+.marke.unsicher { background: #a9761b; }
+.marke.vage { background: #8a8a94; }
+.marke.an { background: #1B54D6; }
+.marke.weg { background: transparent; border-color: #8a8a94; color: #8a8a94; opacity: .5; }
+.marke.pflicht { border-color: #131316; border-width: 3px; }
+.marke.gewaehlt { outline: 3px solid var(--focus); outline-offset: 2px; }
+.marke.bauteil { background: #1B54D6; }
+.marke.start { background: #131316; cursor: default; }
+.planknoepfe { position: absolute; right: 12px; bottom: 12px; display: flex; gap: 6px; }
+.planknoepfe button {
+  width: 34px; height: 34px; border-radius: 10px; border: 1px solid var(--line-strong);
+  background: var(--bg); cursor: pointer; font-size: 15px; color: var(--ink);
+}
+.planknoepfe button.aktiv { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+.plankarte {
+  border: 1px solid var(--ink); border-radius: var(--radius); padding: 16px 18px; margin-top: 14px;
+}
+.plankarte .kopfzeile { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+
 /* ── Tagestour ────────────────────────────────────────────────────────── */
 .woche { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 10px; }
 .tag { border: 1px solid var(--line); border-radius: 14px; padding: 10px; min-height: 130px; }
