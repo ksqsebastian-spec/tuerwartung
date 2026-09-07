@@ -115,6 +115,8 @@ details.klapp > summary .meta { font-weight: 400; }
   font: inherit; color: var(--ink-2); text-decoration: none;
 }
 .alsLink.gefaehrlich { color: #c8382f; }
+.posten .alsLink { font-size: .85rem; color: var(--ink-3); }
+.posten .alsLink:hover { color: var(--ink); }
 
 /* ── Formular ─────────────────────────────────────────────────────────── */
 form.karte { border: 1px solid var(--line); border-radius: var(--radius); padding: 24px; }
@@ -148,11 +150,17 @@ select.field { appearance: none; background-image: none; }
 .wahl label:has(input:focus-visible) { outline: 2px solid var(--focus); outline-offset: 2px; }
 
 /* ── Reiter ───────────────────────────────────────────────────────────── */
-.reiter { display: flex; gap: 4px; border-bottom: 1px solid var(--line); margin: 6px 0 22px; }
+.reiter {
+  display: flex; gap: 0; border-bottom: 1px solid var(--line); margin: 6px 0 22px;
+  /* Vier Reiter passen auf einem schmalen Telefon nicht nebeneinander — dann wird gewischt. */
+  overflow-x: auto; scrollbar-width: none; -webkit-overflow-scrolling: touch;
+}
+.reiter::-webkit-scrollbar { display: none; }
+.reiter a, .reiter button { white-space: nowrap; }
 .reiter a, .reiter button {
   appearance: none; background: none; border: 0; cursor: pointer;
-  font: inherit; font-size: .95rem; font-weight: 560; color: var(--ink-3);
-  padding: 10px 14px; border-bottom: 2px solid transparent; margin-bottom: -1px;
+  font: inherit; font-size: .9rem; font-weight: 560; color: var(--ink-3);
+  padding: 10px 9px; border-bottom: 2px solid transparent; margin-bottom: -1px;
 }
 .reiter a:hover, .reiter button:hover { color: var(--ink); }
 .reiter a[aria-current], .reiter button[aria-selected="true"] {
@@ -264,30 +272,6 @@ pre.code code { background: none; padding: 0; }
   border: 1px solid var(--ink); border-radius: var(--radius); padding: 16px 18px; margin-top: 14px;
 }
 .plankarte .kopfzeile { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
-
-/* ── Tagestour ────────────────────────────────────────────────────────── */
-.woche { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 10px; }
-.tag { border: 1px solid var(--line); border-radius: 14px; padding: 10px; min-height: 130px; }
-.tag.heute { border-color: var(--ink); }
-.tag.ziel { background: var(--wash); border-color: var(--ink); }
-.tag header { font-size: .82rem; margin-bottom: 8px; }
-.leerer-tag { color: var(--ink-3); font-size: .8rem; padding: 6px 0; }
-.tourposten { border-top: 1px solid var(--line); padding: 8px 0; font-size: .84rem; }
-.tourposten:first-of-type { border-top: 0; }
-.tourposten .haupt small { display: block; color: var(--ink-3); font-size: .76rem; margin-top: 2px; }
-.tourposten .knoepfchen { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 6px; }
-.tourposten .knoepfchen button {
-  appearance: none; background: none; cursor: pointer; font: inherit; font-size: .74rem;
-  border: 1px solid var(--line-strong); border-radius: 7px; padding: 2px 7px; color: var(--ink-2);
-}
-.tourposten .knoepfchen button:hover { border-color: var(--ink); color: var(--ink); }
-.tourposten .knoepfchen button.stark { border-color: var(--ink); color: var(--ink); }
-.tag .route { margin-top: 10px; display: block; text-align: center; }
-.offene-liste { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 12px; }
-.offene-liste .tourposten { border: 1px solid var(--line); border-radius: 14px; padding: 12px 14px; }
-@media (max-width: 900px) {
-  .woche { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-}
 
 /* ── Kennzahlen ───────────────────────────────────────────────────────── */
 .zahlen { display: flex; gap: 34px; flex-wrap: wrap; margin: 4px 0 30px; }
@@ -435,6 +419,8 @@ export function faelligChip(stand: {
   tage: number | null;
   nie_geprueft: boolean;
 }): string {
+  /* Ohne Bauteile gibt es kein Datum — dann steht dort nichts statt eines nackten „bis". */
+  if (!stand.faellig_am) return "";
   if (stand.nie_geprueft) return '<span class="chip mangel">nie geprüft</span>';
   if (stand.zustand === "ueberfaellig") {
     return `<span class="chip mangel">überfällig seit ${esc(datum(stand.faellig_am))}</span>`;

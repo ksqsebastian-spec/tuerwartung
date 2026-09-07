@@ -139,7 +139,9 @@ ${
 }</div>
 ${
   abweichungen.length
-    ? `<span class="chip mangel">${abweichungen.length} Abweichungen</span>`
+    ? `<span class="chip mangel">${abweichungen.length} ${
+        abweichungen.length === 1 ? "Abweichung" : "Abweichungen"
+      }</span>`
     : '<span class="chip gut">i.O.</span>'
 }
 <a class="chip" href="/begehung/${esc(p.begehung_id)}">Begehung ansehen ›</a></div>`;
@@ -177,11 +179,18 @@ ${fotoBereich(fotos, null)}`
 <div>${faelligChip(b.stand)}</div></div>
 ${meldung ? `<div class="note" style="margin-bottom:22px">${esc(meldung)}</div>` : ""}
 
-<div class="zahlen">
-<div class="zahl"><div class="wert">${historie.length}</div><div class="was">PRÜFUNGEN</div></div>
-<div class="zahl"><div class="wert">${b.offene_maengel}</div><div class="was">OFFENE MÄNGEL</div></div>
-<div class="zahl"><div class="wert">${esc(datumAnzeige(b.letzte_pruefung) || "—")}</div><div class="was">ZULETZT</div></div>
-</div>
+<div class="naechster"><p class="satz">${esc(
+      [
+        historie.length
+          ? `${historie.length} ${historie.length === 1 ? "Prüfung" : "Prüfungen"}, zuletzt ${
+              datumAnzeige(b.letzte_pruefung) || "nie"
+            }`
+          : "Noch nie geprüft",
+        b.offene_maengel
+          ? `${b.offene_maengel} ${b.offene_maengel === 1 ? "offener Mangel" : "offene Mängel"}`
+          : "nichts offen",
+      ].join(" · "),
+    )}.</p></div>
 
 <h2 class="abschnitt">Historie</h2>
 ${pruefungListe}

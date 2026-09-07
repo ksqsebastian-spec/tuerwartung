@@ -25,6 +25,10 @@ Ausgangspunkt bestehen — was übernommen wird, steht in Abschnitt 13.
    die Seiten sind zum Nachsehen und für den einen Griff, der gerade dran ist. Wo eine Seite
    einen Zustand hat, sagt sie ihn in einem Satz und bietet genau einen Knopf an — der Rest
    steht leise darunter. Doppelte Wege zum selben Ziel werden entfernt, nicht ergänzt.
+8. **Was der Mensch nicht denkt, steht nicht auf dem Schirm.** Der Monteur denkt „ich bin an der
+   Kita", nicht „ich setze eine Begehung fort". Interne Größen — die Begehung, das Geschoss —
+   bleiben im Datenmodell und entstehen aus dem, was ohnehin gesagt wird; sie werden nicht zu
+   Knöpfen und Verwaltungsseiten.
 
 ### Nicht-Ziele (v2)
 
@@ -433,24 +437,35 @@ das der Betreiber bekommt.
 
 ---
 
-### 4.5 Begehungsseite: ein Satz, ein Knopf
+### 4.5 Objektseite: vier Reiter, ein Satz, ein Knopf
 
-Eine Begehung hat zu jedem Zeitpunkt genau einen nächsten Schritt. Also steht oben ein Satz, der
-sagt wo man ist, und darunter ein Knopf, der weiterführt (Leitsatz 7):
+Das Objekt ist die eine Arbeitsfläche. Vier Reiter, mehr nicht:
+
+| Reiter | Inhalt |
+|---|---|
+| **Bestand** | die Bauteile in Laufreihenfolge, Zustand als Chip, Filter „nur fällige" |
+| **Checkliste** | der Blick fürs Diktat (Abschnitt 4.6) — löst den heutigen Termin selbst auf |
+| **Mängel** | offen und erledigt an diesem Objekt |
+| **Berichte** | je Termin die PDFs mit allen Versionen, Sammelbericht, ZIP, Stammdaten |
+
+Darüber steht ein Satz und genau ein Knopf (Leitsatz 7):
 
 | Zustand | Satz | Knopf |
 |---|---|---|
-| Objekt ohne Bestand | „… diese Begehung ist die Bestandsaufnahme." | Erste Tür erfassen |
-| fällige Bauteile offen | „3 von 9 erfasst — 6 fällige Türen fehlen noch." | Checkliste öffnen |
-| alles erfasst | „Alle 9 fälligen Bauteile sind erfasst." | Begehung abschließen |
-| abgeschlossen, Berichte offen | „Abgeschlossen. 9 Berichte stehen aus." | Berichte erzeugen |
-| Berichte da, kein Sammelbericht | „9 Berichte erzeugt." | Sammelbericht erzeugen |
-| fertig | „Fertig: 9 Berichte, Sammelbericht v1." | Alles als ZIP |
+| kein Bestand | „Noch kein Bestand. Die erste erfasste Tür legt ihn an." | Erste Tür erfassen |
+| fällige offen | „5 von 9 Türen sind fällig." / „Heute 4 erfasst — 5 fehlen noch." | Checkliste öffnen |
+| alles erfasst, Berichte offen | „Alles erfasst. 9 Berichte stehen aus." | Berichte erstellen |
+| durch | „Nichts fällig — das Objekt ist bis 07.09.2027 durch." | Berichte ansehen |
 
-Was gerade nicht dran ist, bleibt erreichbar, aber leise: Rundgang, Unterschrift, Neuerzeugen,
-ZIP, Wieder öffnen, Abbrechen. Keine Kennzahlenleiste — was sie sagen würde, sagt der Satz, und
-darunter steht die Liste der Prüfungen selbst. Solange nichts erfasst ist, fällt der Abschnitt
-„Prüfungen" ganz weg; die Stammdaten liegen zugeklappt am Fuß.
+**Der Termin kommt in der Oberfläche nicht vor** (Leitsatz 8). Es gibt kein „Begehung starten"
+und kein „fortsetzen": `GET /objekt/:id/checkliste` und `/objekt/:id/erfassen` lösen über
+`begehungFuerTag` den heutigen Termin auf — fortsetzen, wenn einer läuft, sonst anlegen. Der
+Aufruf ist je Tag und Objekt idempotent. Alte Adressen unter `/begehung/:id` leiten aufs Objekt,
+damit Skill, Lesezeichen und ältere Connector-Antworten gültig bleiben.
+
+Leise darunter, immer an derselben Stelle: Tür erfassen · Ohne Netz · Unterschrift · Bauplan
+einlesen. Keine Kennzahlenleiste — was sie sagen würde, sagt der Satz, und darunter steht die
+Liste selbst.
 
 ---
 
@@ -743,18 +758,37 @@ Funktion `laufreihenfolge(bauteile, geschosse)`, in Worker und Rundgang-Client i
 Anzeige im Rundgang: Geschoss-Überschriften, Bauteile in dieser Reihenfolge; auf der Planseite
 der Weg als gestrichelte Linie zwischen den Markern.
 
+**Woher das Geschoss kommt.** Stufe 1 stand lange leer: `geschoss_id` setzte nur
+`bauteil_anlegen` und der Import, nie das Diktat — also hing auf dem Hauptweg jedes Bauteil an
+keinem Geschoss. `geschossZuordnen()` leitet die Etage deshalb beim Erfassen aus dem ab, was
+ohnehin gesagt wird, in dieser Reihenfolge:
+
+1. ausdrückliches Argument `geschoss` (`pruefung_erfassen`, `bauteil_anlegen`, …),
+2. Formularfeld `ETAGE` oder `GESCHOSS`,
+3. `flur`, wenn dort eine Etage steht („1. OG"),
+4. die Raumnummer in der Schreibweise Ziffer-Punkt-Ziffer: „1.04" → 1. OG, „0.01" → EG.
+
+`geschossName()` erkennt nur, was eindeutig eine Etage ist — „Flur Nord" bleibt ein Flur — und
+normiert auf **eine** Schreibweise (`UG`, `EG`, `1. OG`, `DG`), damit aus „1.OG", „1.
+Obergeschoss" und „Etage 1" nicht drei Geschosse werden. Einmal zugeordnet wird nicht mehr
+umgehängt: die Etage einer Tür bestimmt der Mensch, nicht eine spätere Raumnummer-Schreibweise.
+Es gibt **keine Geschoss-Verwaltungsseite** mehr (Leitsatz 8); Geschosse entstehen, wenn es sie
+gibt, und ein Objekt bekommt beim Anlegen keins mehr auf Vorrat.
+
 ---
 
 ## 8. Tagestour
 
-- Seite `/touren`: Woche als sieben Spalten, je Tag die Objekte der Person. Rechts eine Liste
-  „fällig in 30 Tagen" (aus Abschnitt 3), sortiert nach Fälligkeit, dann PLZ. Ziehen in einen
-  Tag; innerhalb des Tags sortierbar.
-- **„Route öffnen"** je Tag: baut `https://www.google.com/maps/dir/<adr1>/<adr2>/…` (URL-
-  kodiert, Startpunkt = erste Adresse) und öffnet sie — das Handy übernimmt die Navigation.
-- Tool `tour_planen(datum, objekte[])` und `tour_lesen(datum)` für „was fahre ich morgen?".
-- Ein Objekt in einer Tour, für das noch keine Begehung an dem Tag existiert, bekommt beim
-  Öffnen im Rundgang automatisch eine (Status `geplant` → `laufend` beim ersten Speichern).
+- Seite `/touren`: **eine Liste, kein Kalender.** Oben die Tage, auf die etwas gelegt wurde
+  („Heute", „Morgen", sonst das Datum) mit den Objekten in Reihenfolge und einem fertigen
+  Maps-Link; darunter „Fällig" — was ansteht und noch auf keinem Tag liegt, sortiert nach
+  Fälligkeit, dann PLZ. Ein Wochenraster mit sechs leeren Karten beantwortet die Frage „was
+  fahre ich als Nächstes?" schlechter als eine Zeile (Leitsatz 7).
+- Geplant wird im Gespräch (`tour_planen(datum, objekte[])`, Reihenfolge inbegriffen) oder mit
+  „für heute" bzw. „absagen" in der Liste. `tour_lesen(datum)` beantwortet „was fahre ich
+  morgen?" samt Maps-Link.
+- **„Route in Google Maps"** je Tag: `https://www.google.com/maps/dir/<adr1>/<adr2>/…`
+  (URL-kodiert, Startpunkt = erste Adresse) — das Handy übernimmt die Navigation.
 
 ---
 
@@ -830,9 +864,13 @@ Alle mit Sitzung, außer den in v1 öffentlichen (OAuth, `/tools.json`, `/anmeld
 | Route | Inhalt |
 |---|---|
 | `GET /` → `/objekte` | |
-| `GET /objekte` | Liste nach Fälligkeit, Suche, „Neues Objekt" |
+| `GET /objekte` | Liste nach Fälligkeit, Suche; „Objekt anlegen" zugeklappt (der Regelweg ist der Chat) |
 | `POST /objekte` | anlegen |
-| `GET /objekt/:id` | Kopf mit Fälligkeit; Bauteile in Laufreihenfolge mit letzter Prüfung; offene Mängel; Begehungen; Knöpfe „Begehung starten", „Import", „Plan" |
+| `GET /objekt/:id` | Reiter **Bestand** — ein Satz, ein Knopf (Abschnitt 4.5), Bauteile in Laufreihenfolge |
+| `GET /objekt/:id/checkliste` | Reiter **Checkliste** (Abschnitt 4.6); löst den heutigen Termin auf |
+| `GET /objekt/:id/maengel` | Reiter **Mängel** — offen und erledigt |
+| `GET /objekt/:id/berichte` | Reiter **Berichte** — je Termin PDFs mit Versionen, Sammelbericht, ZIP, Stammdaten |
+| `GET /objekt/:id/erfassen` | löst den heutigen Termin auf → `/begehung/:id/pruefung/neu` |
 | `POST /objekt/:id` | Stammdaten |
 | `POST /objekt/:id/loeschen` | Ausnahmeweg für Fehlanlagen und Testläufe: Objekt mit allem, was daran hängt. Im Alltag wird stillgelegt (`aktiv = 0`). |
 | `GET/POST /objekt/:id/bauteil/neu`, `/objekt/:id/bauteil/:nr` | Bauteil mit Historie (Prüfungen, Mängel, Fotos, Berichte aller Versionen) |
@@ -840,10 +878,10 @@ Alle mit Sitzung, außer den in v1 öffentlichen (OAuth, `/tools.json`, `/anmeld
 | `GET /anleitung/import` | die Anleitung für den Agenten, zum Nachlesen (Abschnitt 7.0) |
 | `GET /objekt/:id/plan/:geschoss`, `GET …/daten.json` | Abschnitt 7.8 — Karte mit Markern |
 | `POST /api/plan`, `POST /api/vorschlag/:id`, `POST /api/geschoss/:id/start` | Planbild, Freigabe, Startpunkt |
-| `GET/POST /objekt/:id/geschosse` | Geschosse anlegen, umbenennen, Reihenfolge |
-| `POST /objekt/:id/begehung` | starten → `/begehung/:id` |
-| `GET /begehung/:id` | Reiter „Begehung“; ein Satz, ein Knopf (Abschnitt 4.5), darunter die Prüfungen, fehlende Bauteile, Berichte (Versionen), Sammelbericht; leise: ZIP, Unterschrift, „Im Rundgang öffnen“, Abbrechen |
-| `GET /begehung/:id/checkliste`, `GET /begehung/:id/stand.json` | Abschnitt 4.6 |
+| `POST /objekt/:id/begehung` | Termin für ein Datum anlegen (Tour, Rundgang) — in der Oberfläche kein Knopf |
+| `GET /begehung/:id` | leitet aufs Objekt (bzw. auf dessen Reiter Berichte) — der Termin hat keine eigene Seite mehr |
+| `GET /begehung/:id/checkliste` | leitet auf den Objektreiter, wenn es der heutige Termin ist; sonst die Checkliste dieses Termins |
+| `GET /begehung/:id/stand.json` | Abschnitt 4.6 |
 | `POST /begehung/:id/abschliessen`, `POST /begehung/:id/oeffnen` | Abschnitt 2.4 |
 | `POST /begehung/:id/abbrechen` | Abschnitt 2.5 |
 | `GET/POST /begehung/:id/pruefung/:nr` | Prüfraster wie v1 `tuerSeite` + Fotos |
@@ -853,7 +891,7 @@ Alle mit Sitzung, außer den in v1 öffentlichen (OAuth, `/tools.json`, `/anmeld
 | `GET /rundgang/:begehung`, `GET /api/rundgang/:begehung`, `POST /api/sync`, `POST /api/foto` | Abschnitt 5 und 6 |
 | `GET /maengel` | alle offenen, Filter Objekt/Frist/Zuständigkeit; Zeile → Bauteil |
 | `GET/POST /mangel/:id` | bearbeiten, schließen |
-| `GET/POST /touren` | Abschnitt 8 |
+| `GET/POST /touren` | Abschnitt 8 — Liste, kein Kalender |
 | `GET /einstellungen` | wie v1 (Vorgaben, Unterschrift Prüfer) |
 | `GET /verbinden` | wie v1 |
 | `GET /datei/(berichte\|fotos\|plaene\|unterschriften)/…` | Auslieferung |

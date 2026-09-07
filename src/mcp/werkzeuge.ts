@@ -521,7 +521,7 @@ const berichteAuflisten: ToolDef = {
         link: `${ctx.origin}/datei/${p.schluessel}`,
       })),
       ohne_bericht: pruefungen.length - posten.length,
-      sammelbericht: `${ctx.origin}/begehung/${begehung.id}`,
+      sammelbericht: `${ctx.origin}/objekt/${begehung.objekt_id}/berichte`,
       alle_als_zip: `${ctx.origin}/begehung/${begehung.id}/paket.zip`,
     };
   },
@@ -952,7 +952,8 @@ const begehungStarten: ToolDef = {
       fortgesetzt,
       objekt: objektAnsicht(objekt),
       objekt_neu_angelegt: objektNeu,
-      link: `${ctx.origin}/begehung/${begehung.id}`,
+      link: `${ctx.origin}/objekt/${begehung.objekt_id}`,
+      checkliste: `${ctx.origin}/objekt/${begehung.objekt_id}/checkliste`,
       bauteile_gesamt: bauteile.length,
       faellige_bauteile: faellige.map((b) => ({
         nr: b.nr,
@@ -1277,7 +1278,7 @@ async function rueckblick(ctx: Kontext, begehung: Begehung) {
   return {
     begehung: begehungAnsicht(begehung),
     objekt: objektAnsicht(objekt),
-    link: `${ctx.origin}/begehung/${begehung.id}`,
+    link: `${ctx.origin}/objekt/${begehung.objekt_id}`,
     pruefungen_gesamt: pruefungen.length,
     mit_abweichungen: pruefungen.filter((p) => Object.keys(p.checks).length).length,
     nachbesserung: pruefungen.filter((p) => p.ergebnis === "Nachbesserung").length,
@@ -1377,7 +1378,7 @@ const berichteErzeugenTool: ToolDef = {
     });
     return {
       ...lauf,
-      link: `${ctx.origin}/begehung/${begehung.id}`,
+      link: `${ctx.origin}/objekt/${begehung.objekt_id}/berichte`,
       alle_als_zip: lauf.fertig
         ? `${ctx.origin}/begehung/${begehung.id}/paket.zip`
         : undefined,

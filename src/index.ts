@@ -34,10 +34,14 @@ import {
   freigabeSeite,
   verbindenSeite,
 } from "./web/allgemein";
-import { geschosseSeite, objektSeite, objekteSeite } from "./web/objekte";
+import {
+  objektBerichteSeite,
+  objektMaengelSeite,
+  objektSeite,
+  objekteSeite,
+} from "./web/objekte";
 import { bauteilSeite } from "./web/bauteile";
 import {
-  begehungSeite,
   checklisteSeite,
   checklisteStand,
   pruefungSeite,
@@ -69,9 +73,7 @@ import {
 } from "./daten/personen";
 import {
   geschossAendern,
-  geschossAnlegen,
   geschossLesen,
-  geschosseListe,
   objektZuGeschoss,
   objektAendern,
   objektAnlegen,
@@ -320,7 +322,6 @@ export default {
 
       case "GET /touren":
         return tourenSeite(env, nutzer, {
-          woche: url.searchParams.get("woche") ?? undefined,
           meldung,
         });
 
@@ -522,6 +523,30 @@ async function datei(env: Env, schluessel: string): Promise<Response> {
 
 /* ── Objekt ────────────────────────────────────────────────────────────────── */
 
+/**
+ * Den Termin für heute holen — fortsetzen, wenn schon einer läuft, sonst anlegen.
+ *
+ * Das ersetzt die Knöpfe „Begehung starten" und „Begehung fortsetzen": wer die Checkliste
+ * öffnet oder eine Tür erfasst, meint damit den heutigen Termin an diesem Objekt. Der Aufruf
+ * ist je Tag und Objekt idempotent, ein zweiter Klick verdoppelt also nichts.
+ */
+async function terminFuerHeute(
+  env: Env,
+  nutzer: Nutzer,
+  objektId: string,
+  datum?: string,
+): Promise<{ id: string }> {
+  const person = await personLesen(env.DB, nutzer.benutzer);
+  const v = person?.vorgaben ?? {};
+  const { begehung } = await begehungFuerTag(env.DB, objektId, datum || heute(), {
+    pruefer: v.pruefer ?? nutzer.name,
+    befaehigung: v.befaehigung,
+    ort: v.ort,
+    angelegt_von: nutzer.benutzer,
+  });
+  return begehung;
+}
+
 async function objektRoute(
   request: Request,
   env: Env,
@@ -563,6 +588,26 @@ async function objektRoute(
     const schluessel = await objektLoeschen(env.DB, objekt.id);
     for (const k of schluessel) await env.R2.delete(k);
     return umleitung("/objekte?meldung=Objekt+entfernt.");
+  }
+
+  /*
+   * Die drei weiteren Reiter des Objekts. „Checkliste" und „Erfassen" lösen den Termin von
+   * selbst auf — es gibt keinen Knopf „Begehung starten" mehr, weil es keinen braucht:
+   * `begehungFuerTag` setzt den heutigen Termin fort oder legt ihn an.
+   */
+  if (teile.length === 3 && teile[2] === "maengel" && request.method === "GET") {
+    return objektMaengelSeite(env, nutzer, objekt.id);
+  }
+
+  if (teile.length === 3 && teile[2] === "berichte" && request.method === "GET") {
+    return objektBerichteSeite(env, nutzer, objekt.id, meldung);
+  }
+
+  if (teile.length === 3 && (teile[2] === "checkliste" || teile[2] === "erfassen")) {
+    const begehung = await terminFuerHeute(env, nutzer, objekt.id);
+    return teile[2] === "checkliste"
+      ? checklisteSeite(env, nutzer, begehung.id)
+      : umleitung(`/begehung/${begehung.id}/pruefung/neu`);
   }
 
   if (teile.length === 3 && teile[2] === "begehung" && request.method === "POST") {
@@ -613,43 +658,6 @@ async function objektRoute(
       const geschoss = await geschossLesen(env.DB, geschossId);
       if (!geschoss) return json({ fehler: "Geschoss gibt es nicht." }, 404);
       return json(await planDaten(env, objekt, geschoss));
-    }
-  }
-
-  if (teile.length === 3 && teile[2] === "geschosse") {
-    if (request.method === "GET") return geschosseSeite(env, nutzer, objekt.id, meldung);
-    if (request.method === "POST") {
-      const form = await formDaten(request);
-      const weg = String(form.get("loeschen") ?? "");
-      if (weg) {
-        /* Nur ein leeres Geschoss verschwindet — an einem mit Bauteilen hängt Historie. */
-        const belegt = await env.DB.prepare(
-          "SELECT COUNT(*) AS n FROM bauteile WHERE geschoss_id = ?",
-        )
-          .bind(weg)
-          .first<{ n: number }>();
-        if (Number(belegt?.n ?? 0) > 0) {
-          return umleitung(
-            `/objekt/${objekt.id}/geschosse?meldung=Das+Geschoss+hat+noch+Bauteile.`,
-          );
-        }
-        await env.DB.prepare("DELETE FROM geschosse WHERE id = ?").bind(weg).run();
-        return umleitung(`/objekt/${objekt.id}/geschosse?meldung=Geschoss+entfernt.`);
-      }
-      for (const g of await geschosseListe(env.DB, objekt.id)) {
-        const name = form.get(`name_${g.id}`);
-        const reihenfolge = form.get(`reihenfolge_${g.id}`);
-        const patch: { name?: string; reihenfolge?: number } = {};
-        if (name !== null && String(name).trim()) patch.name = String(name).trim();
-        if (reihenfolge !== null && String(reihenfolge).trim() !== "") {
-          const zahl = Number(reihenfolge);
-          if (Number.isFinite(zahl)) patch.reihenfolge = zahl;
-        }
-        await geschossAendern(env.DB, g.id, patch);
-      }
-      const neu = String(form.get("neu") ?? "").trim();
-      if (neu) await geschossAnlegen(env.DB, objekt.id, neu);
-      return umleitung(`/objekt/${objekt.id}/geschosse?meldung=Geschosse+gespeichert.`);
     }
   }
 
@@ -723,8 +731,18 @@ async function begehungRoute(
   zugriffPruefen(nutzer.benutzer, begehung.objekt_id);
   const meldung = url.searchParams.get("meldung") ?? undefined;
 
+  /*
+   * Alte Adressen bleiben gültig: der Skill, ältere Antworten des Connectors und Lesezeichen
+   * zeigen auf /begehung/… . In der Oberfläche gibt es den Termin aber nicht mehr — also führt
+   * sie aufs Objekt, dorthin, wo dieser Termin gerade sichtbar ist.
+   */
   if (teile.length === 2) {
-    if (request.method === "GET") return begehungSeite(env, nutzer, begehung.id, meldung);
+    if (request.method === "GET") {
+      const ziel = begehung.status === "abgeschlossen" ? "/berichte" : "";
+      return umleitung(
+        `/objekt/${begehung.objekt_id}${ziel}${meldung ? `?meldung=${encodeURIComponent(meldung)}` : ""}`,
+      );
+    }
     if (request.method === "POST") {
       const form = await formDaten(request);
       const patch: Record<string, string> = {};
@@ -732,12 +750,15 @@ async function begehungRoute(
         if (form.get(feld) !== null) patch[feld] = String(form.get(feld));
       }
       await begehungAendern(env.DB, begehung.id, patch);
-      return umleitung(`/begehung/${begehung.id}?meldung=Stammdaten+gespeichert.`);
+      return umleitung(`/objekt/${begehung.objekt_id}/berichte?meldung=Stammdaten+gespeichert.`);
     }
   }
 
   if (teile.length === 3 && teile[2] === "checkliste" && request.method === "GET") {
-    return checklisteSeite(env, nutzer, begehung.id);
+    /* Die Adresse aus dem Skill; die Seite selbst wohnt jetzt am Objekt. */
+    return begehung.datum === heute()
+      ? umleitung(`/objekt/${begehung.objekt_id}/checkliste`)
+      : checklisteSeite(env, nutzer, begehung.id);
   }
 
   if (teile.length === 3 && teile[2] === "stand.json" && request.method === "GET") {
@@ -750,21 +771,22 @@ async function begehungRoute(
 
   if (teile.length === 3 && teile[2] === "abschliessen" && request.method === "POST") {
     await begehungAendern(env.DB, begehung.id, { status: "abgeschlossen" });
-    return umleitung(`/begehung/${begehung.id}?meldung=Begehung+abgeschlossen.`);
+    return umleitung(`/objekt/${begehung.objekt_id}/berichte`);
   }
 
   if (teile.length === 3 && teile[2] === "oeffnen" && request.method === "POST") {
     await begehungAendern(env.DB, begehung.id, { status: "laufend" });
-    return umleitung(`/begehung/${begehung.id}?meldung=Begehung+wieder+geöffnet.`);
+    return umleitung(`/objekt/${begehung.objekt_id}`);
   }
 
   if (teile.length === 3 && teile[2] === "abbrechen" && request.method === "POST") {
     const e = await begehungAbbrechen(env.DB, begehung.id);
-    if (e.geloescht) {
-      return umleitung(`/objekt/${begehung.objekt_id}?meldung=Begehung+abgebrochen+und+entfernt.`);
-    }
     return umleitung(
-      `/begehung/${begehung.id}?meldung=Begehung+abgebrochen.+${e.pruefungen}+Prüfungen+bleiben+erhalten.`,
+      `/objekt/${begehung.objekt_id}?meldung=${
+        e.geloescht
+          ? "Termin+verworfen."
+          : `Termin+abgebrochen.+${e.pruefungen}+Prüfungen+bleiben+erhalten.`
+      }`,
     );
   }
 
@@ -1100,42 +1122,21 @@ async function tourRoute(request: Request, env: Env, nutzer: Nutzer): Promise<Re
   const datum = String(form.get("datum") ?? "").trim();
   const objektId = String(form.get("objekt") ?? "").trim();
   const tun = String(form.get("tun") ?? "dazu");
-  const woche = String(form.get("woche") ?? "").trim();
-  const zurueck = `/touren${woche ? `?woche=${encodeURIComponent(woche)}` : ""}`;
+  const zurueck = "/touren";
 
   if (!datum || !objektId) return umleitung(zurueck);
   const objekt = await objektLesen(env.DB, objektId);
   if (!objekt) return umleitung(zurueck);
   zugriffPruefen(nutzer.benutzer, objekt.id);
 
-  if (tun === "rundgang") {
-    const person = await personLesen(env.DB, nutzer.benutzer);
-    const v = person?.vorgaben ?? {};
-    const { begehung } = await begehungFuerTag(env.DB, objekt.id, datum, {
-      pruefer: v.pruefer ?? nutzer.name,
-      befaehigung: v.befaehigung,
-      ort: v.ort,
-      /* Geplant, nicht laufend: erst die erste gespeicherte Prüfung macht daraus einen Termin. */
-      status: "geplant",
-      angelegt_von: nutzer.benutzer,
-    });
-    return umleitung(`/rundgang/${begehung.id}`);
-  }
-
   const tour = await tourLesen(env.DB, datum, nutzer.benutzer);
   let liste = tour?.objekte ?? [];
-  const pos = liste.indexOf(objektId);
 
+  /* Die Reihenfolge setzt `tour_planen` im Gespräch — hier wird nur dazugelegt und abgesagt. */
   if (tun === "dazu") {
-    if (pos < 0) liste = [...liste, objektId];
+    if (!liste.includes(objektId)) liste = [...liste, objektId];
   } else if (tun === "weg") {
     liste = liste.filter((id) => id !== objektId);
-  } else if (tun === "hoch" && pos > 0) {
-    liste = [...liste];
-    [liste[pos - 1], liste[pos]] = [liste[pos], liste[pos - 1]];
-  } else if (tun === "runter" && pos >= 0 && pos < liste.length - 1) {
-    liste = [...liste];
-    [liste[pos], liste[pos + 1]] = [liste[pos + 1], liste[pos]];
   }
 
   await tourSpeichern(env.DB, datum, nutzer.benutzer, liste);

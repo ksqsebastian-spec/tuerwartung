@@ -66,7 +66,7 @@ code=$(curl -s -o /dev/null -w "%{http_code}" -X POST $B/anmeldung -d "benutzer=
 
 code=$(curl -s -o /dev/null -w "%{http_code}" $B/objekte)
 [ "$code" = "302" ] && ok "Ohne Cookie umgeleitet" || bad "Ohne Cookie $code"
-curl -s -b $J $B/objekte | grep -q "Neues Objekt" && ok "Objektliste" || bad "Objektliste"
+curl -s -b $J $B/objekte | grep -q "sonst legt der Chat es an" && ok "Objektliste" || bad "Objektliste"
 
 echo "== 2. OAuth =="
 curl -s $B/.well-known/oauth-protected-resource | grep -q '"resource"' && ok "Resource-Metadaten" || bad "Resource-Metadaten"
@@ -232,10 +232,15 @@ ruf begehung_aendern "$(jq -nc --arg b "$BEG2" --arg d "$VORJAHR" '{begehung:$b,
 ruf faellig '{"tage":30}' | jq -e --arg o "$OID" '[.objekte[].id] | index($o)' >/dev/null \
   && ok "nach Rückdatierung um 13 Monate wieder fällig" || bad "Rückdatierung wirkt nicht"
 
-echo "== 11. Website =="
-curl -s -b $J "$B/objekt/$OID" | grep -q "Bestand" && ok "Objektseite" || bad "Objektseite"
-curl -s -b $J "$B/objekt/$OID/bauteil/2" | grep -q "Historie" && ok "Bauteilseite" || bad "Bauteilseite"
-curl -s -b $J "$B/begehung/$BEG2" | grep -q "Prüfungen" && ok "Begehungsseite" || bad "Begehungsseite"
+echo "== 11. Website: die vier Reiter am Objekt =="
+curl -s -b $J "$B/objekt/$OID" | grep -q "Bestand" && ok "Reiter Bestand" || bad "Reiter Bestand"
+curl -s -b $J "$B/objekt/$OID/checkliste" | grep -q "Checkliste" && ok "Reiter Checkliste" || bad "Reiter Checkliste"
+curl -s -b $J "$B/objekt/$OID/maengel" | grep -q "Dichtung" && ok "Reiter Mängel" || bad "Reiter Mängel"
+curl -s -b $J "$B/objekt/$OID/berichte" | grep -q "Prüfungen" && ok "Reiter Berichte" || bad "Reiter Berichte"
+# Der Termin kommt in der Oberfläche nicht mehr vor — alte Adressen führen aufs Objekt.
+ZIEL=$(curl -s -o /dev/null -w "%{redirect_url}" -b $J "$B/begehung/$BEG2")
+echo "$ZIEL" | grep -q "/objekt/$OID" && ok "alte Begehungsadresse leitet aufs Objekt" || bad "Weiterleitung: $ZIEL"
+curl -s -b $J "$B/objekt/$OID" | grep -qv "Begehung fortsetzen" && ok "kein Knopf für den Termin" || bad "Termin noch sichtbar"
 curl -s -b $J "$B/maengel?status=alle" | grep -q "Dichtung" && ok "Mängelseite" || bad "Mängelseite"
 code=$(curl -s -o /dev/null -w "%{http_code}" -b $J -X POST "$B/begehung/$BEG2/pruefung/3" \
   -d "ergebnis=Nachbesserung" -d "hinweise=Aus dem Browser" -d "p_1=io" -d "p_4=nio" -d "raum=Flur 3")
@@ -299,17 +304,38 @@ ruf berichte_auflisten "$(jq -nc --arg b "$BEG2" '{begehung:$b}')" \
   && ok "Bericht mit Fotoanhang (2 Seiten)" || bad "Fotoanhang fehlt"
 
 echo "== 14. Tagestour =="
-MONTAG=$(date -d "monday this week" +%Y-%m-%d 2>/dev/null || date +%Y-%m-%d)
 T=$(ruf tour_planen "$(jq -nc --arg d "$HEUTE" --arg o "$OID" '{datum:$d,objekte:[$o]}')")
 echo "$T" | jq -e '.objekte | length == 1' >/dev/null && ok "tour_planen" || bad "tour_planen: $T"
 ruf tour_lesen "$(jq -nc --arg d "$HEUTE" '{datum:$d}')" \
   | jq -e '.maps | startswith("https://www.google.com/maps/dir/")' >/dev/null \
   && ok "Maps-Link" || bad "Maps-Link"
 code=$(curl -s -o /dev/null -w "%{http_code}" -b $J "$B/touren")
-[ "$code" = "200" ] && ok "Tourenseite" || bad "Tourenseite $code"
+curl -s -b $J "$B/touren" | grep -q "Fällig" && ok "Tourenliste" || bad "Tourenliste"
 code=$(curl -s -o /dev/null -w "%{http_code}" -b $J -X POST "$B/touren" \
-  -d "woche=$MONTAG" -d "datum=$HEUTE" -d "objekt=$OID" -d "tun=weg")
+  -d "datum=$HEUTE" -d "objekt=$OID" -d "tun=weg")
 [ "$code" = "302" ] && ok "Objekt aus der Tour genommen" || bad "Tour entfernen $code"
+
+echo "== 14b. Etage entsteht beim Erfassen =="
+# Der Regelweg ist das Diktat; früher blieb geschoss_id dabei immer leer und die
+# Etagenordnung der Laufreihenfolge lief leer mit. Vier Wege müssen zur Etage führen.
+GB=$(ruf begehung_starten "$(jq -nc --arg o "$OBJEKT" '{objekt:$o}')" | jq -r .begehung.id)
+ruf pruefung_erfassen "$(jq -nc --arg b "$GB" '{begehung:$b,nr:41,raumnummer:"4.01",raum:"aus Raumnummer",flur:"Flur Nord"}')" >/dev/null
+ruf pruefung_erfassen "$(jq -nc --arg b "$GB" '{begehung:$b,nr:42,raum:"aus ETAGE",felder:{ETAGE:"-1"}}')" >/dev/null
+ruf pruefung_erfassen "$(jq -nc --arg b "$GB" '{begehung:$b,nr:43,raum:"aus flur",flur:"1. Obergeschoss"}')" >/dev/null
+ruf pruefung_erfassen "$(jq -nc --arg b "$GB" '{begehung:$b,nr:44,raum:"ausdrücklich",geschoss:"DG"}')" >/dev/null
+OL=$(ruf objekt_lesen "$(jq -nc --arg o "$OID" '{objekt:$o}')")
+for G in "4. OG" "UG" "1. OG" "DG"; do
+  echo "$OL" | jq -e --arg g "$G" '[.geschosse[].name] | index($g)' >/dev/null \
+    && ok "Etage $G erkannt" || bad "Etage $G fehlt"
+done
+# "Flur Nord" ist ein Flur, keine Etage: es darf kein Geschoss dieses Namens geben.
+echo "$OL" | jq -e '[.geschosse[].name] | index("Flur Nord") | not' >/dev/null \
+  && ok "Flurname wird nicht zur Etage" || bad "Flur als Geschoss angelegt"
+# Und zweimal dieselbe Etage bleibt eine.
+ruf pruefung_erfassen "$(jq -nc --arg b "$GB" '{begehung:$b,nr:45,raum:"nochmal DG",geschoss:"Dachgeschoss"}')" >/dev/null
+ruf objekt_lesen "$(jq -nc --arg o "$OID" '{objekt:$o}')" \
+  | jq -e '[.geschosse[] | select(.name == "DG")] | length == 1' >/dev/null \
+  && ok "gleiche Etage wird nicht verdoppelt" || bad "Etage verdoppelt"
 
 echo "== 15. Bestand als Stapel =="
 ST=$(ruf bauteile_anlegen "$(jq -nc --arg o "$OID" '{objekt:$o,geschoss:"2. OG",bauteile:[

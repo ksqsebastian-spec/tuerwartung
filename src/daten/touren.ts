@@ -110,20 +110,9 @@ export function mapsLink(objekte: Objekt[]): string {
   return `https://www.google.com/maps/dir/${halte.join("/")}`;
 }
 
-/** Montag der Woche, in der `datum` liegt. */
-export function wochenStart(datum: string): string {
-  const d = new Date(`${datum}T12:00:00Z`);
-  if (Number.isNaN(d.getTime())) return datum;
-  const tag = (d.getUTCDay() + 6) % 7; // Montag = 0
-  d.setUTCDate(d.getUTCDate() - tag);
-  return d.toISOString().slice(0, 10);
-}
-
 export function tagePlus(datum: string, tage: number): string {
   const d = new Date(`${datum}T12:00:00Z`);
   if (Number.isNaN(d.getTime())) return datum;
   d.setUTCDate(d.getUTCDate() + tage);
   return d.toISOString().slice(0, 10);
 }
-
-export const WOCHENTAGE = ["Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"];

@@ -35,10 +35,15 @@ Bestandsaufnahme. Hängt an einer Tür noch ein Mangel aus dem Vorjahr, fragt Cl
 „Fertig" liest Claude zurück und nennt die fälligen Türen, die noch fehlen; auf „Go" entstehen
 die PDFs.
 
-**Die Begehungsseite** (`/begehung/:id`) ist zum Nachsehen, nicht zum Zweitbedienen: ein Satz
-sagt, wo der Termin steht, ein Knopf führt weiter — „Erste Tür erfassen", „Checkliste öffnen",
-„Begehung abschließen", „Berichte erzeugen", „Alles als ZIP", je nachdem. Alles andere steht
-leise darunter. Daneben liegt als eigener Reiter:
+**Die Objektseite** (`/objekt/:id`) ist die eine Arbeitsfläche, mit vier Reitern: **Bestand ·
+Checkliste · Mängel · Berichte**. Darüber ein Satz, der sagt wo man steht, und ein Knopf, der
+weiterführt — „Erste Tür erfassen", „Checkliste öffnen", „Berichte erstellen". Alles andere steht
+leise darunter.
+
+Einen „Termin" gibt es in der Oberfläche nicht: wer die Checkliste öffnet oder eine Tür erfasst,
+meint den heutigen Termin an diesem Objekt, und der entsteht dabei von selbst. Kein „Begehung
+starten", kein „fortsetzen". Intern trägt die Begehung weiterhin die Prüfungen und Berichte —
+alte Adressen unter `/begehung/…` leiten aufs Objekt.
 
 **Die Checkliste** (`/begehung/:id/checkliste`) ist der Blick fürs Diktat: eine Hand hält das
 Telefon, die andere die Tür. Fortschritt, die nächste ungeprüfte Tür groß, darunter alle Bauteile
