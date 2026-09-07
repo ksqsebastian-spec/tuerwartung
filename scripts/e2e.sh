@@ -308,6 +308,30 @@ ruf berichte_auflisten "$(jq -nc --arg b "$BEG2" '{begehung:$b}')" \
   | jq -e '[.berichte[] | select(.nr == 4) | .seiten] == [2]' >/dev/null \
   && ok "Bericht mit Fotoanhang (2 Seiten)" || bad "Fotoanhang fehlt"
 
+echo "== 13a. Einstufung bestimmt die Frist =="
+PB=$(ruf begehung_starten "$(jq -nc --arg o "E2E Einstufung $STEMPEL" '{objekt:$o}')" | jq -r .begehung.id)
+ruf pruefung_erfassen "$(jq -nc --arg b "$PB" '{begehung:$b,nr:1,checks:{"3":"nio"},hinweise:"Brandschutztuer schliesst nicht",prioritaet:"hoch"}')" \
+  | jq -e '.mangel_angelegt.prioritaet == "hoch"' >/dev/null && ok "hoch übernommen" || bad "Einstufung hoch"
+ruf pruefung_erfassen "$(jq -nc --arg b "$PB" '{begehung:$b,nr:2,checks:{"7":"nio"},prioritaet:"niedrig",zustaendig:"Betreiber"}')" \
+  | jq -e '.mangel_angelegt.zustaendig == "Betreiber"' >/dev/null && ok "Zuständigkeit übernommen" || bad "zustaendig"
+ruf pruefung_erfassen "$(jq -nc --arg b "$PB" '{begehung:$b,nr:3,checks:{"9":"nio"}}')" \
+  | jq -e '.mangel_angelegt.prioritaet == "mittel"' >/dev/null && ok "ohne Angabe mittel" || bad "Standardeinstufung"
+# 7 / 28 / 90 Tage — die Fristen müssen auseinanderliegen und in dieser Ordnung stehen.
+ruf maengel_auflisten "$(jq -nc --arg o "E2E Einstufung $STEMPEL" '{objekt:$o}')" \
+  | jq -e '[.maengel[] | select(.bauteil_nr <= 3)] | sort_by(.bauteil_nr) | (.[0].frist < .[2].frist) and (.[2].frist < .[1].frist)' >/dev/null \
+  && ok "Frist folgt der Einstufung (7 < 28 < 90)" || bad "Fristen"
+# Eine Korrektur ohne Einstufung darf die gesetzte nicht zurücknehmen.
+ruf pruefung_erfassen "$(jq -nc --arg b "$PB" '{begehung:$b,nr:1,checks:{"3":"nio"},hinweise:"Nachtrag"}')" >/dev/null
+ruf maengel_auflisten "$(jq -nc --arg o "E2E Einstufung $STEMPEL" '{objekt:$o}')" \
+  | jq -e '[.maengel[] | select(.bauteil_nr == 1)][0].prioritaet == "hoch"' >/dev/null \
+  && ok "Korrektur nimmt die Einstufung nicht zurück" || bad "Einstufung überschrieben"
+# Die erkannte Etage steht in der Quittung.
+ruf pruefung_erfassen "$(jq -nc --arg b "$PB" '{begehung:$b,nr:4,raumnummer:"2.14",raum:"Lager",flur:"2. OG"}')" \
+  | jq -e '.bauteil.geschoss == "2. OG" and .bauteil.ort == "2. OG · 2.14 · Lager"' >/dev/null \
+  && ok "Etage in der Quittung, ohne Doppelung" || bad "Ort in der Quittung"
+EIN_OID=$(ruf objekt_lesen "$(jq -nc --arg o "E2E Einstufung $STEMPEL" '{objekt:$o}')" | jq -r .objekt.id)
+curl -s -o /dev/null -b $J -X POST "$B/objekt/$EIN_OID/loeschen"
+
 echo "== 13b. Automatik: Lagebild, Tagesplanung, Abschluss in einem Zug =="
 L=$(ruf lage '{}')
 echo "$L" | jq -e '.zusammenfassung | length > 0' >/dev/null && ok "Lagebild" || bad "lage: $L"

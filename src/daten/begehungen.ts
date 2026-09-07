@@ -16,7 +16,7 @@ import { mangelAnlegen, mangelAendern, mangelZuPruefung, maengelZuBauteil } from
 import type { Mangel } from "./maengel";
 import { personLesen } from "./personen";
 import type { Objekt } from "./objekte";
-import { geschossAusRaumnummer, geschossZuordnen } from "./objekte";
+import { geschossAusRaumnummer, geschossZuordnen, geschosseListe } from "./objekte";
 
 export interface Begehung {
   id: string;
@@ -441,6 +441,8 @@ export interface PruefungEingabe {
   raum?: string;
   flur?: string;
   geschoss?: string;
+  prioritaet?: string;
+  zustaendig?: string;
   wie_davor?: boolean;
   neu?: boolean;
   geprueft_am?: number;
@@ -449,6 +451,8 @@ export interface PruefungEingabe {
 export interface Erfassung {
   pruefung: Pruefung;
   bauteil: Bauteil;
+  /** Die Etage, an der das Bauteil hängt — erkannt oder schon vorhanden. */
+  geschoss: { id: string; name: string } | null;
   neu_angelegt: boolean;
   offene_maengel_vorjahr: Mangel[];
   mangel: Mangel | null;
@@ -636,16 +640,24 @@ export async function pruefungErfassen(
   }
 
   /* 4. Mangel automatisch (Abschnitt 2.2). */
-  const mangel = await mangelPflegen(db, objekt, begehung, bauteil, pruefung);
+  const mangel = await mangelPflegen(db, objekt, begehung, bauteil, pruefung, {
+    prioritaet: eingabe.prioritaet,
+    zustaendig: eingabe.zustaendig,
+  });
 
   /* 5. Was am Bauteil aus früheren Begehungen offen ist — Claude soll danach fragen. */
   const alle = await maengelZuBauteil(db, bauteil.id, true);
   const eigeneIds = new Set([pruefung.id]);
   const vorjahr = alle.filter((m) => !m.pruefung_id || !eigeneIds.has(m.pruefung_id));
 
+  const geschoss = bauteil.geschoss_id
+    ? (await geschosseListe(db, objekt.id)).find((g) => g.id === bauteil!.geschoss_id) ?? null
+    : null;
+
   return {
     pruefung,
     bauteil,
+    geschoss: geschoss ? { id: geschoss.id, name: geschoss.name } : null,
     neu_angelegt: neuAngelegt,
     offene_maengel_vorjahr: vorjahr,
     mangel,
@@ -669,12 +681,25 @@ async function haeufigsteArt(db: D1Database, objektId: string): Promise<string> 
  * Bemerkung ohne `nio` und ohne Nachbesserung entsteht keiner. Existiert schon einer aus
  * derselben Prüfung, wird er aktualisiert statt verdoppelt.
  */
+/**
+ * Wie dringend ist es, und bis wann? Die Frist folgt der Einstufung, statt für alles 28 Tage zu
+ * setzen: was hoch eingestuft ist, gehört in einer Woche erledigt, Kleinkram darf ein Quartal
+ * warten. Wer die Einstufung nicht mitgibt, bekommt „mittel" — dann bleibt es wie bisher.
+ */
+const FRIST_TAGE: Record<string, number> = { hoch: 7, mittel: 28, niedrig: 90 };
+
+function einstufung(wunsch: string | undefined): "hoch" | "mittel" | "niedrig" {
+  const w = String(wunsch ?? "").trim().toLowerCase();
+  return w === "hoch" || w === "niedrig" ? w : "mittel";
+}
+
 async function mangelPflegen(
   db: D1Database,
   objekt: Objekt,
   begehung: Begehung,
   bauteil: Bauteil,
   pruefung: Pruefung,
+  urteil: { prioritaet?: string; zustaendig?: string } = {},
 ): Promise<Mangel | null> {
   const nio = Object.entries(pruefung.checks).filter(([, b]) => b === "nio").map(([nr]) => nr);
   const sb = Object.entries(pruefung.checks).filter(([, b]) => b === "sb").map(([nr]) => nr);
@@ -685,10 +710,23 @@ async function mangelPflegen(
 
   const punkte = [...nio, ...sb].sort((a, b) => Number(a) - Number(b));
   const beschreibung = pruefung.hinweise || beschreibungAusPunkten(punkte);
-  const frist = tageSpaeter(begehung.datum, 28) || null;
+  const prioritaet = einstufung(urteil.prioritaet);
+  const frist = tageSpaeter(begehung.datum, FRIST_TAGE[prioritaet]) || null;
+  const zustaendig = String(urteil.zustaendig ?? "").trim() || "Seehafer";
 
   if (vorhanden) {
-    return (await mangelAendern(db, vorhanden.id, { punkte, beschreibung })) ?? vorhanden;
+    /*
+     * Eine Korrektur darf nachschärfen, aber nichts zurücknehmen, was ein Mensch am Mangel
+     * gesetzt hat: Einstufung und Frist wandern nur mit, wenn sie diesmal ausdrücklich
+     * mitkommen.
+     */
+    const patch: Record<string, unknown> = { punkte, beschreibung };
+    if (urteil.prioritaet !== undefined) {
+      patch.prioritaet = prioritaet;
+      patch.frist = frist;
+    }
+    if (urteil.zustaendig !== undefined) patch.zustaendig = zustaendig;
+    return (await mangelAendern(db, vorhanden.id, patch)) ?? vorhanden;
   }
   return mangelAnlegen(db, {
     objekt_id: objekt.id,
@@ -696,9 +734,9 @@ async function mangelPflegen(
     pruefung_id: pruefung.id,
     punkte,
     beschreibung,
-    prioritaet: "mittel",
+    prioritaet,
     frist,
-    zustaendig: "Seehafer",
+    zustaendig,
   });
 }
 

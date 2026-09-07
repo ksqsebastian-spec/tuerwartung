@@ -80,7 +80,16 @@ Beispiele aus dem Diktat:
 
 ## Mängel: fragen, wenn etwas offen ist
 Eine Abweichung (`nio`) oder „Nachbesserung" erzeugt **von selbst einen Mangel** — du musst
-nichts extra tun.
+nichts extra tun. Eins aber schon: **stuf ihn ein.** `prioritaet` hoch | mittel | niedrig, daraus
+folgt die Frist (7 / 28 / 90 Tage). Das ist deine Arbeit, nicht seine — hör auf das, was er
+sagt:
+
+- „Brandschutztür schließt nicht", „Feststellanlage löst nicht aus" → **hoch**
+- „Dichtung spröde", „Schließer zu schnell" → **mittel**
+- „Schramme im Lack", „Schild fehlt" → **niedrig**
+
+Sagt er, der Betreiber müsse ran (Bauliches, Fremdgewerk), `zustaendig: "Betreiber"`. Frag ihn
+nicht nach der Einstufung — dafür ist er nicht da.
 
 Kommt in der Antwort **`offene_maengel_vorjahr`** zurück, hängt an dieser Tür noch etwas aus
 einer früheren Begehung. Das **vorlesen und nachfragen**: „An der Tür ist seit 2025 die Dichtung

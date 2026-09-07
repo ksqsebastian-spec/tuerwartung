@@ -349,6 +349,14 @@ sich auf die vorige Zeile des Stapels bzw. die letzte gespeicherte Prüfung.
 
 ### 2.3 Mängel im Diktat
 
+**Einstufung und Frist.** `pruefung_erfassen` nimmt `prioritaet` (hoch | mittel | niedrig) und
+`zustaendig` mit; daraus folgt die Frist: **7 / 28 / 90 Tage** ab dem Begehungsdatum. Ohne
+Angabe bleibt es bei „mittel" und 28 Tagen wie bisher. Die Einstufung ist Sache des Agenten,
+nicht des Monteurs — er sagt „Brandschutztür schließt nicht", Claude macht daraus „hoch"
+(Leitsatz 5: KI dort, wo Sprache zu deuten ist). Eine spätere Korrektur derselben Prüfung nimmt
+eine einmal gesetzte Einstufung **nicht** zurück; sie wandert nur mit, wenn sie ausdrücklich
+wieder mitkommt.
+
 `mangel_schliessen(bauteil|mangel, freimeldung?)` — „Dichtung ist getauscht" → Status
 `behoben`, `behoben_am`, `behoben_von`. Das Tool nimmt `bauteil` (Objekt + nr) und schließt
 dann **alle** offenen Mängel des Bauteils, oder eine `mangel`-ID gezielt.

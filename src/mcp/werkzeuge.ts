@@ -1040,6 +1040,16 @@ const PRUEFUNG_FELDER = {
     "Etage, z. B. 'EG', '1. OG', 'UG'. Nur nötig, wenn sie weder in der Raumnummer ('1.04') " +
     "noch im Feld ETAGE steckt — sonst erkennt der Server sie selbst.",
   ),
+  prioritaet: str(
+    "Einstufung eines dabei entstehenden Mangels: hoch | mittel | niedrig. Danach richtet sich " +
+    "die Frist (7 / 28 / 90 Tage). Ohne Angabe 'mittel'. Setz sie aus dem, was der Monteur " +
+    "sagt — eine Brandschutztür, die nicht schließt, ist 'hoch'; eine spröde Dichtung 'mittel'; " +
+    "eine Schramme im Lack 'niedrig'.",
+  ),
+  zustaendig: str(
+    "Wer den Mangel behebt: 'Seehafer' (Standard) oder 'Betreiber' — oder ein Name, wenn der " +
+    "Monteur einen nennt.",
+  ),
   neu: bool("false verbietet das Anlegen eines unbekannten Bauteils"),
 };
 
@@ -1114,6 +1124,25 @@ const pruefungenErfassenTool: ToolDef = {
   },
 };
 
+/**
+ * Ortsangabe in einer Zeile, ohne Doppelung. Der Monteur diktiert die Etage oft auch in `flur`;
+ * dann stünde sie sonst zweimal da („EG · 0.01 · Haupteingang · EG").
+ */
+function ortText(
+  geschoss: string,
+  b: { raumnummer: string; raum: string; bezeichnung: string; flur: string },
+): string {
+  const teile: string[] = [];
+  const gesehen = new Set<string>();
+  for (const t of [geschoss, b.raumnummer, b.raum || b.bezeichnung, b.flur]) {
+    const schluessel = t.trim().toLowerCase().replace(/[\s.]/g, "");
+    if (!schluessel || gesehen.has(schluessel)) continue;
+    gesehen.add(schluessel);
+    teile.push(t.trim());
+  }
+  return teile.join(" · ");
+}
+
 function erfassungsAntwort(
   e: Awaited<ReturnType<typeof pruefungErfassen>>,
   objekt: Objekt,
@@ -1125,9 +1154,9 @@ function erfassungsAntwort(
       nr: e.bauteil.nr,
       kennung: e.bauteil.kennung || undefined,
       art: e.bauteil.art,
-      ort:
-        [e.bauteil.raumnummer, e.bauteil.raum, e.bauteil.flur].filter(Boolean).join(" · ") ||
-        undefined,
+      /* Die erkannte Etage steht mit im Ort — dann kann Claude sie zurückquittieren. */
+      ort: ortText(e.geschoss?.name ?? "", e.bauteil) || undefined,
+      geschoss: e.geschoss?.name || undefined,
       felder: e.bauteil.felder,
     },
     ergebnis: e.pruefung.ergebnis,
@@ -1906,6 +1935,11 @@ export const ANLEITUNG =
   "des Objekts, nicht die zwölfte Tür des Tages; unbekannte Nummern werden angelegt ('Tür 12 " +
   "ist neu — lege ich an'). Standard ist: alles in Ordnung — nur Abweichungen als checks " +
   "nennen, z. B. {\"8\":\"nio\"}. Sagt der Monteur 'wie davor', wie_davor=true setzen. " +
+  "Eine Abweichung erzeugt von selbst einen Mangel. Stuf ihn dabei ein: 'prioritaet' hoch | " +
+  "mittel | niedrig, danach richtet sich die Frist (7 / 28 / 90 Tage). Das ist deine Aufgabe, " +
+  "nicht die des Monteurs — hör auf das, was er sagt: eine Brandschutztür, die nicht schließt, " +
+  "ist 'hoch'; eine spröde Dichtung 'mittel'; eine Schramme 'niedrig'. Sagt er, der Betreiber " +
+  "müsse ran, 'zustaendig' auf 'Betreiber' setzen. " +
   "(4) Kommt 'offene_maengel_vorjahr' zurück, vorlesen und nachfragen ('an dieser Tür ist seit " +
   "2025 die Dichtung offen — behoben?'); bestätigt er es, 'mangel_schliessen' aufrufen. " +
   "(5) Auf 'Fertig' 'begehung_abschliessen' — das liest zurück UND erzeugt die Berichte samt " +
