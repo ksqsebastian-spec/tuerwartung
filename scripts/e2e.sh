@@ -240,6 +240,14 @@ ruf faellig '{"tage":30}' | jq -e --arg o "$OID" '[.objekte[].id] | index($o)' >
 
 echo "== 11. Website: zwei Reiter am Objekt =="
 curl -s -b $J "$B/objekt/$OID" | grep -q "Bestand" && ok "Reiter Bestand" || bad "Reiter Bestand"
+# Die Nebenwege sind Knöpfe, kein Textlink — und „Ohne Netz" gibt es dort nicht mehr.
+SEITE0=$(curl -s -b $J "$B/objekt/$OID")
+echo "$SEITE0" | grep -qE 'class="btn schmal( leise)?" href="/objekt/'"$OID"'/erfassen"' \
+  && ok "Tür erfassen ist ein Knopf" || bad "Tür erfassen kein Knopf"
+echo "$SEITE0" | grep -qE 'class="btn schmal( leise)?" href="/objekt/'"$OID"'/import"' \
+  && ok "Bauplan einlesen ist ein Knopf" || bad "Bauplan kein Knopf"
+echo "$SEITE0" | grep -qv "Ohne Netz" && ok "kein Ohne-Netz-Link" || bad "Ohne Netz noch da"
+echo "$SEITE0" | grep -qv "Berichte ansehen" && ok "kein Berichte-ansehen-Knopf" || bad "Berichte ansehen noch da"
 curl -s -b $J "$B/objekt/$OID/berichte" | grep -q "Prüfungen" && ok "Reiter Berichte" || bad "Reiter Berichte"
 # Checkliste und Mängel gibt es am Objekt nicht mehr.
 ZIEL=$(curl -s -o /dev/null -w "%{redirect_url}" -b $J "$B/objekt/$OID/checkliste")

@@ -159,17 +159,23 @@ async function lageLesen(env: Env, o: Objekt, bestand: number, faellig: number):
 
 /**
  * Ein Satz, ein Knopf — wie auf jeder Seite dieser App (Leitsatz 7). Kein „Begehung starten"
- * und kein „fortsetzen": der Termin entsteht beim Öffnen der Checkliste oder beim Erfassen der
- * ersten Tür von selbst.
+ * und kein „fortsetzen": der Termin entsteht beim Erfassen der ersten Tür von selbst.
+ *
+ * Darunter die Nebenwege als Knöpfe, nicht als Textlinks: es sind Griffe, keine Fußnoten, und
+ * mit einem Daumen trifft man einen Knopf. Ist nichts fällig, gibt es oben keinen Knopf — dann
+ * ist nichts zu tun, und ein Knopf, der nur „ansehen" sagt, ist keiner.
  */
 function naechsterSchritt(o: Objekt, lage: Lage, bisWann: string): string {
   const id = esc(o.id);
   let satz: string;
-  let knopf: string;
+  let knopf = "";
+  /* Was oben als Hauptknopf steht, kommt unten nicht noch einmal. */
+  let hauptweg = "";
 
   if (lage.bestand === 0) {
     satz = "Noch kein Bestand. Die erste erfasste Tür legt ihn an — diktiert im Chat oder hier.";
     knopf = `<a class="btn schmal" href="/objekt/${id}/erfassen">Erste Tür erfassen</a>`;
+    hauptweg = "erfassen";
   } else if (lage.faellig > 0) {
     satz = lage.heuteErfasst
       ? `Heute ${lage.heuteErfasst} erfasst — ${lage.faellig} ${
@@ -178,7 +184,8 @@ function naechsterSchritt(o: Objekt, lage: Lage, bisWann: string): string {
       : `${lage.faellig} von ${lage.bestand} ${
           lage.faellig === 1 ? "Tür ist fällig" : "Türen sind fällig"
         }.`;
-    knopf = `<a class="btn schmal" href="/objekt/${id}/checkliste">Checkliste öffnen</a>`;
+    knopf = `<a class="btn schmal" href="/objekt/${id}/erfassen">Tür erfassen</a>`;
+    hauptweg = "erfassen";
   } else if (lage.offeneBerichte > 0) {
     satz = `Alles erfasst. ${lage.offeneBerichte} ${
       lage.offeneBerichte === 1 ? "Bericht steht" : "Berichte stehen"
@@ -188,25 +195,25 @@ function naechsterSchritt(o: Objekt, lage: Lage, bisWann: string): string {
     satz = bisWann
       ? `Nichts fällig — das Objekt ist bis ${esc(bisWann)} durch.`
       : "Nichts fällig.";
-    knopf = `<a class="btn schmal leise" href="/objekt/${id}/berichte">Berichte ansehen</a>`;
   }
+
+  const weitere: string[] = [];
+  if (hauptweg !== "erfassen") {
+    weitere.push(`<a class="btn schmal leise" href="/objekt/${id}/erfassen">Tür erfassen</a>`);
+  }
+  if (lage.laufende) {
+    weitere.push(
+      `<a class="btn schmal leise" href="/begehung/${esc(
+        lage.laufende.id,
+      )}/unterschrift">Unterschrift</a>`,
+    );
+  }
+  weitere.push(`<a class="btn schmal leise" href="/objekt/${id}/import">Bauplan einlesen</a>`);
 
   return `<div class="naechster">
 <p class="satz">${esc(satz).replace("&amp;", "&")}</p>
-<div class="knopfleiste" style="margin:0">${knopf}</div>
+<div class="knopfleiste" style="margin:0">${knopf}${weitere.join("")}</div>
 </div>`;
-}
-
-/** Was selten gebraucht wird, bleibt erreichbar — aber leise und immer an derselben Stelle. */
-function leiseZeile(o: Objekt, lage: Lage): string {
-  const id = esc(o.id);
-  const teile = [`<a href="/objekt/${id}/erfassen">Tür erfassen</a>`];
-  if (lage.laufende) {
-    teile.push(`<a href="/rundgang/${esc(lage.laufende.id)}">Ohne Netz</a>`);
-    teile.push(`<a href="/begehung/${esc(lage.laufende.id)}/unterschrift">Unterschrift</a>`);
-  }
-  teile.push(`<a href="/objekt/${id}/import">Bauplan einlesen</a>`);
-  return `<div class="leiseleiste">${teile.join("")}</div>`;
 }
 
 export async function objektSeite(
@@ -254,7 +261,6 @@ ${optionen.nurFaellige ? "Alle zeigen" : "Nur fällige"}</a></div>
     `${objektReiter(o.id, "bestand")}
 ${objektKopf(o)}
 ${naechsterSchritt(o, lage, naechste ? datumAnzeige(naechste) : "")}
-${leiseZeile(o, lage)}
 ${optionen.meldung ? `<div class="note" style="margin:22px 0">${esc(optionen.meldung)}</div>` : ""}
 ${filter}
 ${bauteilListe}
