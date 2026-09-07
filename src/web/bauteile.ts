@@ -149,15 +149,20 @@ ${
         .join("")}</div>`
     : `<div class="leer">Noch nie geprüft.</div>`;
 
-  const mangelListe = maengel.length
-    ? `<h2 class="abschnitt">Mängel</h2><div class="liste">${maengel
+  /*
+   * Kein eigener Mängelbereich mehr: was nicht in Ordnung war, steht in der Historie an seiner
+   * Prüfung. Hier bleibt nur, was aus früheren Jahren noch offen ist — das ist die Information,
+   * nach der beim nächsten Mal gefragt wird.
+   */
+  const offen = maengel.filter((m) => m.status === "offen" || m.status === "in_arbeit");
+  const mangelListe = offen.length
+    ? `<h2 class="abschnitt">Aus früheren Prüfungen offen</h2><div class="liste">${offen
         .map(
-          (m) => `<a class="posten" href="/mangel/${esc(m.id)}">
+          (m) => `<div class="posten">
 <div class="haupt"><div class="name">${esc(m.beschreibung || "ohne Beschreibung")}</div>
-<div class="unter">${esc(m.zustaendig)}${m.frist ? ` · Frist ${esc(datumAnzeige(m.frist))}` : ""}${
+<div class="unter">seit ${esc(datumAnzeige(new Date(m.angelegt_am).toISOString().slice(0, 10)))}${
             m.punkte.length ? ` · Punkt ${esc(m.punkte.join(", "))}` : ""
-          }</div></div>
-<span class="chip${m.status === "offen" || m.status === "in_arbeit" ? " mangel" : " gut"}">${esc(m.status)}</span></a>`,
+          }</div></div></div>`,
         )
         .join("")}</div>`
     : "";
@@ -186,9 +191,11 @@ ${meldung ? `<div class="note" style="margin-bottom:22px">${esc(meldung)}</div>`
               datumAnzeige(b.letzte_pruefung) || "nie"
             }`
           : "Noch nie geprüft",
-        b.offene_maengel
-          ? `${b.offene_maengel} ${b.offene_maengel === 1 ? "offener Mangel" : "offene Mängel"}`
-          : "nichts offen",
+        b.letzte_pruefung
+          ? b.letztes_ergebnis === "bestanden"
+            ? "zuletzt bestanden"
+            : `zuletzt ${b.letztes_ergebnis || "nicht bestanden"}`
+          : "noch kein Ergebnis",
       ].join(" · "),
     )}.</p></div>
 

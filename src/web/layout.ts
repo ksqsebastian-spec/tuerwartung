@@ -124,6 +124,23 @@ details.klapp > summary .meta { font-weight: 400; }
 .posten .alsLink { font-size: .85rem; color: var(--ink-3); }
 .posten .alsLink:hover { color: var(--ink); }
 
+/* ── Stammdaten und Checkliste ────────────────────────────────────────── */
+.kaestchen-reihe { display: flex; gap: 8px 20px; flex-wrap: wrap; margin-bottom: 8px; }
+.kaestchen { display: inline-flex; align-items: center; gap: 7px; font-size: .9rem; }
+.kaestchen input { width: 17px; height: 17px; accent-color: var(--ink); }
+.punktliste-bearbeiten { border-top: 1px solid var(--line); }
+.punktzeile {
+  display: flex; align-items: center; gap: 12px; padding: 10px 2px;
+  border-bottom: 1px solid var(--line); flex-wrap: wrap;
+}
+.punktzeile .field { flex: 1 1 240px; }
+.punktzeile.aus { opacity: .5; }
+.punktzeile .marke {
+  flex: 0 0 auto; width: 30px; height: 30px; border-radius: 9px;
+  border: 1.5px solid var(--line-strong); display: grid; place-items: center;
+  font-size: .8rem; font-weight: 700; color: var(--ink-3);
+}
+
 /* ── Formular ─────────────────────────────────────────────────────────── */
 form.karte { border: 1px solid var(--line); border-radius: var(--radius); padding: 24px; }
 .felder { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 16px 20px; }
@@ -294,7 +311,7 @@ pre.code code { background: none; padding: 0; }
   .wrap { padding: 0 18px; }
   /* Fünf Ziele passen nicht neben die Marke — also darunter, ganze Breite, umbrechend. */
   .kopf .innen { padding: 12px 18px; gap: 10px; flex-wrap: wrap; }
-  .kopf nav { gap: 10px 18px; font-size: .9rem; width: 100%; margin-left: 0; flex-wrap: wrap; }
+  .kopf nav { gap: 8px 14px; font-size: .87rem; width: 100%; margin-left: 0; flex-wrap: wrap; }
   .kopf .wer { display: none; }
 
   /*
@@ -330,8 +347,8 @@ export function seite(inhalt: string, opt: SeitenOptionen): Response {
   const nav = opt.nutzer
     ? `<nav>
 <a href="/objekte"${opt.aktiv === "objekte" ? ' aria-current="page"' : ""}>Objekte</a>
-<a href="/maengel"${opt.aktiv === "maengel" ? ' aria-current="page"' : ""}>Mängel</a>
-<a href="/touren"${opt.aktiv === "touren" ? ' aria-current="page"' : ""}>Touren</a>
+<a href="/stammdaten"${opt.aktiv === "stammdaten" ? ' aria-current="page"' : ""}>Stammdaten</a>
+<a href="/checkliste"${opt.aktiv === "checkliste" ? ' aria-current="page"' : ""}>Checkliste</a>
 <a href="/verbinden"${opt.aktiv === "verbinden" ? ' aria-current="page"' : ""}>Claude</a>
 <a href="/einstellungen"${opt.aktiv === "einstellungen" ? ' aria-current="page"' : ""}>Einstellungen</a>
 <span class="wer">${esc(opt.nutzer.name)}</span>

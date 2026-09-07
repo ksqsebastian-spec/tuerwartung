@@ -9,6 +9,7 @@
 import { jetzt, lies, ulid } from "./basis";
 import type { Bewertung } from "../vorlagen";
 import { pruefeChecks } from "../vorlagen";
+import { tuertypLesen, tuertypSuchen } from "./tuertypen";
 import { bauteilAendern, bauteilAnlegen, bauteilPerKennung, bauteilPerNr, naechsteNr } from "./bauteile";
 import type { Bauteil } from "./bauteile";
 import { fotosZuPruefung } from "./fotos";
@@ -441,6 +442,7 @@ export interface PruefungEingabe {
   raum?: string;
   flur?: string;
   geschoss?: string;
+  tuertyp?: string;
   prioritaet?: string;
   zustaendig?: string;
   wie_davor?: boolean;
@@ -451,6 +453,8 @@ export interface PruefungEingabe {
 export interface Erfassung {
   pruefung: Pruefung;
   bauteil: Bauteil;
+  /** Der Türtyp, dessen Checkliste gilt — mit seinen Punkten, damit Texte lesbar bleiben. */
+  tuertyp: { id: string; name: string; punkte: { nr: string; text: string }[] } | null;
   /** Die Etage, an der das Bauteil hängt — erkannt oder schon vorhanden. */
   geschoss: { id: string; name: string } | null;
   neu_angelegt: boolean;
@@ -506,6 +510,13 @@ export async function pruefungErfassen(
   nutzer: string,
 ): Promise<Erfassung> {
   const vorige = eingabe.wie_davor ? await zuletztErfasst(db, begehung.id) : null;
+  /* Der Türtyp bestimmt Vorlage und Checkliste — genannt wird er beim Einrichten der Tür. */
+  const typWunsch = eingabe.tuertyp
+    ? await tuertypSuchen(db, String(eingabe.tuertyp))
+    : null;
+  if (eingabe.tuertyp && !typWunsch) {
+    throw new Error(`Türtyp '${eingabe.tuertyp}' gibt es nicht.`);
+  }
 
   /* 1. Bauteil finden oder anlegen. */
   let bauteil: Bauteil | null = null;
@@ -530,10 +541,14 @@ export async function pruefungErfassen(
         `Bauteil ${eingabe.nr ?? eingabe.kennung} gibt es an diesem Objekt nicht (neu=false).`,
       );
     }
-    const art = eingabe.art || vorige?.bauteil.art || (await haeufigsteArt(db, objekt.id));
+    const typNeu = typWunsch ?? (vorige?.bauteil.tuertyp_id
+      ? await tuertypLesen(db, vorige.bauteil.tuertyp_id)
+      : null);
+    const art = typNeu?.art || eingabe.art || vorige?.bauteil.art || (await haeufigsteArt(db, objekt.id));
     bauteil = await bauteilAnlegen(db, {
       objekt_id: objekt.id,
       art,
+      tuertyp_id: typNeu?.id ?? null,
       nr: eingabe.nr !== undefined && eingabe.nr !== null ? Number(eingabe.nr) : undefined,
       kennung: eingabe.kennung ?? "",
       quelle: "rundgang",
@@ -558,6 +573,10 @@ export async function pruefungErfassen(
   }
   if (eingabe.kennung && !bauteil.kennung) patch.kennung = eingabe.kennung;
   if (eingabe.art && eingabe.art !== bauteil.art) patch.art = eingabe.art;
+  if (typWunsch && typWunsch.id !== bauteil.tuertyp_id) {
+    patch.tuertyp_id = typWunsch.id;
+    patch.art = typWunsch.art;
+  }
 
   /*
    * Das Geschoss entsteht beim Diktieren von selbst: „erstes Obergeschoss", das Feld ETAGE oder
@@ -581,16 +600,27 @@ export async function pruefungErfassen(
 
   bauteil = (await bauteilAendern(db, bauteil.id, patch))!;
 
+  const typ = bauteil.tuertyp_id ? await tuertypLesen(db, bauteil.tuertyp_id) : null;
+
   /* 3. Prüfung schreiben. Bestehende (begehung, bauteil) wird überschrieben. */
   const bestehend = await pruefungZuBauteil(db, begehung.id, bauteil.id);
   const checks =
     eingabe.checks !== undefined
-      ? pruefeChecks(bauteil.art, eingabe.checks)
+      ? pruefeChecks(bauteil.art, eingabe.checks, typ?.punkte)
       : eingabe.wie_davor
         ? (vorige?.pruefung.checks ?? {})
         : (bestehend?.checks ?? {});
+  /*
+   * Das Ergebnis folgt den Kreuzen, sofern es niemand ausdrücklich setzt: eine Abweichung heißt
+   * „nicht bestanden". Der Bestand beantwortet genau diese Frage, und niemand soll sie doppelt
+   * beantworten müssen — wer „Punkt 8 nicht" diktiert, hat damit alles gesagt.
+   */
+  const abweichend = Object.values(checks).some((b) => b === "nio");
   const ergebnis =
     eingabe.ergebnis ??
+    (abweichend ? "Nachbesserung" : undefined) ??
+    /* Kommen Kreuze mit und ist keines „nicht", ist die Tür in Ordnung — auch als Korrektur. */
+    (eingabe.checks !== undefined ? "bestanden" : undefined) ??
     (eingabe.wie_davor ? vorige?.pruefung.ergebnis : undefined) ??
     bestehend?.ergebnis ??
     "bestanden";
@@ -657,6 +687,13 @@ export async function pruefungErfassen(
   return {
     pruefung,
     bauteil,
+    tuertyp: typ
+      ? {
+          id: typ.id,
+          name: typ.name,
+          punkte: typ.punkte.filter((p) => p.aktiv).map((p) => ({ nr: p.nr, text: p.text })),
+        }
+      : null,
     geschoss: geschoss ? { id: geschoss.id, name: geschoss.name } : null,
     neu_angelegt: neuAngelegt,
     offene_maengel_vorjahr: vorjahr,

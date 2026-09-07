@@ -31,6 +31,7 @@ DROP TABLE IF EXISTS maengel;
 DROP TABLE IF EXISTS pruefungen;
 DROP TABLE IF EXISTS begehungen;
 DROP TABLE IF EXISTS bauteile;
+DROP TABLE IF EXISTS tuertypen;
 DROP TABLE IF EXISTS geschosse;
 DROP TABLE IF EXISTS gebaeude;
 DROP TABLE IF EXISTS objekte;
@@ -51,7 +52,7 @@ CREATE TABLE objekte (
   id               TEXT PRIMARY KEY,
   name             TEXT NOT NULL,             -- „Kita Heselstücken"
   adresse          TEXT NOT NULL DEFAULT '',  -- Straße, PLZ Ort (eine Zeile)
-  plz              TEXT NOT NULL DEFAULT '',  -- für die Tagestour
+  plz              TEXT NOT NULL DEFAULT '',
   betreiber        TEXT NOT NULL DEFAULT '',  -- Name, wie er aufs Protokoll gehört
   betreiber_kontakt TEXT NOT NULL DEFAULT '', -- Name des Ansprechpartners vor Ort
   telefon          TEXT NOT NULL DEFAULT '',  -- Durchwahl des Ansprechpartners
@@ -97,13 +98,42 @@ CREATE TABLE geschosse (
 CREATE INDEX idx_geschosse_gebaeude ON geschosse (gebaeude_id, reihenfolge);
 
 -- Bauteil: die dauerhafte Tür (oder das Fenster, die Feststellanlage).
+-- Türtypen: die Stammdatenebene über den Bauteilen.
+--
+-- Ein Türtyp ist eine benannte Ausprägung einer der drei Vorlagen — „T30 Flurtür Hörmann" auf
+-- Basis „Drehflügeltüren". Er trägt die Angaben, die für alle Türen dieses Typs gleich sind
+-- (Hersteller, Zulassung, Türtyp-Bezeichnung), und **seine Checkliste**: die Prüfpunkte der
+-- Vorlage, wie sie hier gelten sollen. Umbenannt, ausgeblendet oder um eigene Punkte ergänzt.
+--
+-- Die Original-Prüfpunkte behalten dabei ihre Nummer, damit das Formular-PDF druckbar bleibt;
+-- eigene Punkte tragen Nummern ab 900 und landen im Bericht unter „Hinweise".
+CREATE TABLE tuertypen (
+  id            TEXT PRIMARY KEY,
+  name          TEXT NOT NULL,                   -- „T30 Flurtür Hörmann"
+  art           TEXT NOT NULL,                   -- Vorlagen-ID, bestimmt Formular und Grundpunkte
+  beschreibung  TEXT NOT NULL DEFAULT '',
+  felder_json   TEXT NOT NULL DEFAULT '{}',      -- gemeinsame Stammdaten: HERSTELLER, ZULASSUNG …
+  -- [{nr, text, aktiv, eigen}] — die Checkliste dieses Typs, aus der Vorlage erzeugt und angepasst
+  punkte_json   TEXT NOT NULL DEFAULT '[]',
+  -- [{schluessel, label, pflicht}] — was je Tür zusätzlich erfasst wird: Geschoss, Kommentar …
+  zusatz_json   TEXT NOT NULL DEFAULT '[]',
+  -- Welche Stammdaten beim Einrichten einer Tür abgefragt werden, bevor es losgehen kann.
+  pflicht_json  TEXT NOT NULL DEFAULT '[]',      -- ["IDENT","HERSTELLER"]
+  aktiv         INTEGER NOT NULL DEFAULT 1,
+  angelegt_von  TEXT NOT NULL DEFAULT '',
+  angelegt_am   INTEGER NOT NULL,
+  geaendert_am  INTEGER NOT NULL
+);
+CREATE INDEX idx_tuertypen_aktiv ON tuertypen (aktiv, name);
+
 CREATE TABLE bauteile (
   id            TEXT PRIMARY KEY,
   objekt_id     TEXT NOT NULL REFERENCES objekte(id),
   geschoss_id   TEXT REFERENCES geschosse(id),   -- NULL erlaubt: Tür ohne Plan
   nr            INTEGER NOT NULL,                -- „Tür 12" — je Objekt eindeutig, wird diktiert
   kennung       TEXT NOT NULL DEFAULT '',        -- Türnummer aus Türliste/Plan, z. B. „T-2.14"
-  art           TEXT NOT NULL,                   -- Vorlagen-ID
+  art           TEXT NOT NULL,                   -- Vorlagen-ID (folgt dem Türtyp, falls gesetzt)
+  tuertyp_id    TEXT REFERENCES tuertypen(id),   -- NULL erlaubt: Altbestand ohne Typ
   bezeichnung   TEXT NOT NULL DEFAULT '',        -- freier Name, z. B. „Flur Ost zur Küche"
   raumnummer    TEXT NOT NULL DEFAULT '',        -- „2.14" — treibt die Laufreihenfolge
   raum          TEXT NOT NULL DEFAULT '',        -- Raumbezeichnung
@@ -261,18 +291,6 @@ CREATE TABLE vorschlaege (
   angelegt_am   INTEGER NOT NULL
 );
 CREATE INDEX idx_vorschlaege_import ON vorschlaege (import_id, status);
-
--- Tagestour: welche Objekte an welchem Tag in welcher Reihenfolge. (Bedient ab Stufe 2.)
-CREATE TABLE touren (
-  id           TEXT PRIMARY KEY,
-  datum        TEXT NOT NULL,
-  person       TEXT NOT NULL,                   -- Benutzerkennung
-  objekte_json TEXT NOT NULL DEFAULT '[]',      -- ["obj_id", …] in Reihenfolge
-  notiz        TEXT NOT NULL DEFAULT '',
-  angelegt_am  INTEGER NOT NULL,
-  geaendert_am INTEGER NOT NULL,
-  UNIQUE (datum, person)
-);
 
 -- Offline-Abgleich: jede Operation vom Handy trägt eine Client-ID; Doppelte werden verworfen.
 -- (Bedient ab Stufe 2.)

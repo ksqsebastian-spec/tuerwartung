@@ -53,7 +53,7 @@ export async function objekteSeite(
   <div class="unter">${esc(o.adresse || "ohne Adresse")}${o.betreiber ? ` · ${esc(o.betreiber)}` : ""}</div>
 </div>
 <span class="chip leise">${o.bauteile} ${o.bauteile === 1 ? "Bauteil" : "Bauteile"}</span>
-${o.offene_maengel ? `<span class="chip mangel">${o.offene_maengel} Mängel</span>` : ""}
+${o.faellige_bauteile ? `<span class="chip">${o.faellige_bauteile} fällig</span>` : ""}
 ${faelligChip(o.stand)}</a>`,
         )
         .join("")}</div>`
@@ -90,17 +90,19 @@ ${neu}`,
 }
 
 /** Die vier Blicke aufs Objekt. Ein Termin taucht hier bewusst nicht auf. */
-export function objektReiter(
-  objektId: string,
-  aktiv: "bestand" | "checkliste" | "maengel" | "berichte",
-): string {
+/**
+ * Zwei Blicke aufs Objekt, mehr nicht: was da ist, und was daraus geworden ist.
+ *
+ * Die Checkliste hängt am Türtyp und steht deshalb oben in der Leiste — sie ist für alle
+ * Objekte dieselbe. Mängel gibt es nicht mehr als eigene Ebene: eine Tür hat bestanden oder
+ * nicht, und das steht im Bestand.
+ */
+export function objektReiter(objektId: string, aktiv: "bestand" | "berichte"): string {
   const id = esc(objektId);
   const eintrag = (pfad: string, name: string, schluessel: string) =>
     `<a href="/objekt/${id}${pfad}"${aktiv === schluessel ? ' aria-current="page"' : ""}>${name}</a>`;
   return `<nav class="reiter">
 ${eintrag("", "Bestand", "bestand")}
-${eintrag("/checkliste", "Checkliste", "checkliste")}
-${eintrag("/maengel", "Mängel", "maengel")}
 ${eintrag("/berichte", "Berichte", "berichte")}
 </nav>`;
 }
@@ -258,52 +260,6 @@ ${filter}
 ${bauteilListe}
 ${stammdatenFormular(o)}`,
     { titel: o.name, nutzer, aktiv: "objekte" },
-  );
-}
-
-/* ── Reiter „Mängel" ───────────────────────────────────────────────────────── */
-
-export async function objektMaengelSeite(
-  env: Env,
-  nutzer: Nutzer,
-  id: string,
-): Promise<Response> {
-  const o = await objektLesen(env.DB, id);
-  if (!o) return umleitung("/objekte");
-  const offen = await maengelListe(env.DB, { objekt_id: o.id, status: "offen" });
-  /* Ohne `status` liefert die Liste nur die offenen — für „Erledigt" muss „alle" hin. */
-  const erledigt = (await maengelListe(env.DB, { objekt_id: o.id, status: "alle" })).filter(
-    (m) => m.status !== "offen" && m.status !== "in_arbeit",
-  );
-
-  const liste = (titel: string, ms: typeof offen) =>
-    ms.length
-      ? `<h2 class="abschnitt" style="margin-top:30px">${titel} (${ms.length})</h2>
-<div class="liste">${ms
-          .map(
-            (m) => `<a class="posten" href="/mangel/${esc(m.id)}">
-<span class="nr">${m.bauteil_nr}</span>
-<div class="haupt"><div class="name">${esc(m.beschreibung || "ohne Beschreibung")}</div>
-<div class="unter">Tür ${m.bauteil_nr}${m.bauteil_raum ? ` · ${esc(m.bauteil_raum)}` : ""} · ${esc(
-              m.zustaendig,
-            )}${m.frist ? ` · Frist ${esc(datumAnzeige(m.frist))}` : ""}</div></div>
-<span class="chip${m.prioritaet === "hoch" ? " mangel" : ""}">${esc(m.prioritaet)}</span></a>`,
-          )
-          .join("")}</div>`
-      : "";
-
-  return seite(
-    `${objektReiter(o.id, "maengel")}
-${objektKopf(o)}
-<div class="naechster"><p class="satz">${
-      offen.length
-        ? `${offen.length} ${offen.length === 1 ? "Mangel ist offen" : "Mängel sind offen"}. ` +
-          "Beim nächsten Mal fragt Claude an jeder betroffenen Tür danach."
-        : "Nichts offen an diesem Objekt."
-    }</p></div>
-${liste("Offen", offen)}
-${liste("Erledigt", erledigt)}`,
-    { titel: `Mängel ${o.name}`, nutzer, aktiv: "objekte" },
   );
 }
 
@@ -483,15 +439,30 @@ function ortText(
   return teile.join(" · ") || "ohne Ortsangabe";
 }
 
+/**
+ * Eine Zeile im Bestand. Sie beantwortet die eine Frage, die der Bestand stellt: hat diese Tür
+ * bestanden oder nicht? Mängel gibt es nicht mehr als eigene Ebene — was nicht in Ordnung war,
+ * steht am Ergebnis und im Detail der Tür.
+ */
 function bauteilZeile(o: Objekt, b: BauteilBeschreibung, geschoss: string): string {
   const ort = ortText(geschoss, b);
+  const geprueft = Boolean(b.letzte_pruefung);
+  const bestanden = b.letztes_ergebnis === "bestanden";
   return `<a class="posten" href="/objekt/${esc(o.id)}/bauteil/${b.nr}">
 <span class="nr">${b.nr}</span>
 <div class="haupt"><div class="name">${esc(ort)}</div>
 <div class="unter">${esc(VORLAGEN[b.art]?.label ?? b.art)}${
     b.kennung ? ` · ${esc(b.kennung)}` : ""
-  }${b.letzte_pruefung ? ` · zuletzt ${esc(datumAnzeige(b.letzte_pruefung))}` : ""}</div></div>
-${b.offene_maengel ? `<span class="chip mangel">${b.offene_maengel} Mängel</span>` : ""}
+  }${b.letzte_pruefung ? ` · zuletzt ${esc(datumAnzeige(b.letzte_pruefung))}` : ""}${
+    geprueft && !bestanden && b.letztes_ergebnis ? ` · ${esc(b.letztes_ergebnis)}` : ""
+  }</div></div>
+${
+  geprueft
+    ? bestanden
+      ? '<span class="chip gut">bestanden</span>'
+      : '<span class="chip mangel">nicht bestanden</span>'
+    : '<span class="chip leise">noch nicht geprüft</span>'
+}
 ${b.aktiv ? faelligChip(b.stand) : '<span class="chip leise">stillgelegt</span>'}</a>`;
 }
 

@@ -32,10 +32,10 @@ const wartung: PromptDef = {
   arguments: [arg("objekt", "Name oder Adresse des Objekts, z. B. „Kita Heselstücken“", true)],
   bauen: ({ objekt }) =>
     `Ich stehe an „${objekt}“ und fange mit der Wartung an.\n\n` +
-    "Geh so vor: erst `pruefpunkte` der passenden Vorlage lesen, dann `begehung_starten` mit " +
-    `„${objekt}“ — kennst du das Objekt nicht, legt der Server es an, und diese Begehung ist ` +
-    "die Bestandsaufnahme. Nenn mir kurz, wie viele Türen fällig sind und ob noch etwas offen " +
-    "ist, dann höre einfach zu.\n\n" +
+    "Geh so vor: `begehung_starten` mit " +
+    `„${objekt}“, dann checkliste_lesen für die Türtypen, die hier vorkommen — erst danach ` +
+    "sind Punktnummern verständlich. Nenn mir kurz, wie viele Türen fällig sind und ob noch " +
+    "etwas offen ist, dann höre einfach zu.\n\n" +
     "Nach jeder diktierten Tür sofort `pruefung_erfassen` und eine kurze Quittung ('Tür 3 " +
     "gespeichert'). Standard ist: alles in Ordnung — ich nenne nur die Abweichungen. Antworte " +
     "in ganzen Sätzen, kurz, ohne Listen: ich habe die Hände voll und schaue nicht aufs Display.",
@@ -109,7 +109,43 @@ const einrichten: PromptDef = {
     "Wenn es steht, sag mir kurz, was als Nächstes sinnvoll ist.",
 };
 
-export const PROMPTS: PromptDef[] = [wartung, tag, abschluss, einrichten, bauplan];
+const tuertyp: PromptDef = {
+  name: "tuertyp",
+  title: "Türtyp einrichten",
+  description:
+    "Legt einen Türtyp an — Vorlage, gemeinsame Stammdaten, Pflichtangaben — und legt seine " +
+    "Checkliste zurecht. Ohne Türtyp lässt sich keine Tür einrichten.",
+  arguments: [arg("name", "Wie der Typ heißen soll, z. B. „T30 Flurtür Hörmann“", true)],
+  bauen: ({ name }) =>
+    `Ich will den Türtyp „${name}“ einrichten.\n\n` +
+    "Frag mich der Reihe nach: welche Vorlage (Drehflügeltüren, Fenster, Feststellanlagen), " +
+    "welche Angaben für alle Türen dieses Typs gleich sind (Hersteller, Zulassung), was an " +
+    "jeder einzelnen Tür stehen muss, bevor geprüft werden darf (meist die Ident-Nummer), und " +
+    "ob je Tür noch etwas erfasst werden soll — Geschoss, Kommentar.\n\n" +
+    "Dann `tuertyp_anlegen`. Danach lies mir die erzeugte Checkliste vor und frag, was " +
+    "umbenannt, ausgeblendet oder ergänzt werden soll — `checkliste_anpassen`.",
+};
+
+const tuer: PromptDef = {
+  name: "tuer",
+  title: "Tür einrichten",
+  description:
+    "Richtet eine einzelne Tür ein: Türtyp wählen, dann die Angaben, die dieser Typ verlangt.",
+  arguments: [
+    arg("objekt", "An welchem Objekt", true),
+    arg("tuertyp", "Welcher Türtyp"),
+  ],
+  bauen: ({ objekt, tuertyp }) =>
+    `Ich richte eine Tür an „${objekt}“ ein${tuertyp ? `, Türtyp „${tuertyp}“` : ""}.\n\n` +
+    (tuertyp ? "" : "Zeig mir zuerst mit `tuertypen_auflisten`, welche Typen es gibt.\n\n") +
+    "Dann `tuer_einrichten` und **immer nur die eine Frage** stellen, die in `naechste_frage` " +
+    "steht — meine Antwort im nächsten Aufruf mitgeben, bis `bereit: true` kommt. Erst dann " +
+    "kann geprüft werden.\n\n" +
+    "Wenn ich dir ein Foto vom Typenschild schicke: lies die Ident-Nummer selbst ab und gib sie " +
+    "mit. Abtippen will ich das nicht.",
+};
+
+export const PROMPTS: PromptDef[] = [wartung, tuertyp, tuer, tag, abschluss, einrichten, bauplan];
 
 /* ── Ressourcen ────────────────────────────────────────────────────────────── */
 
@@ -158,11 +194,43 @@ const ressourcen: RessourceDef[] = [
       );
     },
   },
+  {
+    uri: "tuerwerk://checklisten",
+    name: "checklisten",
+    title: "Checklisten der Türtypen",
+    description:
+      "Die Prüfpunkte jedes eingerichteten Türtyps, so wie sie hier gelten — umbenannt, " +
+      "ausgeblendet und um eigene ergänzt. Das ist die Liste, die vorgelesen wird.",
+    mimeType: "text/markdown",
+    lesen: async (ctx: Kontext) => {
+      const { tuertypenListe } = await import("../daten/tuertypen");
+      const typen = await tuertypenListe(ctx.env.DB);
+      if (!typen.length) {
+        return "# Checklisten\n\nNoch kein Türtyp eingerichtet.\n";
+      }
+      return typen
+        .map(
+          (t) =>
+            `## ${t.name}\n\nVorlage: ${VORLAGEN[t.art]?.label ?? t.art}\n\n` +
+            t.punkte
+              .filter((p) => p.aktiv)
+              .map((p) => `${p.nr}. ${p.text}${p.eigen ? " *(eigener Punkt)*" : ""}`)
+              .join("\n") +
+            (t.zusatz.length
+              ? `\n\nZusätzlich je Tür: ${t.zusatz.map((z) => z.label).join(", ")}`
+              : "") +
+            "\n",
+        )
+        .join("\n");
+    },
+  },
   ...Object.keys(VORLAGEN).map((art) => ({
     uri: `tuerwerk://pruefpunkte/${art}`,
     name: `pruefpunkte-${art}`,
-    title: `Prüfpunkte: ${VORLAGEN[art].label}`,
-    description: `Die nummerierten Prüfpunkte der Vorlage „${VORLAGEN[art].label}“ zum Vorlesen.`,
+    title: `Prüfpunkte der Vorlage: ${VORLAGEN[art].label}`,
+    description:
+      `Die unveränderten Prüfpunkte der Vorlage „${VORLAGEN[art].label}“ — die Grundlage, aus ` +
+      "der die Checkliste eines Türtyps entsteht.",
     mimeType: "text/markdown",
     lesen: () => pruefpunkteText(art),
   })),

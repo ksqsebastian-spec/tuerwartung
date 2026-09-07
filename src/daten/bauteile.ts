@@ -14,6 +14,7 @@ export interface Bauteil {
   id: string;
   objekt_id: string;
   geschoss_id: string | null;
+  tuertyp_id: string | null;
   nr: number;
   kennung: string;
   art: string;
@@ -50,12 +51,13 @@ function alsBauteil(zeile: Record<string, unknown>): Bauteil {
 }
 
 const BAUTEIL_SPALTEN = [
-  "geschoss_id", "nr", "kennung", "art", "bezeichnung", "raumnummer", "raum", "flur",
+  "geschoss_id", "tuertyp_id", "nr", "kennung", "art", "bezeichnung", "raumnummer", "raum", "flur",
   "x", "y", "richtung_grad", "breite_m", "intervall_monate", "wartungspflichtig", "aktiv", "quelle",
 ] as const;
 
 export interface BauteilPatch {
   geschoss_id?: string | null;
+  tuertyp_id?: string | null;
   nr?: number;
   kennung?: string;
   art?: string;
@@ -92,6 +94,7 @@ export async function bauteilAnlegen(
     id: ulid(t),
     objekt_id: daten.objekt_id,
     geschoss_id: daten.geschoss_id ?? null,
+    tuertyp_id: daten.tuertyp_id ?? null,
     nr,
     kennung: daten.kennung ?? "",
     art: daten.art,
@@ -113,13 +116,13 @@ export async function bauteilAnlegen(
   };
   await db
     .prepare(
-      `INSERT INTO bauteile (id, objekt_id, geschoss_id, nr, kennung, art, bezeichnung, raumnummer,
+      `INSERT INTO bauteile (id, objekt_id, geschoss_id, tuertyp_id, nr, kennung, art, bezeichnung, raumnummer,
          raum, flur, felder_json, x, y, richtung_grad, breite_m, intervall_monate,
          wartungspflichtig, aktiv, quelle, angelegt_am, geaendert_am)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
     )
     .bind(
-      b.id, b.objekt_id, b.geschoss_id, b.nr, b.kennung, b.art, b.bezeichnung, b.raumnummer,
+      b.id, b.objekt_id, b.geschoss_id, b.tuertyp_id, b.nr, b.kennung, b.art, b.bezeichnung, b.raumnummer,
       b.raum, b.flur, JSON.stringify(b.felder), b.x, b.y, b.richtung_grad, b.breite_m,
       b.intervall_monate, b.wartungspflichtig, b.aktiv, b.quelle, b.angelegt_am, b.geaendert_am,
     )

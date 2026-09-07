@@ -150,8 +150,9 @@ echo "$A" | jq -e '.mangel_angelegt.status == "offen"' >/dev/null \
   && ok "Mangel angelegt" || bad "kein Mangel: $A"
 echo "$A" | jq -e '.mangel_angelegt.punkte == ["8"]' >/dev/null \
   && ok "Mangel trägt Punkt 8" || bad "Mangelpunkte"
-ruf maengel_auflisten "$(jq -nc --arg o "$OID" '{objekt:$o}')" \
-  | jq -e '.maengel | length == 1' >/dev/null && ok "Mangel in der Liste" || bad "Mangelliste"
+ruf bauteil_lesen "$(jq -nc --arg o "$OID" '{objekt:$o,nr:2}')" \
+  | jq -e '.bauteil.offene_maengel == 1' >/dev/null \
+  && ok "offener Punkt hängt an der Tür" || bad "Zustand an der Tür"
 
 # Ein Aufruf, alles fertig: Rückblick, Berichte und Sammelbericht.
 A=$(ruf begehung_abschliessen "$(jq -nc --arg b "$BEG1" '{begehung:$b}')")
@@ -237,21 +238,31 @@ ruf begehung_aendern "$(jq -nc --arg b "$BEG2" --arg d "$VORJAHR" '{begehung:$b,
 ruf faellig '{"tage":30}' | jq -e --arg o "$OID" '[.objekte[].id] | index($o)' >/dev/null \
   && ok "nach Rückdatierung um 13 Monate wieder fällig" || bad "Rückdatierung wirkt nicht"
 
-echo "== 11. Website: die vier Reiter am Objekt =="
+echo "== 11. Website: zwei Reiter am Objekt =="
 curl -s -b $J "$B/objekt/$OID" | grep -q "Bestand" && ok "Reiter Bestand" || bad "Reiter Bestand"
-curl -s -b $J "$B/objekt/$OID/checkliste" | grep -q "Checkliste" && ok "Reiter Checkliste" || bad "Reiter Checkliste"
-curl -s -b $J "$B/objekt/$OID/maengel" | grep -q "Dichtung" && ok "Reiter Mängel" || bad "Reiter Mängel"
 curl -s -b $J "$B/objekt/$OID/berichte" | grep -q "Prüfungen" && ok "Reiter Berichte" || bad "Reiter Berichte"
+# Checkliste und Mängel gibt es am Objekt nicht mehr.
+ZIEL=$(curl -s -o /dev/null -w "%{redirect_url}" -b $J "$B/objekt/$OID/checkliste")
+echo "$ZIEL" | grep -q "/checkliste$" && ok "Objekt-Checkliste führt nach oben" || bad "Weiterleitung: $ZIEL"
+code=$(curl -s -o /dev/null -w "%{http_code}" -b $J "$B/objekt/$OID/maengel")
+[ "$code" = "404" ] && ok "Objekt-Mängel gibt es nicht mehr" || bad "Objekt-Mängel $code"
+for W in /maengel /touren; do
+  code=$(curl -s -o /dev/null -w "%{http_code}" -b $J "$B$W")
+  [ "$code" = "404" ] && ok "$W entfernt" || bad "$W noch da ($code)"
+done
 # Der Termin kommt in der Oberfläche nicht mehr vor — alte Adressen führen aufs Objekt.
 ZIEL=$(curl -s -o /dev/null -w "%{redirect_url}" -b $J "$B/begehung/$BEG2")
 echo "$ZIEL" | grep -q "/objekt/$OID" && ok "alte Begehungsadresse leitet aufs Objekt" || bad "Weiterleitung: $ZIEL"
 curl -s -b $J "$B/objekt/$OID" | grep -qv "Begehung fortsetzen" && ok "kein Knopf für den Termin" || bad "Termin noch sichtbar"
-curl -s -b $J "$B/maengel?status=alle" | grep -q "Dichtung" && ok "Mängelseite" || bad "Mängelseite"
 code=$(curl -s -o /dev/null -w "%{http_code}" -b $J -X POST "$B/begehung/$BEG2/pruefung/3" \
   -d "ergebnis=Nachbesserung" -d "hinweise=Aus dem Browser" -d "p_1=io" -d "p_4=nio" -d "raum=Flur 3")
 [ "$code" = "302" ] && ok "Prüfraster speichert" || bad "Prüfraster $code"
 ruf bauteil_lesen "$(jq -nc --arg o "$OID" '{objekt:$o,nr:3}')" \
   | jq -e '.bauteil.offene_maengel == 1' >/dev/null && ok "Mangel aus dem Formular" || bad "Formular-Mangel"
+# Der Bestand beantwortet die eine Frage: bestanden oder nicht?
+SEITE=$(curl -s -b $J "$B/objekt/$OID")
+echo "$SEITE" | grep -q "nicht bestanden" && ok "Bestand zeigt 'nicht bestanden'" || bad "nicht bestanden fehlt"
+echo "$SEITE" | grep -q ">bestanden<" && ok "Bestand zeigt 'bestanden'" || bad "bestanden fehlt"
 
 echo "== 12. Rundgang ohne Netz =="
 curl -s -b $J "$B/api/rundgang/$BEG2" \
@@ -317,13 +328,15 @@ ruf pruefung_erfassen "$(jq -nc --arg b "$PB" '{begehung:$b,nr:2,checks:{"7":"ni
 ruf pruefung_erfassen "$(jq -nc --arg b "$PB" '{begehung:$b,nr:3,checks:{"9":"nio"}}')" \
   | jq -e '.mangel_angelegt.prioritaet == "mittel"' >/dev/null && ok "ohne Angabe mittel" || bad "Standardeinstufung"
 # 7 / 28 / 90 Tage — die Fristen müssen auseinanderliegen und in dieser Ordnung stehen.
-ruf maengel_auflisten "$(jq -nc --arg o "E2E Einstufung $STEMPEL" '{objekt:$o}')" \
-  | jq -e '[.maengel[] | select(.bauteil_nr <= 3)] | sort_by(.bauteil_nr) | (.[0].frist < .[2].frist) and (.[2].frist < .[1].frist)' >/dev/null \
-  && ok "Frist folgt der Einstufung (7 < 28 < 90)" || bad "Fristen"
+F1=$(ruf bauteil_lesen "$(jq -nc --arg o "E2E Einstufung $STEMPEL" '{objekt:$o,nr:1}')" | jq -r '.maengel[0].frist')
+F2=$(ruf bauteil_lesen "$(jq -nc --arg o "E2E Einstufung $STEMPEL" '{objekt:$o,nr:2}')" | jq -r '.maengel[0].frist')
+F3=$(ruf bauteil_lesen "$(jq -nc --arg o "E2E Einstufung $STEMPEL" '{objekt:$o,nr:3}')" | jq -r '.maengel[0].frist')
+[ "$F1" \< "$F3" ] && [ "$F3" \< "$F2" ] \
+  && ok "Frist folgt der Einstufung (7 < 28 < 90)" || bad "Fristen: $F1 / $F3 / $F2"
 # Eine Korrektur ohne Einstufung darf die gesetzte nicht zurücknehmen.
 ruf pruefung_erfassen "$(jq -nc --arg b "$PB" '{begehung:$b,nr:1,checks:{"3":"nio"},hinweise:"Nachtrag"}')" >/dev/null
-ruf maengel_auflisten "$(jq -nc --arg o "E2E Einstufung $STEMPEL" '{objekt:$o}')" \
-  | jq -e '[.maengel[] | select(.bauteil_nr == 1)][0].prioritaet == "hoch"' >/dev/null \
+ruf bauteil_lesen "$(jq -nc --arg o "E2E Einstufung $STEMPEL" '{objekt:$o,nr:1}')" \
+  | jq -e '.maengel[0].prioritaet == "hoch"' >/dev/null \
   && ok "Korrektur nimmt die Einstufung nicht zurück" || bad "Einstufung überschrieben"
 # Die erkannte Etage steht in der Quittung.
 ruf pruefung_erfassen "$(jq -nc --arg b "$PB" '{begehung:$b,nr:4,raumnummer:"2.14",raum:"Lager",flur:"2. OG"}')" \
@@ -364,9 +377,6 @@ ruf begehung_abschliessen "$(jq -nc --arg b "$BEG1" '{begehung:$b}')" \
 ruf lage '{}' | jq -e --arg b "$BEG1" '[.berichte_veraltet[].begehung_id] | index($b) | not' >/dev/null \
   && ok "danach ist nichts mehr veraltet" || bad "bleibt veraltet"
 
-V=$(ruf tour_vorschlagen '{"anzahl":2}')
-echo "$V" | jq -e '.uebernommen == false' >/dev/null && ok "Vorschlag ändert nichts" || bad "tour_vorschlagen: $V"
-echo "$V" | jq -e '.objekte | type == "array"' >/dev/null && ok "Route berechnet" || bad "Route"
 
 echo "== 13c. Prompts und Ressourcen =="
 rpc() { curl -s -X POST $B/mcp -H "authorization: Bearer $AT" -H 'content-type: application/json' -d "$1"; }
@@ -389,18 +399,6 @@ rpc '{"jsonrpc":"2.0","id":1,"method":"resources/read","params":{"uri":"tuerwerk
   && ok "Prüfpunkte als Ressource" || bad "Prüfpunkte-Ressource"
 rpc '{"jsonrpc":"2.0","id":1,"method":"resources/read","params":{"uri":"tuerwerk://gibtsnicht"}}' \
   | jq -e '.error.code == -32602' >/dev/null && ok "unbekannte Ressource abgewiesen" || bad "Ressourcenfehler"
-
-echo "== 14. Tagestour =="
-T=$(ruf tour_planen "$(jq -nc --arg d "$HEUTE" --arg o "$OID" '{datum:$d,objekte:[$o]}')")
-echo "$T" | jq -e '.objekte | length == 1' >/dev/null && ok "tour_planen" || bad "tour_planen: $T"
-ruf tour_lesen "$(jq -nc --arg d "$HEUTE" '{datum:$d}')" \
-  | jq -e '.maps | startswith("https://www.google.com/maps/dir/")' >/dev/null \
-  && ok "Maps-Link" || bad "Maps-Link"
-code=$(curl -s -o /dev/null -w "%{http_code}" -b $J "$B/touren")
-curl -s -b $J "$B/touren" | grep -q "Fällig" && ok "Tourenliste" || bad "Tourenliste"
-code=$(curl -s -o /dev/null -w "%{http_code}" -b $J -X POST "$B/touren" \
-  -d "datum=$HEUTE" -d "objekt=$OID" -d "tun=weg")
-[ "$code" = "302" ] && ok "Objekt aus der Tour genommen" || bad "Tour entfernen $code"
 
 echo "== 14b. Etage entsteht beim Erfassen =="
 # Der Regelweg ist das Diktat; früher blieb geschoss_id dabei immer leer und die
@@ -442,7 +440,8 @@ ruf bauteil_lesen "$(jq -nc --arg o "$OID" '{objekt:$o,kennung:"S-1"}')" \
 echo "== 16. Begehung abschließen und wieder öffnen =="
 code=$(curl -s -o /dev/null -w "%{http_code}" -b $J -X POST "$B/begehung/$BEG2/abschliessen")
 [ "$code" = "302" ] && ok "abgeschlossen" || bad "abschliessen $code"
-curl -s -b $J "$B/begehung/$BEG2/stand.json" | jq -e '.status == "abgeschlossen"' >/dev/null \
+ruf begehung_lesen "$(jq -nc --arg b "$BEG2" '{begehung:$b}')" \
+  | jq -e '.begehung.status == "abgeschlossen"' >/dev/null \
   && ok "Status steht" || bad "Status"
 code=$(curl -s -o /dev/null -w "%{http_code}" -b $J -X POST "$B/begehung/$BEG2/oeffnen")
 [ "$code" = "302" ] && ok "wieder geöffnet" || bad "oeffnen $code"
@@ -550,6 +549,69 @@ ruf bauplan_uebernehmen "$(jq -nc --arg o "$NEU" '{objekt:$o,dateiname:"liste.cs
 EIN_OID2=$(ruf objekt_lesen "$(jq -nc --arg o "$NEU" '{objekt:$o}')" | jq -r .objekt.id)
 curl -s -o /dev/null -b $J -X POST "$B/objekt/$EIN_OID2/loeschen"
 
+echo "== 17d. Türtyp, Checkliste, Tür einrichten =="
+TYP="E2E T30 $STEMPEL"
+T=$(ruf tuertyp_anlegen "$(jq -nc --arg n "$TYP" '{name:$n,vorlage:"wartung_drehfluegel",
+  felder:{HERSTELLER:"Hörmann"},pflichtfelder:["IDENT"],
+  zusatzfelder:[{schluessel:"GESCHOSS",label:"Geschoss"},{schluessel:"KOMMENTAR",label:"Kommentar"}]}')")
+echo "$T" | jq -e '.punkte | length == 10' >/dev/null && ok "Checkliste aus der Vorlage" || bad "tuertyp_anlegen: $T"
+echo "$T" | jq -e '.pflichtfelder == ["IDENT"]' >/dev/null && ok "Pflichtfeld gesetzt" || bad "pflichtfelder"
+TID=$(echo "$T" | jq -r .id)
+
+C=$(ruf checkliste_anpassen "$(jq -nc --arg t "$TID" '{tuertyp:$t,punkte:[
+  {nr:"7",aktiv:false},
+  {nr:"1",text:"Leichtgängigkeit — auch bei Zugluft"},
+  {text:"Fluchtwegschild vorhanden und lesbar"}]}')")
+echo "$C" | jq -e '.ausgeblendet == ["7"]' >/dev/null && ok "Punkt ausgeblendet" || bad "ausblenden"
+echo "$C" | jq -e '[.punkte[] | select(.nr == "1")][0].text | startswith("Leichtgängigkeit —")' >/dev/null \
+  && ok "Punkt umbenannt" || bad "umbenennen"
+echo "$C" | jq -e '[.punkte[] | select(.eigen)][0].nr == "900"' >/dev/null \
+  && ok "eigener Punkt ab 900" || bad "eigener Punkt"
+
+# Ohne Objekt geht nichts, und ohne Pflichtfeld ist die Tür nicht bereit.
+ruf tuer_einrichten "$(jq -nc --arg t "$TID" '{objekt:"gibt es nicht",tuertyp:$t}')" \
+  | grep -q "objekt_einrichten" && ok "verweist aufs Objekt" || bad "Objekthinweis"
+E=$(ruf tuer_einrichten "$(jq -nc --arg o "$OID" --arg t "$TID" \
+  '{objekt:$o,tuertyp:$t,nr:40,raumnummer:"4.01",raum:"Lager"}')")
+echo "$E" | jq -e '.bereit == false and .naechste_frage.feld == "IDENT"' >/dev/null \
+  && ok "ohne Ident nicht bereit" || bad "bereit: $E"
+E=$(ruf tuer_einrichten "$(jq -nc --arg o "$OID" --arg t "$TID" \
+  '{objekt:$o,tuertyp:$t,nr:40,felder:{IDENT:"HM-4711"}}')")
+echo "$E" | jq -e '.bereit == true' >/dev/null && ok "mit Ident bereit" || bad "nicht bereit: $E"
+echo "$E" | jq -e '.naechste_frage.feld == "GESCHOSS"' >/dev/null \
+  && ok "fragt danach die Zusatzfelder" || bad "Zusatzfeld"
+echo "$E" | jq -e '.tuer.felder.HERSTELLER == "Hörmann"' >/dev/null \
+  && ok "Stammdaten des Typs gelten mit" || bad "Typ-Stammdaten"
+
+# Die Checkliste des Typs gilt beim Erfassen: eigener Punkt zählt, erfundener nicht.
+BT=$(ruf begehung_starten "$(jq -nc --arg o "$OID" '{objekt:$o}')" | jq -r .begehung.id)
+P=$(ruf pruefung_erfassen "$(jq -nc --arg b "$BT" '{begehung:$b,nr:40,checks:{"900":"nio"},hinweise:"Schild fehlt"}')")
+echo "$P" | jq -e '.abweichungen[0] | contains("Fluchtwegschild")' >/dev/null \
+  && ok "eigener Punkt im Klartext" || bad "eigener Punkt: $P"
+echo "$P" | jq -e '.ergebnis == "Nachbesserung"' >/dev/null \
+  && ok "Abweichung heißt nicht bestanden" || bad "Ergebnis folgt den Kreuzen"
+ruf pruefung_erfassen "$(jq -nc --arg b "$BT" '{begehung:$b,nr:40,checks:{"77":"nio"}}')" \
+  | grep -q "gibt es an dieser Tür nicht" && ok "erfundener Punkt abgewiesen" || bad "Punktprüfung"
+ruf pruefung_erfassen "$(jq -nc --arg b "$BT" '{begehung:$b,nr:40,checks:{}}')" \
+  | jq -e '.ergebnis == "bestanden"' >/dev/null \
+  && ok "Korrektur macht wieder bestanden" || bad "Korrektur"
+
+# Website: Stammdaten und Checkliste liegen oben, nicht am Objekt.
+curl -s -b $J "$B/stammdaten" | grep -q "$TYP" && ok "Türtyp in den Stammdaten" || bad "Stammdatenseite"
+curl -s -b $J "$B/checkliste/$TID" | grep -q "Fluchtwegschild" \
+  && ok "Checkliste zeigt den eigenen Punkt" || bad "Checklistenseite"
+code=$(curl -s -o /dev/null -w "%{http_code}" -b $J -X POST "$B/checkliste/$TID" \
+  --data-urlencode "text_1=Leichtgängigkeit" --data-urlencode "aktiv=1" --data-urlencode "neu=Zweiter eigener Punkt")
+[ "$code" = "302" ] && ok "Checkliste speichert aus dem Browser" || bad "Checkliste speichern $code"
+# Nur „aktiv=1" ging mit — alles andere ist damit ausgeblendet, und der neue Punkt kam dazu.
+CL=$(ruf checkliste_lesen "$(jq -nc --arg t "$TID" '{tuertyp:$t}')")
+echo "$CL" | jq -e '[.punkte[] | .nr] == ["1","901"]' >/dev/null \
+  && ok "nur Angehaktes bleibt sichtbar" || bad "Sichtbarkeit: $(echo "$CL" | jq -c '[.punkte[].nr]')"
+echo "$CL" | jq -e '[.punkte[] | select(.eigen)][0].text == "Zweiter eigener Punkt"' >/dev/null \
+  && ok "zweiter eigener Punkt angelegt" || bad "zweiter eigener Punkt"
+echo "$CL" | jq -e '[.ausgeblendet[]] | index("900")' >/dev/null \
+  && ok "abgewählter eigener Punkt bleibt als ausgeblendet erhalten" || bad "900 verschwunden"
+
 echo "== 18. Zugriffsschutz =="
 code=$(curl -s -o /dev/null -w "%{http_code}" "$B/datei/$V1")
 [ "$code" = "302" ] && ok "Datei ohne Anmeldung gesperrt" || bad "Datei ohne Anmeldung $code"
@@ -564,8 +626,6 @@ if [ "$AUFRAEUMEN" = "1" ]; then
   [ "$code" = "302" ] && ok "Objekt samt Begehungen entfernt" || bad "Aufräumen $code"
   ruf objekte_auflisten "$(jq -nc --arg s "$OBJEKT" '{suche:$s}')" \
     | jq -e '.objekte | length == 0' >/dev/null && ok "nichts geblieben" || bad "Reste"
-  ruf tour_planen "$(jq -nc --arg d "$HEUTE" '{datum:$d,objekte:[]}')" >/dev/null
-  ok "Tour geräumt"
 fi
 rm -f $FOTO
 

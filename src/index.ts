@@ -37,20 +37,28 @@ import {
 } from "./web/allgemein";
 import {
   objektBerichteSeite,
-  objektMaengelSeite,
   objektSeite,
   objekteSeite,
 } from "./web/objekte";
 import { bauteilSeite } from "./web/bauteile";
 import {
-  checklisteSeite,
-  checklisteStand,
   pruefungSeite,
   unterschriftSeite,
 } from "./web/begehungen";
-import { maengelSeite, mangelSeite } from "./web/maengel";
 import { rundgangDaten, rundgangSeite, serviceWorkerText } from "./web/rundgang";
-import { tourenSeite } from "./web/touren";
+import {
+  checklisteSeite as checklistenSeite,
+  stammdatenSeite,
+  tuertypSeite,
+  zusatzfelderLesen,
+} from "./web/stammdaten";
+import {
+  punkteAnpassen,
+  punkteAusVorlage,
+  tuertypAendern,
+  tuertypAnlegen,
+  tuertypLesen,
+} from "./daten/tuertypen";
 import { anleitungSeite, importSeite, importeSeite } from "./web/import";
 import { planDaten, planSeite } from "./web/plan";
 import {
@@ -90,8 +98,7 @@ import {
   betreiberUnterschrift,
   pruefungErfassen,
 } from "./daten/begehungen";
-import { mangelAendern, mangelLesen, mangelSchliessen } from "./daten/maengel";
-import { tourLesen, tourSpeichern } from "./daten/touren";
+import { mangelSchliessen } from "./daten/maengel";
 import { bauteilLesen, bauteilPerNr } from "./daten/bauteile";
 import { fotoAnlegen, fotoEntfernen, fotoLesen, darfFotoLoeschen } from "./daten/fotos";
 import { fotoOpGesehen, opsAnwenden } from "./daten/sync";
@@ -316,20 +323,23 @@ export default {
         return umleitung(`/objekt/${o.id}`);
       }
 
-      case "GET /maengel":
-        return maengelSeite(env, nutzer, {
-          objekt: url.searchParams.get("objekt") ?? "",
-          status: url.searchParams.get("status") ?? "",
-          faellig_bis: url.searchParams.get("faellig_bis") ?? "",
-        });
+      case "GET /stammdaten":
+        return stammdatenSeite(env, nutzer, meldung);
 
-      case "GET /touren":
-        return tourenSeite(env, nutzer, {
-          meldung,
+      case "POST /stammdaten": {
+        const form = await formDaten(request);
+        const name = String(form.get("name") ?? "").trim();
+        if (!name) return umleitung("/stammdaten?meldung=Name+fehlt.");
+        const t = await tuertypAnlegen(env.DB, {
+          name,
+          art: String(form.get("art") ?? "wartung_drehfluegel"),
+          angelegt_von: nutzer.benutzer,
         });
+        return umleitung(`/checkliste/${t.id}?meldung=Türtyp+angelegt.+Jetzt+die+Checkliste.`);
+      }
 
-      case "POST /touren":
-        return tourRoute(request, env, nutzer);
+      case "GET /checkliste":
+        return checklistenSeite(env, nutzer, null, meldung);
 
       case "GET /anleitung/import":
         return anleitungSeite(nutzer, origin);
@@ -389,8 +399,12 @@ export default {
       return rundgangSeite(env, nutzer, decodeURIComponent(teile[1]));
     }
 
-    if (teile[0] === "mangel" && teile[1]) {
-      return mangelRoute(request, env, nutzer, decodeURIComponent(teile[1]), teile, url);
+    if (teile[0] === "stammdaten" && teile[1]) {
+      return tuertypRoute(request, env, nutzer, decodeURIComponent(teile[1]), teile, url);
+    }
+
+    if (teile[0] === "checkliste" && teile[1]) {
+      return checklistenRoute(request, env, nutzer, decodeURIComponent(teile[1]), url);
     }
 
     return fehlerSeite("Nicht gefunden", `${request.method} ${pfad} gibt es hier nicht.`, 404);
@@ -598,20 +612,17 @@ async function objektRoute(
    * selbst auf — es gibt keinen Knopf „Begehung starten" mehr, weil es keinen braucht:
    * `begehungFuerTag` setzt den heutigen Termin fort oder legt ihn an.
    */
-  if (teile.length === 3 && teile[2] === "maengel" && request.method === "GET") {
-    return objektMaengelSeite(env, nutzer, objekt.id);
-  }
-
   if (teile.length === 3 && teile[2] === "berichte" && request.method === "GET") {
     return objektBerichteSeite(env, nutzer, objekt.id, meldung);
   }
 
-  if (teile.length === 3 && (teile[2] === "checkliste" || teile[2] === "erfassen")) {
+  if (teile.length === 3 && teile[2] === "erfassen") {
     const begehung = await terminFuerHeute(env, nutzer, objekt.id);
-    return teile[2] === "checkliste"
-      ? checklisteSeite(env, nutzer, begehung.id)
-      : umleitung(`/begehung/${begehung.id}/pruefung/neu`);
+    return umleitung(`/begehung/${begehung.id}/pruefung/neu`);
   }
+
+  /* Die Checkliste hängt jetzt am Türtyp und steht oben in der Leiste. */
+  if (teile.length === 3 && teile[2] === "checkliste") return umleitung("/checkliste");
 
   if (teile.length === 3 && teile[2] === "begehung" && request.method === "POST") {
     const form = await formDaten(request);
@@ -757,19 +768,9 @@ async function begehungRoute(
     }
   }
 
-  if (teile.length === 3 && teile[2] === "checkliste" && request.method === "GET") {
-    /* Die Adresse aus dem Skill; die Seite selbst wohnt jetzt am Objekt. */
-    return begehung.datum === heute()
-      ? umleitung(`/objekt/${begehung.objekt_id}/checkliste`)
-      : checklisteSeite(env, nutzer, begehung.id);
-  }
-
-  if (teile.length === 3 && teile[2] === "stand.json" && request.method === "GET") {
-    try {
-      return json(await checklisteStand(env, begehung.id));
-    } catch (e) {
-      return json({ fehler: (e as Error).message }, 404);
-    }
+  /* Alte Adressen: die Checkliste ist jetzt die des Türtyps, oben in der Leiste. */
+  if (teile.length === 3 && (teile[2] === "checkliste" || teile[2] === "stand.json")) {
+    return umleitung("/checkliste");
   }
 
   if (teile.length === 3 && teile[2] === "abschliessen" && request.method === "POST") {
@@ -912,9 +913,9 @@ async function begehungRoute(
   return fehlerSeite("Nicht gefunden", "Diesen Weg gibt es hier nicht.", 404);
 }
 
-/* ── Mangel ────────────────────────────────────────────────────────────────── */
+/* ── Stammdaten und Checkliste ─────────────────────────────────────────────── */
 
-async function mangelRoute(
+async function tuertypRoute(
   request: Request,
   env: Env,
   nutzer: Nutzer,
@@ -922,39 +923,80 @@ async function mangelRoute(
   teile: string[],
   url: URL,
 ): Promise<Response> {
-  const m = await mangelLesen(env.DB, id);
-  if (!m) return fehlerSeite("Nicht gefunden", "Diesen Mangel gibt es nicht.", 404);
-  zugriffPruefen(nutzer.benutzer, m.objekt_id);
+  const typ = await tuertypLesen(env.DB, id);
+  if (!typ) return fehlerSeite("Nicht gefunden", "Diesen Türtyp gibt es nicht.", 404);
+  const meldung = url.searchParams.get("meldung") ?? undefined;
 
-  if (teile.length === 2) {
-    if (request.method === "GET") {
-      return mangelSeite(env, nutzer, m.id, url.searchParams.get("meldung") ?? undefined);
-    }
-    if (request.method === "POST") {
-      const form = await formDaten(request);
-      const patch: Record<string, unknown> = {};
-      for (const feld of ["beschreibung", "prioritaet", "zustaendig", "status"]) {
-        if (form.get(feld) !== null) patch[feld] = String(form.get(feld));
-      }
-      const frist = String(form.get("frist") ?? "").trim();
-      patch.frist = frist || null;
-      await mangelAendern(env.DB, m.id, patch);
-      return umleitung(`/mangel/${m.id}?meldung=Gespeichert.`);
-    }
+  if (teile.length === 3 && teile[2] === "stilllegen" && request.method === "POST") {
+    await tuertypAendern(env.DB, typ.id, { aktiv: typ.aktiv ? 0 : 1 });
+    return umleitung(
+      `/stammdaten?meldung=${typ.aktiv ? "Türtyp+stillgelegt." : "Türtyp+wieder+in+Betrieb."}`,
+    );
   }
 
-  if (teile.length === 3 && teile[2] === "schliessen" && request.method === "POST") {
-    const form = await formDaten(request);
-    await mangelSchliessen(
-      env.DB,
-      m.id,
-      String(form.get("freimeldung") ?? "").trim(),
-      nutzer.benutzer,
-    );
-    return umleitung(`/mangel/${m.id}?meldung=Als+behoben+gemeldet.`);
+  if (teile.length === 2) {
+    if (request.method === "GET") return tuertypSeite(env, nutzer, typ.id, meldung);
+    if (request.method === "POST") {
+      const form = await formDaten(request);
+      const felder: Record<string, string> = { ...typ.felder };
+      for (const [schluessel, wert] of form.entries()) {
+        if (schluessel.startsWith("feld_")) {
+          const feld = schluessel.slice(5);
+          const text = String(wert).trim();
+          if (text) felder[feld] = text;
+          else delete felder[feld];
+        }
+      }
+      await tuertypAendern(env.DB, typ.id, {
+        name: String(form.get("name") ?? typ.name),
+        beschreibung: String(form.get("beschreibung") ?? ""),
+        felder,
+        pflicht: form.getAll("pflicht").map(String),
+        zusatz: zusatzfelderLesen(String(form.get("zusatz") ?? "")),
+      });
+      return umleitung(`/stammdaten/${typ.id}?meldung=Gespeichert.`);
+    }
   }
 
   return fehlerSeite("Nicht gefunden", "Diesen Weg gibt es hier nicht.", 404);
+}
+
+async function checklistenRoute(
+  request: Request,
+  env: Env,
+  nutzer: Nutzer,
+  id: string,
+  url: URL,
+): Promise<Response> {
+  const typ = await tuertypLesen(env.DB, id);
+  if (!typ) return umleitung("/checkliste");
+  if (request.method === "GET") {
+    return checklistenSeite(env, nutzer, typ.id, url.searchParams.get("meldung") ?? undefined);
+  }
+  if (request.method !== "POST") {
+    return fehlerSeite("Nicht gefunden", "Diesen Weg gibt es hier nicht.", 404);
+  }
+
+  const form = await formDaten(request);
+  if (String(form.get("tun") ?? "") === "zuruecksetzen") {
+    await tuertypAendern(env.DB, typ.id, { punkte: punkteAusVorlage(typ.art) });
+    return umleitung(`/checkliste/${typ.id}?meldung=Auf+die+Vorlage+zurückgesetzt.`);
+  }
+
+  /* Ein Haken, der nicht mitkommt, heißt „ausgeblendet" — Formulare senden nur Angehaktes. */
+  const sichtbar = new Set(form.getAll("aktiv").map(String));
+  const aenderungen = typ.punkte.map((p) => ({
+    nr: p.nr,
+    text: String(form.get(`text_${p.nr}`) ?? p.text),
+    aktiv: sichtbar.has(p.nr),
+  }));
+  for (const zeile of String(form.get("neu") ?? "").split("\n")) {
+    if (zeile.trim()) aenderungen.push({ nr: "", text: zeile.trim(), aktiv: true } as never);
+  }
+  await tuertypAendern(env.DB, typ.id, {
+    punkte: punkteAnpassen(typ.punkte, aenderungen as never),
+  });
+  return umleitung(`/checkliste/${typ.id}?meldung=Checkliste+gespeichert.`);
 }
 
 /* ── Schnittstellen des Rundgangs ──────────────────────────────────────────── */
@@ -1112,38 +1154,6 @@ async function fotoRoute(request: Request, env: Env, nutzer: Nutzer): Promise<Re
     von: nutzer.benutzer,
   });
   return json({ ok: true, foto: foto.id, bauteil_nr: bauteil.nr, link: `/datei/${schluessel}` });
-}
-
-/* ── Tagestour ─────────────────────────────────────────────────────────────── */
-
-/**
- * Ein Tag, eine Liste, vier Handgriffe: dazu, hoch, runter, weg. Dazu der fünfte, der die
- * Begehung für diesen Tag anlegt (oder die vorhandene nimmt) und gleich in den Rundgang führt.
- */
-async function tourRoute(request: Request, env: Env, nutzer: Nutzer): Promise<Response> {
-  const form = await formDaten(request);
-  const datum = String(form.get("datum") ?? "").trim();
-  const objektId = String(form.get("objekt") ?? "").trim();
-  const tun = String(form.get("tun") ?? "dazu");
-  const zurueck = "/touren";
-
-  if (!datum || !objektId) return umleitung(zurueck);
-  const objekt = await objektLesen(env.DB, objektId);
-  if (!objekt) return umleitung(zurueck);
-  zugriffPruefen(nutzer.benutzer, objekt.id);
-
-  const tour = await tourLesen(env.DB, datum, nutzer.benutzer);
-  let liste = tour?.objekte ?? [];
-
-  /* Die Reihenfolge setzt `tour_planen` im Gespräch — hier wird nur dazugelegt und abgesagt. */
-  if (tun === "dazu") {
-    if (!liste.includes(objektId)) liste = [...liste, objektId];
-  } else if (tun === "weg") {
-    liste = liste.filter((id) => id !== objektId);
-  }
-
-  await tourSpeichern(env.DB, datum, nutzer.benutzer, liste);
-  return umleitung(zurueck);
 }
 
 /* ── Freigabe der Import-Vorschläge ────────────────────────────────────────── */

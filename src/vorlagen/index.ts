@@ -222,16 +222,20 @@ export function feldLabel(feld: string): string {
 export function pruefeChecks(
   vorlagenId: string,
   checks: Record<string, unknown>,
+  /* Die Checkliste des Türtyps: eigene Punkte (ab 900) kennt die Vorlage nicht, gültig sind sie doch. */
+  punkte?: { nr: string; aktiv?: boolean }[],
 ): Record<string, Bewertung> {
   const v = vorlage(vorlagenId);
   const erlaubt = new Set(Object.keys(BEWERTUNGEN));
+  const eigene = new Set((punkte ?? []).map((p) => p.nr));
   const out: Record<string, Bewertung> = {};
   for (const [schluessel, wert] of Object.entries(checks ?? {})) {
     const k = String(schluessel);
-    if (!(k in v.profil.points) && !(k in v.profil.check_rows)) {
-      throw new Error(
-        `Punkt '${k}' gibt es in der Vorlage '${vorlagenId}' nicht. Gültig: ${Object.keys(v.profil.points).join(", ")}.`,
-      );
+    if (!eigene.has(k) && !(k in v.profil.points) && !(k in v.profil.check_rows)) {
+      const gueltig = punkte?.length
+        ? punkte.filter((p) => p.aktiv !== false).map((p) => p.nr).join(", ")
+        : Object.keys(v.profil.points).join(", ");
+      throw new Error(`Punkt '${k}' gibt es an dieser Tür nicht. Gültig: ${gueltig}.`);
     }
     const w = String(wert);
     if (!erlaubt.has(w)) {
@@ -248,10 +252,13 @@ export function pruefeChecks(
 export function abweichungenKlartext(
   vorlagenId: string,
   checks: Record<string, string>,
+  /* Die Checkliste des Türtyps sticht die Vorlage: dort sind Punkte umbenannt und eigene dazu. */
+  punkte?: { nr: string; text: string }[],
 ): string[] {
   const v = VORLAGEN[vorlagenId];
   return Object.entries(checks ?? {}).map(([nr, b]) => {
-    const punkt = v?.punkte.find((p) => p.nr === String(nr));
+    const punkt =
+      punkte?.find((p) => p.nr === String(nr)) ?? v?.punkte.find((p) => p.nr === String(nr));
     return `${nr} ${punkt ? punkt.text : ""} → ${BEWERTUNGEN[b as Bewertung] ?? b}`;
   });
 }

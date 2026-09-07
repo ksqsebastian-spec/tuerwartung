@@ -13,6 +13,7 @@
  * werden. `readOnlyHint` ist nicht Deko: der Hub sortiert Tools danach in Lesen/Schreiben.
  */
 import type { Kontext, ToolDef } from "./protokoll";
+import { TUERTYP_TOOLS } from "./tuertypen_werkzeuge";
 import {
   BEWERTUNGEN,
   VORLAGEN,
@@ -65,7 +66,6 @@ import {
   maengelZuBauteil,
 } from "../daten/maengel";
 import { fotosZuBauteil } from "../daten/fotos";
-import { mapsLink, tagePlus, tourLesen, tourSpeichern, tourenZeitraum } from "../daten/touren";
 import { berichteZuPruefung } from "../daten/berichte";
 import { berichteErzeugen, berichtsUebersicht, sammelberichtErzeugen } from "../pdf/berichte";
 import { IMPORT_TOOLS } from "./import_werkzeuge";
@@ -461,40 +461,6 @@ const begehungLesenTool: ToolDef = {
   },
 };
 
-const maengelAuflisten: ToolDef = {
-  name: "maengel_auflisten",
-  title: "Mängel auflisten",
-  description:
-    "Offene Mängel mit Bauteil, Frist und Zuständigkeit — objektweise oder über alle Objekte.",
-  inputSchema: {
-    type: "object",
-    properties: {
-      objekt: str("ID, Name oder Adresse; ohne Angabe alle Objekte"),
-      status: str("offen (Standard) | in_arbeit | behoben | verworfen | alle"),
-      faellig_bis: str("Nur Mängel mit Frist bis zu diesem Datum, YYYY-MM-DD"),
-    },
-    additionalProperties: false,
-  },
-  annotations: NUR_LESEN,
-  async handler(args, ctx) {
-    const objekt = args.objekt ? await holeObjekt(ctx, String(args.objekt)) : null;
-    const liste = await maengelListe(ctx.env.DB, {
-      objekt_id: objekt?.id,
-      status: args.status ?? "offen",
-      faellig_bis: args.faellig_bis,
-    });
-    return {
-      maengel: liste.map((m) => ({
-        ...mangelAnsicht(m),
-        objekt: m.objekt_name,
-        bauteil_nr: m.bauteil_nr,
-        bauteil_ort: m.bauteil_raum || m.bauteil_kennung || undefined,
-        ueberfaellig: m.frist ? tageBis(m.frist) < 0 : false,
-        link: `${ctx.origin}/mangel/${m.id}`,
-      })),
-    };
-  },
-};
 
 const berichteAuflisten: ToolDef = {
   name: "berichte_auflisten",
@@ -607,7 +573,7 @@ const EINRICHTUNG: { feld: string; frage: string; pflicht: boolean; warum: strin
     feld: "adresse",
     frage: "Wie lautet die Adresse? (Straße, PLZ Ort)",
     pflicht: true,
-    warum: "steht im Bericht und plant die Tagestour",
+    warum: "steht im Bericht",
   },
   {
     feld: "betreiber",
@@ -1327,13 +1293,14 @@ function erfassungsAntwort(
       nr: e.bauteil.nr,
       kennung: e.bauteil.kennung || undefined,
       art: e.bauteil.art,
+      tuertyp: e.tuertyp?.name,
       /* Die erkannte Etage steht mit im Ort — dann kann Claude sie zurückquittieren. */
       ort: ortText(e.geschoss?.name ?? "", e.bauteil) || undefined,
       geschoss: e.geschoss?.name || undefined,
       felder: e.bauteil.felder,
     },
     ergebnis: e.pruefung.ergebnis,
-    abweichungen: abweichungenKlartext(e.bauteil.art, e.pruefung.checks),
+    abweichungen: abweichungenKlartext(e.bauteil.art, e.pruefung.checks, e.tuertyp?.punkte),
     mangel_angelegt: e.mangel ? mangelAnsicht(e.mangel) : undefined,
     offene_maengel_vorjahr: e.offene_maengel_vorjahr.map((m) => ({
       ...mangelAnsicht(m),
@@ -1346,76 +1313,7 @@ function erfassungsAntwort(
 
 /* ── Schreiben: Mängel ─────────────────────────────────────────────────────── */
 
-const mangelAnlegenTool: ToolDef = {
-  name: "mangel_anlegen",
-  title: "Mangel anlegen",
-  description:
-    "Legt einen Mangel außerhalb einer Prüfung an — etwa wenn jemand vor Ort etwas meldet, " +
-    "das nicht zur laufenden Begehung gehört. Aus einer Prüfung mit 'nio' entsteht der Mangel " +
-    "von selbst.",
-  inputSchema: {
-    type: "object",
-    properties: {
-      objekt: str("ID, Name oder Adresse"),
-      nr: int("Nummer des Bauteils"),
-      kennung: str("Alternativ: Kennung"),
-      beschreibung: str("Was ist der Mangel?"),
-      punkte: wortliste("Betroffene Prüfpunkte, z. B. [\"8\",\"10\"]"),
-      prioritaet: str("hoch | mittel | niedrig — Standard mittel"),
-      frist: str("Frist YYYY-MM-DD, Standard vier Wochen"),
-      zustaendig: str("Seehafer | Betreiber | Freitext"),
-    },
-    required: ["objekt", "beschreibung"],
-    additionalProperties: false,
-  },
-  annotations: SCHREIBT,
-  async handler(args, ctx) {
-    const objekt = await holeObjekt(ctx, pflicht<string>(args, "objekt"));
-    const b = await holeBauteil(ctx, objekt, args);
-    const m = await mangelAnlegen(ctx.env.DB, {
-      objekt_id: objekt.id,
-      bauteil_id: b.id,
-      beschreibung: pflicht<string>(args, "beschreibung"),
-      punkte: (args.punkte ?? []).map(String),
-      prioritaet: args.prioritaet,
-      frist: args.frist ?? monateSpaeter(heute(), 1),
-      zustaendig: args.zustaendig,
-    });
-    return { angelegt: mangelAnsicht(m), bauteil_nr: b.nr, link: `${ctx.origin}/mangel/${m.id}` };
-  },
-};
 
-const mangelAendernTool: ToolDef = {
-  name: "mangel_aendern",
-  title: "Mangel ändern",
-  description: "Ändert Frist, Zuständigkeit, Priorität, Beschreibung oder Status eines Mangels.",
-  inputSchema: {
-    type: "object",
-    properties: {
-      mangel: str("ID des Mangels"),
-      beschreibung: str("Text des Mangels"),
-      prioritaet: str("hoch | mittel | niedrig"),
-      frist: str("Frist YYYY-MM-DD"),
-      zustaendig: str("Seehafer | Betreiber | Freitext"),
-      status: str("offen | in_arbeit | behoben | verworfen"),
-    },
-    required: ["mangel"],
-    additionalProperties: false,
-  },
-  annotations: SCHREIBT,
-  async handler(args, ctx) {
-    const id = pflicht<string>(args, "mangel");
-    const vorher = await mangelLesen(ctx.env.DB, id);
-    if (!vorher) throw new Error(`Mangel '${id}' gibt es nicht.`);
-    zugriffPruefen(ctx.nutzer.benutzer, vorher.objekt_id);
-    const patch: Record<string, unknown> = {};
-    for (const feld of ["beschreibung", "prioritaet", "frist", "zustaendig", "status"]) {
-      if (args[feld] !== undefined) patch[feld] = String(args[feld]);
-    }
-    const m = await mangelAendern(ctx.env.DB, id, patch);
-    return { mangel: mangelAnsicht(m!), geaendert: Object.keys(patch) };
-  },
-};
 
 const mangelSchliessenTool: ToolDef = {
   name: "mangel_schliessen",
@@ -1655,219 +1553,8 @@ const sammelberichtErzeugenTool: ToolDef = {
   },
 };
 
-const tourLesenTool: ToolDef = {
-  name: "tour_lesen",
-  title: "Tagestour lesen",
-  description:
-    "Was fahre ich heute? Die Objekte des Tages in Reihenfolge mit Adressen, offenen Mängeln " +
-    "und einem fertigen Google-Maps-Link über alle Halte.",
-  inputSchema: {
-    type: "object",
-    properties: {
-      datum: str("Tag YYYY-MM-DD, Standard heute"),
-      person: str("Benutzerkennung, Standard der angemeldete Nutzer"),
-    },
-    additionalProperties: false,
-  },
-  annotations: NUR_LESEN,
-  async handler(args, ctx) {
-    const datum = String(args.datum || heute());
-    const person = String(args.person || ctx.nutzer.benutzer).toLowerCase();
-    const tour = await tourLesen(ctx.env.DB, datum, person);
-    const objekte = [];
-    for (const id of tour?.objekte ?? []) {
-      const o = await objektLesen(ctx.env.DB, id);
-      if (!o) continue;
-      zugriffPruefen(ctx.nutzer.benutzer, o.id);
-      const bauteile = await bauteileMitStand(ctx.env.DB, o);
-      objekte.push({
-        ...objektAnsicht(o),
-        faellige_bauteile: bauteile.filter(istFaellig).length,
-        link: `${ctx.origin}/objekt/${o.id}`,
-      });
-    }
-    return {
-      datum,
-      person,
-      objekte,
-      maps: objekte.length
-        ? mapsLink(objekte.map((o) => ({ adresse: o.adresse, name: o.name }) as never))
-        : undefined,
-      notiz: tour?.notiz || undefined,
-      hinweis: objekte.length ? undefined : `Für ${datum} ist nichts geplant.`,
-    };
-  },
-};
 
-const tourPlanenTool: ToolDef = {
-  name: "tour_planen",
-  title: "Tagestour planen",
-  description:
-    "Setzt die Objekte eines Tages in dieser Reihenfolge. Ersetzt, was für den Tag schon " +
-    "geplant war; eine leere Liste räumt den Tag.",
-  inputSchema: {
-    type: "object",
-    properties: {
-      datum: str("Tag YYYY-MM-DD"),
-      objekte: wortliste("Objekte in Reihenfolge — ID, Name oder Adresse"),
-      person: str("Benutzerkennung, Standard der angemeldete Nutzer"),
-    },
-    required: ["datum", "objekte"],
-    additionalProperties: false,
-  },
-  annotations: SCHREIBT,
-  async handler(args, ctx) {
-    const datum = pflicht<string>(args, "datum");
-    const person = String(args.person || ctx.nutzer.benutzer).toLowerCase();
-    const ids: string[] = [];
-    const namen: string[] = [];
-    for (const eintrag of pflicht<string[]>(args, "objekte")) {
-      const o = await holeObjekt(ctx, String(eintrag));
-      ids.push(o.id);
-      namen.push(o.name);
-    }
-    await tourSpeichern(ctx.env.DB, datum, person, ids);
-    return {
-      datum,
-      person,
-      objekte: namen,
-      link: `${ctx.origin}/touren`,
-    };
-  },
-};
 
-/**
- * Den Tag ausrechnen statt ihn zu erfragen.
- *
- * `tour_planen` will eine fertige Objektliste — die musste bisher jemand aufstellen: erst
- * `faellig` lesen, dann im Kopf nach Nähe sortieren, dann die Namen aufzählen. Das ist reine
- * Rechnung (Leitsatz 5): Dringlichkeit gibt den Startpunkt, danach wird jeweils das nächste
- * Objekt genommen, das am dichtesten liegt. Nähe schätzen wir über die Postleitzahl — genau
- * genug für Hamburg und ohne Kartendienst.
- */
-const tourVorschlagenTool: ToolDef = {
-  name: "tour_vorschlagen",
-  title: "Tagestour vorschlagen",
-  description:
-    "Rechnet einen Fahrtag aus: nimmt die fälligen Objekte, beginnt beim dringendsten und " +
-    "hängt jeweils das nächstgelegene an (Nähe über die Postleitzahl). Antwortet mit der " +
-    "Reihenfolge, dem Maps-Link und der Begründung je Halt. Mit uebernehmen=true wird der Tag " +
-    "gleich gesetzt, sonst ist es nur ein Vorschlag. Das ist die Antwort auf 'plan mir morgen' " +
-    "— niemand muss die Objekte aufzählen.",
-  inputSchema: {
-    type: "object",
-    properties: {
-      datum: str("Tag YYYY-MM-DD, Standard heute"),
-      anzahl: int("Höchstzahl der Objekte an diesem Tag, Standard 4"),
-      vorlauf_tage: int("Wie weit voraus gilt etwas als fällig, Standard 30"),
-      naehe: str("Optionaler Startpunkt: PLZ oder Adresse, von der aus gefahren wird"),
-      uebernehmen: bool("true setzt den Tag gleich, Standard false (nur Vorschlag)"),
-      person: str("Benutzerkennung, Standard der angemeldete Nutzer"),
-    },
-    additionalProperties: false,
-  },
-  annotations: SCHREIBT,
-  async handler(args, ctx) {
-    const datum = String(args.datum || heute());
-    const anzahl = Math.min(Math.max(Number(args.anzahl ?? 4), 1), 12);
-    const vorlauf = Math.min(Math.max(Number(args.vorlauf_tage ?? 30), 0), 365);
-    const person = String(args.person || ctx.nutzer.benutzer).toLowerCase();
-    const grenze = new Date(Date.now() + vorlauf * 86_400_000).toISOString().slice(0, 10);
-
-    const alle = await objekteListe(ctx.env.DB, { limit: 500 });
-    /* Was schon auf einem anderen Tag liegt, wird nicht zweimal verplant. */
-    const belegt = new Set(
-      (await tourenZeitraum(ctx.env.DB, person, datum, tagePlus(datum, vorlauf)))
-        .filter((t) => t.datum !== datum)
-        .flatMap((t) => t.objekte),
-    );
-    const kandidaten = alle.filter(
-      (o) =>
-        !belegt.has(o.id) &&
-        o.faellige_bauteile > 0 &&
-        (o.stand.nie_geprueft || !o.stand.faellig_am || o.stand.faellig_am <= grenze),
-    );
-
-    if (!kandidaten.length) {
-      return {
-        datum,
-        objekte: [],
-        hinweis: `Nichts fällig innerhalb von ${vorlauf} Tagen, was nicht schon verplant wäre.`,
-      };
-    }
-
-    /* Dringlichkeit zuerst: nie geprüft, dann das früheste Fälligkeitsdatum. */
-    const dringlichkeit = (o: (typeof kandidaten)[number]) =>
-      o.stand.nie_geprueft ? "0000-00-00" : o.stand.faellig_am || "9999-99-99";
-    const sortiert = [...kandidaten].sort(
-      (a, b) => dringlichkeit(a).localeCompare(dringlichkeit(b)) || a.plz.localeCompare(b.plz),
-    );
-
-    const route: typeof sortiert = [];
-    const rest = [...sortiert];
-    /* Start: der dringendste — oder das, was dem genannten Ausgangspunkt am nächsten liegt. */
-    const start = String(args.naehe ?? "").trim();
-    let zuletzt = start ? (/\b(\d{5})\b/.exec(start)?.[1] ?? "") : "";
-    if (start && zuletzt) {
-      rest.sort((a, b) => plzAbstand(zuletzt, a.plz) - plzAbstand(zuletzt, b.plz));
-    }
-    while (route.length < anzahl && rest.length) {
-      let beste = 0;
-      if (zuletzt) {
-        for (let i = 1; i < rest.length; i++) {
-          if (plzAbstand(zuletzt, rest[i].plz) < plzAbstand(zuletzt, rest[beste].plz)) beste = i;
-        }
-      }
-      const naechstes = rest.splice(beste, 1)[0];
-      route.push(naechstes);
-      zuletzt = naechstes.plz || zuletzt;
-    }
-
-    if (args.uebernehmen === true) {
-      await tourSpeichern(ctx.env.DB, datum, person, route.map((o) => o.id));
-    }
-
-    return {
-      datum,
-      person,
-      uebernommen: args.uebernehmen === true,
-      objekte: route.map((o, i) => ({
-        nr: i + 1,
-        id: o.id,
-        name: o.name,
-        adresse: o.adresse,
-        /* Wer die Tour liest, fährt gleich los — dann muss der Zugang mit dabei sein. */
-        zugang: o.zugang || undefined,
-        ansprechpartner:
-          [o.betreiber_kontakt, o.telefon].filter(Boolean).join(", ") || undefined,
-        faellige_bauteile: o.faellige_bauteile,
-        offene_maengel: o.offene_maengel,
-        grund: o.stand.nie_geprueft
-          ? "nie geprüft"
-          : o.stand.zustand === "ueberfaellig"
-            ? `überfällig seit ${o.stand.faellig_am}`
-            : `fällig ${o.stand.faellig_am}`,
-      })),
-      maps: mapsLink(route),
-      nicht_eingeplant: rest.length,
-      link: `${ctx.origin}/touren`,
-    };
-  },
-};
-
-/**
- * Grobe Nähe zweier Postleitzahlen: gemeinsame Vorsilbe zählt mehr als der Zahlenabstand.
- * 22453 und 22459 sind Nachbarn, 22453 und 21029 nicht — das genügt, um eine Tagesroute nicht
- * quer durch die Stadt zu legen.
- */
-function plzAbstand(a: string, b: string): number {
-  if (!a || !b) return 50;
-  if (a === b) return 0;
-  let gleich = 0;
-  while (gleich < 5 && a[gleich] === b[gleich]) gleich++;
-  const zahl = Math.abs(Number(a) - Number(b)) || 0;
-  return (5 - gleich) * 10 + Math.min(zahl / 1000, 9);
-}
 
 const vorgabenSpeichern: ToolDef = {
   name: "vorgaben_speichern",
@@ -2040,14 +1727,6 @@ const lageTool: ToolDef = {
         wo: m.id,
       });
     }
-    if (ueberfaellig.length) {
-      schritte.push({
-        was: `${ueberfaellig.length} ${
-          ueberfaellig.length === 1 ? "Objekt ist überfällig" : "Objekte sind überfällig"
-        } — Tag planen lassen`,
-        womit: "tour_vorschlagen",
-      });
-    }
 
     const kurz = schritte.length
       ? `${schritte.length} ${schritte.length === 1 ? "Sache" : "Sachen"} offen.`
@@ -2112,15 +1791,14 @@ function objektZeile(o: {
 }
 
 export const TOOLS: ToolDef[] = [
+  ...TUERTYP_TOOLS,
   lageTool,
   objekteAuflisten,
   objektLesenTool,
   bauteilLesenTool,
   faellig,
   begehungLesenTool,
-  maengelAuflisten,
   berichteAuflisten,
-  tourLesenTool,
   pruefpunkte,
   vorlagenAuflisten,
   vorgabenLesen,
@@ -2134,15 +1812,11 @@ export const TOOLS: ToolDef[] = [
   begehungAendernTool,
   pruefungErfassenTool,
   pruefungenErfassenTool,
-  mangelAnlegenTool,
-  mangelAendernTool,
   mangelSchliessenTool,
   begehungAbschliessen,
   begehungAbbrechenTool,
   berichteErzeugenTool,
   sammelberichtErzeugenTool,
-  tourPlanenTool,
-  tourVorschlagenTool,
   vorgabenSpeichern,
   ...IMPORT_TOOLS,
 ];
@@ -2150,7 +1824,16 @@ export const TOOLS: ToolDef[] = [
 export const ANLEITUNG =
   "Türwerk — Türenwartung für Seehafer Elemente. Objekte tragen ihren Bestand, Begehungen " +
   "prüfen ihn, Berichte fallen hinten heraus. " +
-  "Ablauf: (1) 'pruefpunkte' der passenden Vorlage lesen, damit Punkt-Nummern verständlich sind. " +
+  "Vor allem anderen stehen die **Türtypen** (Stammdaten): ein Türtyp wählt die Vorlage, trägt " +
+  "die Angaben, die für alle Türen dieser Art gleich sind, und bringt **seine Checkliste** mit " +
+  "— umbenannt, ausgeblendet, um eigene Punkte ergänzt. 'tuertypen_auflisten' zeigt sie, " +
+  "'tuertyp_anlegen' legt einen an, 'checkliste_anpassen' legt die Punkte zurecht. "
+  +
+  "Eine Tür wird mit 'tuer_einrichten' aufgesetzt: Türtyp nennen, dann fragt das Tool nach dem, " +
+  "was dieser Typ verlangt — EINE Frage je Aufruf, Antwort im nächsten mitgeben, bis " +
+  "'bereit: true'. Vorher kann nicht geprüft werden. Steht eine Ident-Nummer nur auf einem " +
+  "Typenschild-Foto: das Bild selbst lesen und den Wert mitgeben, nicht abtippen lassen. " +
+  "Ablauf: (1) 'checkliste_lesen' des Türtyps, damit Punkt-Nummern verständlich sind. " +
   "(2) 'begehung_starten' mit dem Objekt — einmal je Termin. Kennt der Server das Objekt nicht, " +
   "legt 'begehung_starten' es an: die erste Begehung ist die Bestandsaufnahme. Die Antwort " +
   "nennt die fälligen Bauteile in Laufreihenfolge und die offenen Mängel. " +
@@ -2159,7 +1842,8 @@ export const ANLEITUNG =
   "des Objekts, nicht die zwölfte Tür des Tages; unbekannte Nummern werden angelegt ('Tür 12 " +
   "ist neu — lege ich an'). Standard ist: alles in Ordnung — nur Abweichungen als checks " +
   "nennen, z. B. {\"8\":\"nio\"}. Sagt der Monteur 'wie davor', wie_davor=true setzen. " +
-  "Eine Abweichung erzeugt von selbst einen Mangel. Stuf ihn dabei ein: 'prioritaet' hoch | " +
+  "Eine Abweichung heißt: die Tür hat NICHT bestanden — das Ergebnis folgt den Kreuzen, ohne " +
+  "dass es jemand extra sagt. Stuf sie dabei ein: 'prioritaet' hoch | " +
   "mittel | niedrig, danach richtet sich die Frist (7 / 28 / 90 Tage). Das ist deine Aufgabe, " +
   "nicht die des Monteurs — hör auf das, was er sagt: eine Brandschutztür, die nicht schließt, " +
   "ist 'hoch'; eine spröde Dichtung 'mittel'; eine Schramme 'niedrig'. Sagt er, der Betreiber " +
@@ -2178,7 +1862,6 @@ export const ANLEITUNG =
   "sich der Import selbst. " +
   "Selbst rechnen lassen statt nachfragen: 'lage' beantwortet 'was ist zu tun?' in einem " +
   "Aufruf (überfällige Objekte, Mängel über der Frist, ausstehende Berichte, dazu konkrete " +
-  "nächste Schritte), und 'tour_vorschlagen' plant einen Fahrtag nach Dringlichkeit und Nähe, " +
-  "ohne dass jemand Objekte aufzählen muss. Die Etage eines Bauteils erkennt der Server selbst " +
-  "aus Raumnummer, ETAGE oder Flur — danach nicht fragen. " +
+  "nächste Schritte). Die Etage eines Bauteils erkennt der Server selbst aus Raumnummer, " +
+  "ETAGE oder Flur — danach nicht fragen. " +
   "Kurz antworten, der Monteur hat die Hände voll und schaut nicht aufs Display.";

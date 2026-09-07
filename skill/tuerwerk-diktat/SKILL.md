@@ -17,6 +17,10 @@ Türwerk merkt sich den **Bestand**: ein Objekt (die Liegenschaft) trägt seine 
 Fenster, Feststellanlagen), und jedes Bauteil trägt seine Geschichte über die Jahre. Eine
 **Begehung** ist ein Termin an einem Objekt und erzeugt **Prüfungen** an den Bauteilen.
 
+Über den Türen steht der **Türtyp**: er wählt das Formular, trägt die Angaben, die für alle
+Türen dieser Art gleich sind, und bringt **die Checkliste** mit. Die Checkliste hängt am Typ,
+nicht am Termin — sie bleibt gleich, und deshalb steht sie in der Oberfläche oben in der Leiste.
+
 Daraus folgt das Wichtigste für dich: **„Tür 12" ist das Bauteil Nr. 12 dieses Objekts** — nicht
 die zwölfte Tür des heutigen Tages. Nächstes Jahr ist dieselbe Nummer wieder dieselbe Tür.
 
@@ -31,9 +35,9 @@ Ist er nicht da: kurz sagen, nicht raten und nicht im Chat puffern.
 Denkzeit ist die gesamte spürbare Wartezeit. Antworten kurz halten.
 
 ## Sofort beim Start (Pflicht)
-1. **Vorlage bestimmen:** Drehflügel / Fenster / Feststellanlage.
-2. **`pruefpunkte`** für diese Vorlage aufrufen — **vor** der ersten Tür. Erst danach weißt du,
-   was „Punkt 8" bedeutet. Frag nie den Monteur, was eine Nummer bedeutet.
+1. **`checkliste_lesen`** für den Türtyp, um den es geht — **vor** der ersten Tür. Erst danach
+   weißt du, was „Punkt 8" bedeutet. Frag nie den Monteur, was eine Nummer bedeutet. Welche
+   Typen es gibt, zeigt `tuertypen_auflisten`.
 3. **`begehung_starten`** mit dem Objekt. Der Name reicht: „Kita Heselstücken". Kennt Türwerk
    das Objekt nicht, **legt es das Objekt an** — dann ist diese Begehung die Bestandsaufnahme,
    und jede diktierte Tür legt ein Bauteil an. Was fehlt, füllt der Server sinnvoll vor
@@ -55,7 +59,8 @@ Fehlt am Anfang etwas Wichtiges (Objekt, Betreiber), **einmal gesammelt nachfrag
 Nach **jeder** diktierten Tür einmal **`pruefung_erfassen`**. Nicht sammeln, nicht bündeln —
 bricht das Gespräch ab, ist alles Geschriebene sicher.
 
-- **Standard ist: alles in Ordnung.** Nur Abweichungen nennen: `checks: {"8":"nio"}`.
+- **Standard ist: alles in Ordnung.** Nur Abweichungen nennen: `checks: {"8":"nio"}`. Eine
+  Abweichung heißt automatisch **nicht bestanden** — das musst du nicht extra sagen.
 - Bewertungen: nichts = `io` · „nicht" / „nicht in Ordnung" = `nio` · „Bemerkung" = `sb`
   (Text zusätzlich in `hinweise`) · „entfällt" / „nicht zutreffend" = `nz`.
 - **„Wie davor, außer …"** → `wie_davor: true` und nur die genannten Felder mitgeben.
@@ -78,9 +83,9 @@ Beispiele aus dem Diktat:
 - „Wie davor, außer Etage 2." → `wie_davor: true`, `felder: {"ETAGE":"2"}`
 - „Punkt 10 Bemerkung: Dichtung spröde." → `checks: {"10":"sb"}`, `hinweise: "Dichtung spröde"`
 
-## Mängel: fragen, wenn etwas offen ist
-Eine Abweichung (`nio`) oder „Nachbesserung" erzeugt **von selbst einen Mangel** — du musst
-nichts extra tun. Eins aber schon: **stuf ihn ein.** `prioritaet` hoch | mittel | niedrig, daraus
+## Was nicht in Ordnung war
+Eine Abweichung (`nio`) heißt: die Tür hat **nicht bestanden** — genau das zeigt der Bestand.
+Du musst nichts extra tun. Eins aber schon: **stuf sie ein.** `prioritaet` hoch | mittel | niedrig, daraus
 folgt die Frist (7 / 28 / 90 Tage). Das ist deine Arbeit, nicht seine — hör auf das, was er
 sagt:
 
@@ -91,24 +96,22 @@ sagt:
 Sagt er, der Betreiber müsse ran (Bauliches, Fremdgewerk), `zustaendig: "Betreiber"`. Frag ihn
 nicht nach der Einstufung — dafür ist er nicht da.
 
-Kommt in der Antwort **`offene_maengel_vorjahr`** zurück, hängt an dieser Tür noch etwas aus
-einer früheren Begehung. Das **vorlesen und nachfragen**: „An der Tür ist seit 2025 die Dichtung
-offen — behoben?" Sagt er ja, **`mangel_schliessen`** mit dem, was er gesagt hat, als
-`freimeldung`. Sagt er nein, weiterarbeiten; der Mangel bleibt offen.
+Kommt in der Antwort **`offene_maengel_vorjahr`** zurück, war an dieser Tür beim letzten Mal
+etwas nicht in Ordnung. Das **vorlesen und nachfragen**: „An der Tür war 2025 die Dichtung
+spröde — behoben?" Sagt er ja, **`mangel_schliessen`** mit dem, was er gesagt hat, als
+`freimeldung`. Sagt er nein, weiterarbeiten; es bleibt offen.
 
 ## Wenn er lieber selbst tippt
-Zwei Seiten helfen am Telefon, beide brauchst du nur zu nennen, wenn er danach fragt. Merke dir
-dabei: **die Website kennt keine „Begehung"** — sie zeigt das Objekt mit vier Reitern (Bestand,
-Checkliste, Mängel, Berichte). Der Termin ist Innenleben, für dich und die Tools. Sag also „auf
-der Seite der Kita unter Checkliste", nicht „auf der Begehungsseite".
+Merke dir, wie die Website aufgebaut ist, damit du ihn richtig hinschickst. **Die Website kennt
+keine „Begehung"**: oben in der Leiste stehen **Objekte · Stammdaten · Checkliste**, und ein
+Objekt hat zwei Reiter — **Bestand** (welche Tür hat bestanden, welche nicht) und **Berichte**.
+Der Termin ist Innenleben, für dich und die Tools.
 
-- **Checkliste** — der Reiter „Checkliste" am Objekt (der Link steht als `checkliste` in der
-  Antwort von `begehung_starten`): zeigt, wo er gerade ist, während du mitschreibst. Fortschritt,
-  die nächste Tür groß, alle Türen zum Abhaken, die Prüfpunkte zum Vorlesen. Sie frischt sich von
-  selbst auf.
-- **Rundgang** — `…/rundgang/<Kennung>`: dasselbe zum Selbertippen, **auch ohne Netz**. Im
-  Keller ohne Empfang ist das der Weg; erfasst wird lokal und geht raus, sobald wieder
-  Verbindung da ist. Dort kann er auch Fotos aufnehmen — die hängen hinten am Bericht.
+- **Checkliste** — oben in der Leiste. Sie zeigt die Prüfpunkte des Türtyps zum Mitlesen und
+  lässt sich dort auch anpassen. Sie gehört zum Typ, nicht zum Termin.
+- **Rundgang** — `…/rundgang/<Kennung>`: zum Selbertippen, **auch ohne Netz**. Im Keller ohne
+  Empfang ist das der Weg; erfasst wird lokal und geht raus, sobald wieder Verbindung da ist.
+  Dort kann er auch Fotos aufnehmen — die hängen hinten am Bericht.
 
 ## „Abbrechen" → Termin platzt
 Sagt er, der Termin ist geplatzt oder er steht am falschen Objekt: **`begehung_abbrechen`**.
@@ -128,6 +131,21 @@ Unsicher beim Lesen? Niedrige Konfidenz angeben. Eine erfundene Tür ist schlimm
 fehlende. Details stehen in `import_anleitung`, falls du sie brauchst. Mitten im Diktat lohnt
 das nicht: dann lieber vertrösten und nach der Begehung machen.
 
+## „Die Tür ist neu"
+Eine Tür entsteht nicht mehr nebenbei: **`tuer_einrichten`**. Türtyp nennen, dann fragt das Tool
+nach dem, was dieser Typ verlangt — **eine Frage je Aufruf**, seine Antwort im nächsten Aufruf
+mitgeben, bis `bereit: true` kommt. Vorher kann nicht geprüft werden, und das ist Absicht: was
+beim Anlegen fehlt, fehlt später im Bericht.
+
+**Schickt er ein Foto vom Typenschild, lies die Nummer selbst ab** und gib sie mit. Er hat die
+Hände voll; abtippen soll das niemand.
+
+## „Ein neuer Türtyp"
+**`tuertyp_anlegen`** — Name, Vorlage, die gemeinsamen Angaben, und welche Felder an jeder Tür
+stehen müssen. Die Checkliste entsteht dabei aus der Vorlage; mit **`checkliste_anpassen`** wird
+sie zurechtgelegt: umbenennen, ausblenden, eigene Punkte ergänzen. Eigene Punkte tragen Nummern
+ab 900 und stehen im Bericht unter „Hinweise" — das Formular hat für sie kein Kästchen.
+
 ## „Das Objekt ist neu"
 `objekt_einrichten` führt durch die Stammdaten. Es nennt **genau eine** nächste Frage — die
 stellst du, seine Antwort gibst du im nächsten Aufruf mit, bis `fertig: true` kommt. Nicht die
@@ -135,50 +153,19 @@ ganze Liste vorlesen. Weiß er etwas nicht und es ist freiwillig, nimm es in `ue
 statt noch einmal zu fragen.
 
 Das wichtigste Feld ist **`zugang`** — „Schlüssel beim Hausmeister, Herr Kern 0171-…",
-„Anmeldung im Sekretariat", „Codeschloss 1234". Es steht danach in jeder Tagestour und erspart
+„Anmeldung im Sekretariat", „Codeschloss 1234". Es steht danach am Objekt und erspart
 die vergebliche Anfahrt.
 
-## „Was ist los?" / „Was fahre ich morgen?"
-**`lage`** beantwortet „was steht an?" in einem Aufruf: überfällige Objekte, Mängel über ihrer
-Frist, Termine mit ausstehenden Berichten — und `naechste_schritte` mit dem Tool, das jeden Punkt
-erledigt. Nicht vier Abfragen zusammensuchen, das rechnet der Server.
-
-**`tour_vorschlagen`** plant den Tag selbst: nimmt die fälligen Objekte, beginnt beim dringendsten
-und hängt jeweils das nächstgelegene an. Die Objekte muss niemand aufzählen. Erst vorschlagen und
-vorlesen, dann auf sein Wort mit `uebernehmen: true` setzen.
-
-**`tour_lesen`** mit dem Datum liest einen gesetzten Tag — Objekte in Reihenfolge, Adressen und
-ein fertiger Maps-Link. Plant er im Gespräch um („morgen erst Heselstücken, dann Abbestraße"),
-setzt **`tour_planen`** den Tag neu.
-
-## „Fertig" → ein Aufruf, alles fertig
-`begehung_abschliessen`. Das ist **ein** Schritt, nicht drei: es liest zurück, schließt ab,
-erzeugt die Einzelberichte und den Sammelbericht. Kommt `fertig: false` zurück, reichte die
-Rechenzeit nicht — **einfach noch einmal aufrufen**, bis nichts mehr offen ist.
-
-Den Rückblick **kompakt vorlesen**: je Tür Ort, Abweichungen, Ergebnis. Dazu die **fälligen
-Bauteile, die noch fehlen** — „drei Türen im 2. OG fehlen noch, absichtlich?" Das ist die
-Vollständigkeitskontrolle. Der Monteur bestätigt oder korrigiert. Am Ende ein Satz: „14 Berichte
-erstellt, 2 mit Nachbesserung." und den Link nennen.
-
-Erzeugt wird nur, wo sich etwas geändert hat. Will er nur abschließen, ohne Berichte:
-`berichte: false`. Braucht er später neue Versionen, geht `berichte_erzeugen` weiterhin einzeln.
-
-Erzeugt wird nur, wo sich etwas geändert hat: zweimal hintereinander aufgerufen entsteht keine
-zweite Version. Ändert sich später doch etwas, entsteht eine neue Version daneben — der Bericht,
-der beim Kunden liegt, bleibt genau so.
-
-## Unterschrift des Betreibers
-Steht jemand vom Betreiber daneben, kann er auf dem Handy unterschreiben:
-`https://tuerwerk.ksqsebastian.workers.dev/begehung/<Kennung>/unterschrift`. Danach entstehen die
-Berichte in neuer Version — mit Unterschrift und Namen im Formular. Den Link nur nennen, wenn er
-danach fragt oder die Begehung abgeschlossen ist.
+## „Was ist los?"
+**`lage`** beantwortet „was steht an?" in einem Aufruf: überfällige Objekte, Punkte über ihrer
+Frist, Termine mit ausstehenden oder veralteten Berichten — und `naechste_schritte` mit dem
+Tool, das jeden Punkt erledigt. Nicht mehrere Abfragen zusammensuchen, das rechnet der Server.
 
 ## Befehle im Client
-Der Connector bringt vier Schrägstrich-Befehle mit, falls der Monteur sie lieber antippt als
-diktiert: **/wartung** (Objekt nennen, dann losdiktieren), **/tag** (Lagebild und ein geplanter
-Fahrtag), **/abschluss** (Rücklesen und Berichte), **/einrichten** (Stammdaten eines neuen
-Objekts), **/bauplan** (Grundriss einlesen). Sie tun
+Der Connector bringt Schrägstrich-Befehle mit, falls der Monteur sie lieber antippt als
+diktiert: **/wartung** (Objekt nennen, dann losdiktieren), **/tuertyp** (Türtyp und Checkliste
+einrichten), **/tuer** (eine Tür aufsetzen), **/tag** (Lagebild), **/abschluss** (Rücklesen und
+Berichte), **/einrichten** (Objekt-Stammdaten), **/bauplan** (Grundriss einlesen). Sie tun
 dasselbe wie dieser Skill — nur ohne dass jemand den Einstieg formulieren muss.
 
 ## Wenn etwas schiefgeht
@@ -188,7 +175,7 @@ dasselbe wie dieser Skill — nur ohne dass jemand den Einstieg formulieren muss
   Danach `berichte_erzeugen` — der geänderte Stand erzeugt neue Versionen von selbst.
 - Tür ausgebaut? `bauteil_aendern` mit `aktiv: false` — die Historie bleibt, fällig wird sie nicht mehr.
 - „Was ist diese Woche dran?" → `faellig`. „Was ist an dem Objekt los?" → `objekt_lesen`.
-  „Was ist noch offen?" → `maengel_auflisten`.
+  „Was ist noch offen?" → `lage`.
 - Unterschrift des Prüfers fehlt im Bericht? Einmalig auf der Website unter Einstellungen hochladen.
 - Kein Empfang? Das Diktat braucht Netz — dann den **Rundgang** öffnen (siehe oben), der sammelt
   offline und schiebt später hoch.
