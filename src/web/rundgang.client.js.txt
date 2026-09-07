@@ -187,7 +187,15 @@
     var v = daten.vorlagen[b.art] || daten.vorlagen[Object.keys(daten.vorlagen)[0]];
     var p = b.pruefung || { checks: {}, ergebnis: "bestanden", hinweise: "" };
 
-    var felder = v.bauteilfelder.map(function (f) {
+    /* Wo steht die Tür? Bei einer im Rundgang angelegten weiß das sonst niemand. */
+    var ortsfelder =
+      '<div class="feld"><label for="o_raumnummer">Raumnummer</label>' +
+      '<input class="field" id="o_raumnummer" value="' + esc(b.raumnummer || "") + '"></div>' +
+      '<div class="feld"><label for="o_raum">Raum</label>' +
+      '<input class="field" id="o_raum" value="' + esc(b.raum || "") + '"></div>' +
+      '<div class="feld"><label for="o_flur">Flur</label>' +
+      '<input class="field" id="o_flur" value="' + esc(b.flur || "") + '"></div>';
+    var felder = ortsfelder + v.bauteilfelder.map(function (f) {
       return '<div class="feld"><label for="f_' + f + '">' + esc(v.labels[f] || f) + "</label>" +
         '<input class="field" id="f_' + f + '" data-feld="' + f + '" value="' + esc(b.felder[f] || "") + '"></div>';
     }).join("");
@@ -261,6 +269,9 @@
         ergebnis: el("ergebnis").value,
         hinweise: el("hinweise").value.trim(),
         felder: felder,
+        raumnummer: el("o_raumnummer").value.trim(),
+        raum: el("o_raum").value.trim(),
+        flur: el("o_flur").value.trim(),
         geprueft_am: Date.now(),
       },
     };
@@ -268,6 +279,9 @@
     setzen("ops", op);
     b.pruefung = { checks: checks, ergebnis: op.payload.ergebnis, hinweise: op.payload.hinweise, wartet: true };
     Object.assign(b.felder, felder);
+    b.raumnummer = op.payload.raumnummer;
+    b.raum = op.payload.raum;
+    b.flur = op.payload.flur;
     listeZeigen();
     abgleichen();
   }
