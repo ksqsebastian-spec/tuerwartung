@@ -1,32 +1,70 @@
 /**
- * Die Tools des MCP-Servers.
+ * Die Tools des MCP-Servers, Fassung 2.
  *
- * Zuschnitt nach dem Diktat vor Ort: eine Wartung starten, Tür für Tür schreiben, am Ende
- * zurücklesen und die Berichte erzeugen. Jede Tür geht sofort in die Datenbank — bricht das
- * Gespräch ab, ist nichts verloren.
+ * Zuschnitt nach dem Diktat vor Ort: eine Begehung starten, Bauteil für Bauteil schreiben, am
+ * Ende zurücklesen und die Berichte erzeugen. Jede Prüfung geht sofort in die Datenbank —
+ * bricht das Gespräch ab, ist nichts verloren.
+ *
+ * Der Unterschied zu v1 steckt im Datenmodell, nicht in der Sprache: „Tür 12" meint jetzt das
+ * Bauteil Nr. 12 des Objekts und nicht die zwölfte Tür des Tages. Kennt der Server ein Objekt
+ * nicht, legt `begehung_starten` es an — die erste Begehung ist die Bestandsaufnahme.
  *
  * Namen und Beschreibungen sind deutsch, weil diktiert wird und die Rückmeldungen vorgelesen
  * werden. `readOnlyHint` ist nicht Deko: der Hub sortiert Tools danach in Lesen/Schreiben.
  */
 import type { Kontext, ToolDef } from "./protokoll";
-import type { Bewertung } from "../vorlagen";
-import { BEWERTUNGEN, VORLAGEN, VORLAGEN_IDS, vorlage } from "../vorlagen";
 import {
-  heute,
-  inEinemJahr,
+  BEWERTUNGEN,
+  VORLAGEN,
+  VORLAGEN_IDS,
+  abweichungenKlartext,
+  vorlage,
+} from "../vorlagen";
+import { heute, monateSpaeter, tageBis, zugriffPruefen } from "../daten/basis";
+import { personLesen, personSpeichern } from "../daten/personen";
+import {
+  faelligkeit,
+  geschosseListe,
+  objektAendern,
+  objektAnlegen,
+  objektAufloesen,
+  objektLesen,
+  objektSuchen,
+  objekteListe,
+} from "../daten/objekte";
+import type { Objekt } from "../daten/objekte";
+import {
+  bauteilAendern,
+  bauteilAnlegen,
+  bauteilPerKennung,
+  bauteilPerNr,
+  bauteileMitStand,
+  inLaufreihenfolge,
+  istFaellig,
   naechsteNr,
-  personLesen,
-  personSpeichern,
-  tuerLesen,
-  tuerSpeichern,
-  tuerenLesen,
-  wartungAendern,
-  wartungAnlegen,
-  wartungLesen,
-  wartungenListe,
-} from "../daten/wartungen";
-import type { Tuer, Wartung } from "../daten/wartungen";
-import { berichteErzeugen, berichtsListe } from "../pdf/berichte";
+} from "../daten/bauteile";
+import type { BauteilMitStand } from "../daten/bauteile";
+import {
+  begehungAendern,
+  begehungAnlegen,
+  begehungLesen,
+  begehungenListe,
+  pruefungErfassen,
+  pruefungenHistorie,
+  pruefungenLesen,
+} from "../daten/begehungen";
+import type { Begehung } from "../daten/begehungen";
+import {
+  mangelAendern,
+  mangelAnlegen,
+  mangelLesen,
+  mangelSchliessen,
+  maengelListe,
+  maengelZuBauteil,
+} from "../daten/maengel";
+import { fotosZuBauteil } from "../daten/fotos";
+import { berichteZuPruefung } from "../daten/berichte";
+import { berichteErzeugen, berichtsUebersicht, sammelberichtErzeugen } from "../pdf/berichte";
 
 const NUR_LESEN = { readOnlyHint: true, destructiveHint: false, openWorldHint: false };
 const SCHREIBT = { readOnlyHint: false, destructiveHint: false, openWorldHint: false };
@@ -34,6 +72,11 @@ const SCHREIBT = { readOnlyHint: false, destructiveHint: false, openWorldHint: f
 const str = (description: string) => ({ type: "string", description });
 const int = (description: string) => ({ type: "integer", description });
 const bool = (description: string) => ({ type: "boolean", description });
+const wortliste = (description: string) => ({
+  type: "array",
+  description,
+  items: { type: "string" },
+});
 
 function pflicht<T>(args: Record<string, any>, name: string): T {
   const v = args[name];
@@ -43,69 +86,132 @@ function pflicht<T>(args: Record<string, any>, name: string): T {
   return v as T;
 }
 
-async function holeWartung(ctx: Kontext, id: string): Promise<Wartung> {
-  const w = await wartungLesen(ctx.env.DB, id);
-  if (!w) {
-    throw new Error(
-      `Wartung '${id}' gibt es nicht. Mit 'wartungen_auflisten' nachsehen oder 'wartung_starten' benutzen.`,
-    );
-  }
-  return w;
+/* ── Auflösung ─────────────────────────────────────────────────────────────── */
+
+async function holeObjekt(ctx: Kontext, text: string): Promise<Objekt> {
+  const o = await objektAufloesen(ctx.env.DB, text);
+  zugriffPruefen(ctx.nutzer.benutzer, o.id);
+  return o;
 }
 
-/** Bewertungen prüfen und Punkt-Nummern gegen die Vorlage abgleichen. */
-function pruefeChecks(vorlagenId: string, checks: Record<string, unknown>): Record<string, Bewertung> {
-  const v = vorlage(vorlagenId);
-  const erlaubt = new Set(Object.keys(BEWERTUNGEN));
-  const out: Record<string, Bewertung> = {};
-  for (const [schluessel, wert] of Object.entries(checks ?? {})) {
-    const k = String(schluessel);
-    if (!(k in v.profil.points) && !(k in v.profil.check_rows)) {
-      throw new Error(
-        `Punkt '${k}' gibt es in der Vorlage '${vorlagenId}' nicht. Gültig: ${Object.keys(v.profil.points).join(", ")}.`,
-      );
-    }
-    const w = String(wert);
-    if (!erlaubt.has(w)) {
-      throw new Error(
-        `Bewertung '${w}' für Punkt ${k} ist unbekannt. Gültig: ${[...erlaubt].join(", ")}.`,
-      );
-    }
-    out[k] = w as Bewertung;
+/**
+ * Eine Begehung finden: über ihre Kennung, sonst über das Objekt — dann gewinnt die jüngste
+ * laufende. Der Monteur sagt „die von heute in der Kita", nicht eine 26-stellige Kennung.
+ */
+async function holeBegehung(ctx: Kontext, text: string): Promise<Begehung> {
+  const direkt = await begehungLesen(ctx.env.DB, text);
+  if (direkt) {
+    zugriffPruefen(ctx.nutzer.benutzer, direkt.objekt_id);
+    return direkt;
   }
-  return out;
+  const objekt = await objektSuchen(ctx.env.DB, text);
+  if (objekt) {
+    const liste = await begehungenListe(ctx.env.DB, { objekt_id: objekt.id, limit: 1 });
+    if (liste.length) {
+      zugriffPruefen(ctx.nutzer.benutzer, liste[0].objekt_id);
+      return (await begehungLesen(ctx.env.DB, liste[0].id))!;
+    }
+  }
+  throw new Error(
+    `Begehung '${text}' gibt es nicht. Mit 'objekt_lesen' nachsehen oder 'begehung_starten' benutzen.`,
+  );
 }
 
-function tuerAnsicht(t: Tuer) {
+async function holeBauteil(
+  ctx: Kontext,
+  objekt: Objekt,
+  args: Record<string, any>,
+): Promise<BauteilMitStand> {
+  const alle = await bauteileMitStand(ctx.env.DB, objekt, { auch_stillgelegte: true });
+  if (args.nr !== undefined && args.nr !== null && args.nr !== "") {
+    const b = alle.find((x) => x.nr === Number(args.nr));
+    if (b) return b;
+    throw new Error(`Bauteil Nr. ${args.nr} gibt es an '${objekt.name}' nicht.`);
+  }
+  if (args.kennung) {
+    const treffer = await bauteilPerKennung(ctx.env.DB, objekt.id, String(args.kennung));
+    if (treffer.length === 1) return alle.find((x) => x.id === treffer[0].id)!;
+    if (treffer.length > 1) {
+      throw new Error(
+        `Kennung '${args.kennung}' passt auf mehrere Bauteile (Nr. ${treffer.map((t) => t.nr).join(", ")}).`,
+      );
+    }
+    throw new Error(`Kennung '${args.kennung}' gibt es an '${objekt.name}' nicht.`);
+  }
+  throw new Error("Bauteil angeben: 'nr' oder 'kennung'.");
+}
+
+/* ── Ansichten ─────────────────────────────────────────────────────────────── */
+
+function objektAnsicht(o: Objekt) {
   return {
-    nr: t.nr,
-    felder: t.felder,
-    checks: t.checks,
-    abweichungen: Object.keys(t.checks).length,
-    ergebnis: t.ergebnis,
-    hinweise: t.hinweise,
-    status: t.status,
-    bericht: t.pdf_schluessel ? t.pdf_schluessel.split("/").pop() : null,
+    id: o.id,
+    name: o.name,
+    adresse: o.adresse,
+    betreiber: o.betreiber,
+    betreiber_kontakt: o.betreiber_kontakt,
+    ident: o.ident,
+    intervall_monate: o.intervall_monate,
+    rechtsgrundlagen: o.rechtsgrundlagen,
   };
 }
 
-function wartungAnsicht(w: Wartung) {
+function standAnsicht(b: BauteilMitStand) {
   return {
-    id: w.id,
-    vorlage: w.vorlage,
-    objekt: w.objekt,
-    betreiber: w.betreiber,
-    ident: w.ident,
-    tuertyp: w.tuertyp,
-    pruefer: w.pruefer,
-    befaehigung: w.befaehigung,
-    datum: w.datum,
-    ort: w.ort,
-    rechtsgrundlagen: w.rechtsgrundlagen,
-    letzte_pruefung: w.letzte_pruefung,
-    naechste_pruefung: w.naechste_pruefung,
-    beteiligte: w.beteiligte,
-    status: w.status,
+    faellig_am: b.stand.faellig_am || "sofort",
+    zustand: b.stand.zustand,
+    tage: b.stand.tage,
+  };
+}
+
+function bauteilAnsicht(b: BauteilMitStand) {
+  return {
+    nr: b.nr,
+    kennung: b.kennung || undefined,
+    art: b.art,
+    ort: [b.raumnummer, b.raum || b.bezeichnung, b.flur].filter(Boolean).join(" · ") || undefined,
+    felder: b.felder,
+    letzte_pruefung: b.letzte_pruefung || null,
+    letztes_ergebnis: b.letztes_ergebnis || null,
+    faelligkeit: standAnsicht(b),
+    offene_maengel: b.offene_maengel,
+    wartungspflichtig: b.wartungspflichtig === 1,
+    aktiv: b.aktiv === 1,
+  };
+}
+
+function mangelAnsicht(m: {
+  id: string;
+  punkte: string[];
+  beschreibung: string;
+  prioritaet: string;
+  frist: string | null;
+  zustaendig: string;
+  status: string;
+}) {
+  return {
+    id: m.id,
+    punkte: m.punkte,
+    beschreibung: m.beschreibung,
+    prioritaet: m.prioritaet,
+    frist: m.frist,
+    zustaendig: m.zustaendig,
+    status: m.status,
+  };
+}
+
+function begehungAnsicht(b: Begehung) {
+  return {
+    id: b.id,
+    objekt_id: b.objekt_id,
+    datum: b.datum,
+    pruefer: b.pruefer,
+    befaehigung: b.befaehigung,
+    ort: b.ort,
+    beteiligte: b.beteiligte,
+    status: b.status,
+    betreiber_name: b.betreiber_name || undefined,
+    unterschrieben: Boolean(b.betreiber_unterschrift),
   };
 }
 
@@ -116,7 +222,7 @@ const vorlagenAuflisten: ToolDef = {
   title: "Vorlagen auflisten",
   description:
     "Welche Wartungsvorlagen es gibt (Drehflügeltüren, Fenster, Feststellanlagen) mit Anzahl " +
-    "der Prüfpunkte und den Feldern, die je Tür abweichen dürfen.",
+    "der Prüfpunkte und den Feldern, die je Bauteil abweichen dürfen.",
   inputSchema: { type: "object", properties: {}, additionalProperties: false },
   annotations: NUR_LESEN,
   async handler() {
@@ -136,13 +242,11 @@ const pruefpunkte: ToolDef = {
   title: "Prüfpunkte einer Vorlage",
   description:
     "Die nummerierten Prüfpunkte einer Vorlage im Klartext, plus das Cheatsheet für die " +
-    "Diktat-Kurzsprache. IMMER zuerst aufrufen, bevor eine Wartung erfasst wird — sonst ist " +
+    "Diktat-Kurzsprache. IMMER zuerst aufrufen, bevor eine Begehung erfasst wird — sonst ist " +
     "unklar, was 'Punkt 8' bedeutet.",
   inputSchema: {
     type: "object",
-    properties: {
-      vorlage: str(`Eine von: ${VORLAGEN_IDS.join(", ")}`),
-    },
+    properties: { vorlage: str(`Eine von: ${VORLAGEN_IDS.join(", ")}`) },
     required: ["vorlage"],
     additionalProperties: false,
   },
@@ -161,65 +265,260 @@ const pruefpunkte: ToolDef = {
   },
 };
 
-const wartungenAuflisten: ToolDef = {
-  name: "wartungen_auflisten",
-  title: "Wartungen auflisten",
+const objekteAuflisten: ToolDef = {
+  name: "objekte_auflisten",
+  title: "Objekte auflisten",
   description:
-    "Die zuletzt bearbeiteten Wartungen, optional gefiltert. Zeigt je Wartung, wie viele Türen " +
-    "erfasst und wie viele Berichte noch offen sind.",
+    "Die Objekte mit Fälligkeit, Bauteilzahl und offenen Mängeln, das dringendste zuerst. " +
+    "Der Einstieg für 'wo stehen wir?' und 'gibt es das Objekt schon?'.",
   inputSchema: {
     type: "object",
     properties: {
-      suche: str("Freitext auf Kennung, Objekt oder Betreiber"),
-      status: str("offen | abgeschlossen | generiert"),
-      limit: int("Höchstzahl Treffer (Standard 20)"),
+      suche: str("Freitext auf Name, Adresse oder Betreiber"),
+      nur_faellige: bool("true zeigt nur Objekte mit fälligen Bauteilen"),
+      limit: int("Höchstzahl Treffer (Standard 50)"),
     },
     additionalProperties: false,
   },
   annotations: NUR_LESEN,
   async handler(args, ctx) {
-    const liste = await wartungenListe(ctx.env.DB, {
+    const liste = await objekteListe(ctx.env.DB, {
       suche: args.suche,
-      status: args.status,
-      limit: args.limit ?? 20,
+      nur_faellige: args.nur_faellige === true,
+      limit: args.limit ?? 50,
     });
     return {
-      wartungen: liste.map((w) => ({
-        ...wartungAnsicht(w),
-        tueren: w.tueren,
-        berichte_offen: w.offen,
+      objekte: liste.map((o) => ({
+        ...objektAnsicht(o),
+        bauteile: o.bauteile,
+        faellige_bauteile: o.faellige_bauteile,
+        offene_maengel: o.offene_maengel,
+        letzte_begehung: o.letzte_begehung,
+        faellig_am: o.stand.faellig_am || "sofort",
+        zustand: o.stand.zustand,
       })),
     };
   },
 };
 
-const wartungLesenTool: ToolDef = {
-  name: "wartung_lesen",
-  title: "Wartung mit allen Türen lesen",
+const objektLesenTool: ToolDef = {
+  name: "objekt_lesen",
+  title: "Objekt mit Bestand lesen",
   description:
-    "Stammdaten und alle erfassten Türen einer Wartung. Das ist der Rückleseschritt bei " +
-    "'Fertig': kompakt vorlesen, bestätigen lassen, dann Berichte erzeugen.",
+    "Stammdaten, Geschosse und alle Bauteile eines Objekts in Laufreihenfolge — je Bauteil " +
+    "letzte Prüfung, Fälligkeit und offene Mängel. Dazu die letzten Begehungen.",
   inputSchema: {
     type: "object",
-    properties: { wartung: str("Kennung der Wartung, z. B. WART-2026-08-13-Heselstuecken") },
-    required: ["wartung"],
+    properties: {
+      objekt: str("ID, Name oder Adresse des Objekts"),
+      nur_faellige: bool("true zeigt nur die fälligen Bauteile"),
+    },
+    required: ["objekt"],
     additionalProperties: false,
   },
   annotations: NUR_LESEN,
   async handler(args, ctx) {
-    const w = await holeWartung(ctx, pflicht<string>(args, "wartung"));
-    const tueren = await tuerenLesen(ctx.env.DB, w.id);
-    const v = vorlage(w.vorlage);
+    const objekt = await holeObjekt(ctx, pflicht<string>(args, "objekt"));
+    const geschosse = await geschosseListe(ctx.env.DB, objekt.id);
+    const alle = await bauteileMitStand(ctx.env.DB, objekt);
+    const sortiert = inLaufreihenfolge(alle, geschosse);
+    const gezeigt = args.nur_faellige === true ? sortiert.filter(istFaellig) : sortiert;
+    const begehungen = await begehungenListe(ctx.env.DB, { objekt_id: objekt.id, limit: 5 });
     return {
-      wartung: wartungAnsicht(w),
-      link: `${ctx.origin}/wartung/${encodeURIComponent(w.id)}`,
-      tueren: tueren.map((t) => ({
-        ...tuerAnsicht(t),
-        abweichungen_klartext: Object.entries(t.checks).map(([nr, b]) => {
-          const punkt = v.punkte.find((p) => p.nr === String(nr));
-          return `${nr} ${punkt ? punkt.text : ""} → ${BEWERTUNGEN[b as Bewertung] ?? b}`;
-        }),
+      objekt: objektAnsicht(objekt),
+      link: `${ctx.origin}/objekt/${objekt.id}`,
+      geschosse: geschosse.map((g) => ({ id: g.id, name: g.name, reihenfolge: g.reihenfolge })),
+      bauteile_gesamt: alle.length,
+      faellige_bauteile: sortiert.filter(istFaellig).length,
+      bauteile: gezeigt.map(bauteilAnsicht),
+      begehungen: begehungen.map((b) => ({
+        id: b.id,
+        datum: b.datum,
+        status: b.status,
+        pruefungen: b.pruefungen,
       })),
+    };
+  },
+};
+
+const bauteilLesenTool: ToolDef = {
+  name: "bauteil_lesen",
+  title: "Bauteil mit Historie lesen",
+  description:
+    "Ein Bauteil mit allem, was daran hängt: Stammdaten, alle Prüfungen der vergangenen Jahre, " +
+    "Mängel, Fotos und Berichtsversionen.",
+  inputSchema: {
+    type: "object",
+    properties: {
+      objekt: str("ID, Name oder Adresse des Objekts"),
+      nr: int("Nummer des Bauteils, z. B. 12"),
+      kennung: str("Kennung aus Türliste/Plan, z. B. T-2.14"),
+    },
+    required: ["objekt"],
+    additionalProperties: false,
+  },
+  annotations: NUR_LESEN,
+  async handler(args, ctx) {
+    const objekt = await holeObjekt(ctx, pflicht<string>(args, "objekt"));
+    const b = await holeBauteil(ctx, objekt, args);
+    const historie = await pruefungenHistorie(ctx.env.DB, b.id);
+    const maengel = await maengelZuBauteil(ctx.env.DB, b.id);
+    const fotos = await fotosZuBauteil(ctx.env.DB, b.id);
+    const berichte: { datum: string; version: number; link: string }[] = [];
+    for (const p of historie) {
+      for (const r of await berichteZuPruefung(ctx.env.DB, p.id)) {
+        berichte.push({
+          datum: p.datum,
+          version: r.version,
+          link: `${ctx.origin}/datei/${r.r2_schluessel}`,
+        });
+      }
+    }
+    return {
+      objekt: objektAnsicht(objekt),
+      bauteil: bauteilAnsicht(b),
+      link: `${ctx.origin}/objekt/${objekt.id}/bauteil/${b.nr}`,
+      pruefungen: historie.map((p) => ({
+        datum: p.datum,
+        pruefer: p.pruefer,
+        ergebnis: p.ergebnis,
+        hinweise: p.hinweise || undefined,
+        abweichungen: abweichungenKlartext(b.art, p.checks),
+      })),
+      maengel: maengel.map(mangelAnsicht),
+      fotos: fotos.map((f) => ({
+        notiz: f.notiz,
+        aufgenommen_am: f.aufgenommen_am,
+        link: `${ctx.origin}/datei/${f.r2_schluessel}`,
+      })),
+      berichte,
+    };
+  },
+};
+
+const faellig: ToolDef = {
+  name: "faellig",
+  title: "Was ist fällig?",
+  description:
+    "Objekte, deren Bauteile innerhalb der nächsten Tage fällig werden — mit Anzahl der " +
+    "fälligen Bauteile und dem frühesten Datum. Das ist die Antwort auf 'was ist diese Woche dran?'.",
+  inputSchema: {
+    type: "object",
+    properties: { tage: int("Vorlauf in Tagen, Standard 30") },
+    additionalProperties: false,
+  },
+  annotations: NUR_LESEN,
+  async handler(args, ctx) {
+    const tage = Number(args.tage ?? 30);
+    const grenze = new Date(Date.now() + tage * 86_400_000).toISOString().slice(0, 10);
+    const liste = await objekteListe(ctx.env.DB, { limit: 500 });
+    const treffer = liste.filter(
+      (o) => o.stand.nie_geprueft || (o.stand.faellig_am && o.stand.faellig_am <= grenze),
+    );
+    return {
+      stichtag: grenze,
+      objekte: treffer.map((o) => ({
+        id: o.id,
+        name: o.name,
+        adresse: o.adresse,
+        plz: o.plz,
+        faellige_bauteile: o.faellige_bauteile,
+        bauteile: o.bauteile,
+        faellig_am: o.stand.faellig_am || "sofort",
+        zustand: o.stand.zustand,
+        offene_maengel: o.offene_maengel,
+      })),
+    };
+  },
+};
+
+const begehungLesenTool: ToolDef = {
+  name: "begehung_lesen",
+  title: "Begehung mit allen Prüfungen lesen",
+  description:
+    "Alle Prüfungen einer Begehung mit den Abweichungen im Klartext, dazu die fälligen " +
+    "Bauteile, die noch fehlen. Das ist der Rückleseschritt bei 'Fertig'.",
+  inputSchema: {
+    type: "object",
+    properties: { begehung: str("Kennung der Begehung oder Name des Objekts") },
+    required: ["begehung"],
+    additionalProperties: false,
+  },
+  annotations: NUR_LESEN,
+  async handler(args, ctx) {
+    const begehung = await holeBegehung(ctx, pflicht<string>(args, "begehung"));
+    return rueckblick(ctx, begehung);
+  },
+};
+
+const maengelAuflisten: ToolDef = {
+  name: "maengel_auflisten",
+  title: "Mängel auflisten",
+  description:
+    "Offene Mängel mit Bauteil, Frist und Zuständigkeit — objektweise oder über alle Objekte.",
+  inputSchema: {
+    type: "object",
+    properties: {
+      objekt: str("ID, Name oder Adresse; ohne Angabe alle Objekte"),
+      status: str("offen (Standard) | in_arbeit | behoben | verworfen | alle"),
+      faellig_bis: str("Nur Mängel mit Frist bis zu diesem Datum, YYYY-MM-DD"),
+    },
+    additionalProperties: false,
+  },
+  annotations: NUR_LESEN,
+  async handler(args, ctx) {
+    const objekt = args.objekt ? await holeObjekt(ctx, String(args.objekt)) : null;
+    const liste = await maengelListe(ctx.env.DB, {
+      objekt_id: objekt?.id,
+      status: args.status ?? "offen",
+      faellig_bis: args.faellig_bis,
+    });
+    return {
+      maengel: liste.map((m) => ({
+        ...mangelAnsicht(m),
+        objekt: m.objekt_name,
+        bauteil_nr: m.bauteil_nr,
+        bauteil_ort: m.bauteil_raum || m.bauteil_kennung || undefined,
+        ueberfaellig: m.frist ? tageBis(m.frist) < 0 : false,
+        link: `${ctx.origin}/mangel/${m.id}`,
+      })),
+    };
+  },
+};
+
+const berichteAuflisten: ToolDef = {
+  name: "berichte_auflisten",
+  title: "Berichte einer Begehung auflisten",
+  description:
+    "Die neuesten Berichtsversionen einer Begehung mit Download-Link, dazu Sammelbericht und " +
+    "ZIP (Anmeldung im Browser nötig).",
+  inputSchema: {
+    type: "object",
+    properties: { begehung: str("Kennung der Begehung oder Name des Objekts") },
+    required: ["begehung"],
+    additionalProperties: false,
+  },
+  annotations: NUR_LESEN,
+  async handler(args, ctx) {
+    const begehung = await holeBegehung(ctx, pflicht<string>(args, "begehung"));
+    const objekt = (await objektLesen(ctx.env.DB, begehung.objekt_id))!;
+    const posten = await berichtsUebersicht(ctx.env, begehung, objekt);
+    const pruefungen = await pruefungenLesen(ctx.env.DB, begehung.id);
+    return {
+      begehung: begehung.id,
+      objekt: objekt.name,
+      berichte: posten.map((p) => ({
+        nr: p.nr,
+        version: p.version,
+        datei: p.name,
+        seiten: p.seiten,
+        veraltet: p.veraltet,
+        aeltere_versionen: p.aeltere.map((a) => a.version),
+        link: `${ctx.origin}/datei/${p.schluessel}`,
+      })),
+      ohne_bericht: pruefungen.length - posten.length,
+      sammelbericht: `${ctx.origin}/begehung/${begehung.id}`,
+      alle_als_zip: `${ctx.origin}/begehung/${begehung.id}/paket.zip`,
     };
   },
 };
@@ -246,185 +545,368 @@ const vorgabenLesen: ToolDef = {
   },
 };
 
-const berichteAuflisten: ToolDef = {
-  name: "berichte_auflisten",
-  title: "Berichte einer Wartung auflisten",
-  description: "Die fertigen PDFs einer Wartung mit Download-Link (Anmeldung im Browser nötig).",
+/* ── Schreiben: Bestand ────────────────────────────────────────────────────── */
+
+const objektAnlegenTool: ToolDef = {
+  name: "objekt_anlegen",
+  title: "Objekt anlegen",
+  description:
+    "Legt ein Objekt mit Hauptgebäude und Geschoss 'EG' an. Für den Regelfall reicht " +
+    "'begehung_starten' — das legt ein unbekanntes Objekt selbst an.",
   inputSchema: {
     type: "object",
-    properties: { wartung: str("Kennung der Wartung") },
-    required: ["wartung"],
+    properties: {
+      name: str("Name des Objekts, z. B. 'Kita Heselstücken'"),
+      adresse: str("Straße, PLZ Ort in einer Zeile"),
+      plz: str("Postleitzahl, sonst aus der Adresse gelesen"),
+      betreiber: str("Betreiber, wie er aufs Protokoll gehört"),
+      betreiber_kontakt: str("Ansprechpartner vor Ort mit Telefon"),
+      ident: str("Ident-Nummer des Betreibers"),
+      intervall_monate: int("Prüfintervall in Monaten, Standard 12"),
+      rechtsgrundlagen: str("Rechtsgrundlagen; leer = Standard je Vorlage"),
+    },
+    required: ["name"],
     additionalProperties: false,
   },
-  annotations: NUR_LESEN,
+  annotations: SCHREIBT,
   async handler(args, ctx) {
-    const w = await holeWartung(ctx, pflicht<string>(args, "wartung"));
-    const tueren = await tuerenLesen(ctx.env.DB, w.id);
+    const o = await objektAnlegen(ctx.env.DB, {
+      name: pflicht<string>(args, "name"),
+      adresse: args.adresse,
+      plz: args.plz,
+      betreiber: args.betreiber,
+      betreiber_kontakt: args.betreiber_kontakt,
+      ident: args.ident,
+      intervall_monate: args.intervall_monate,
+      rechtsgrundlagen: args.rechtsgrundlagen,
+      angelegt_von: ctx.nutzer.benutzer,
+    });
+    return { objekt: objektAnsicht(o), link: `${ctx.origin}/objekt/${o.id}` };
+  },
+};
+
+const objektAendernTool: ToolDef = {
+  name: "objekt_aendern",
+  title: "Objekt-Stammdaten ändern",
+  description:
+    "Ändert die Stammdaten eines Objekts. Nur die genannten Felder werden angefasst. Wirkt auf " +
+    "künftige Berichte; bereits erzeugte Versionen bleiben, bei Bedarf neu erzeugen.",
+  inputSchema: {
+    type: "object",
+    properties: {
+      objekt: str("ID, Name oder Adresse"),
+      name: str("Name des Objekts"),
+      adresse: str("Straße, PLZ Ort"),
+      plz: str("Postleitzahl"),
+      betreiber: str("Betreiber"),
+      betreiber_kontakt: str("Ansprechpartner vor Ort"),
+      ident: str("Ident-Nummer"),
+      intervall_monate: int("Prüfintervall in Monaten"),
+      rechtsgrundlagen: str("Rechtsgrundlagen"),
+      notizen: str("Freie Notizen"),
+    },
+    required: ["objekt"],
+    additionalProperties: false,
+  },
+  annotations: SCHREIBT,
+  async handler(args, ctx) {
+    const o = await holeObjekt(ctx, pflicht<string>(args, "objekt"));
+    const patch: Record<string, unknown> = {};
+    for (const feld of [
+      "name", "adresse", "plz", "betreiber", "betreiber_kontakt", "ident", "rechtsgrundlagen",
+      "notizen",
+    ]) {
+      if (args[feld] !== undefined) patch[feld] = String(args[feld]);
+    }
+    if (args.intervall_monate !== undefined) patch.intervall_monate = Number(args.intervall_monate);
+    const neu = await objektAendern(ctx.env.DB, o.id, patch);
+    return { objekt: objektAnsicht(neu!), geaendert: Object.keys(patch) };
+  },
+};
+
+const bauteilAnlegenTool: ToolDef = {
+  name: "bauteil_anlegen",
+  title: "Bauteil anlegen",
+  description:
+    "Legt ein einzelnes Bauteil im Bestand an, ohne Import und ohne Begehung. Ohne 'nr' wird " +
+    "die nächste freie Nummer des Objekts vergeben.",
+  inputSchema: {
+    type: "object",
+    properties: {
+      objekt: str("ID, Name oder Adresse"),
+      art: str(`Vorlage: ${VORLAGEN_IDS.join(", ")}`),
+      nr: int("Eigene Nummer, sonst die nächste freie"),
+      kennung: str("Kennung aus Türliste/Plan, z. B. T-2.14"),
+      geschoss: str("Name oder ID des Geschosses"),
+      raumnummer: str("Raumnummer, z. B. 2.14 — treibt die Laufreihenfolge"),
+      raum: str("Raumbezeichnung"),
+      flur: str("Flur"),
+      bezeichnung: str("Freier Name, z. B. 'Flur Ost zur Küche'"),
+      felder: {
+        type: "object",
+        description: "Bauteilfelder als Schlüssel/Wert, z. B. {\"HERSTELLER\":\"Hörmann\"}",
+        additionalProperties: { type: "string" },
+      },
+      wartungspflichtig: bool("false = im Bestand, aber nicht Teil der Wartung"),
+    },
+    required: ["objekt", "art"],
+    additionalProperties: false,
+  },
+  annotations: SCHREIBT,
+  async handler(args, ctx) {
+    const objekt = await holeObjekt(ctx, pflicht<string>(args, "objekt"));
+    const art = pflicht<string>(args, "art");
+    vorlage(art);
+    const geschossId = await geschossFinden(ctx, objekt, args.geschoss);
+    const b = await bauteilAnlegen(ctx.env.DB, {
+      objekt_id: objekt.id,
+      art,
+      nr: args.nr,
+      kennung: args.kennung,
+      geschoss_id: geschossId,
+      raumnummer: args.raumnummer,
+      raum: args.raum,
+      flur: args.flur,
+      bezeichnung: args.bezeichnung,
+      felder: args.felder,
+      wartungspflichtig: args.wartungspflichtig === false ? 0 : 1,
+    });
     return {
-      wartung: w.id,
-      berichte: berichtsListe(tueren).map((b) => ({
-        ...b,
-        link: `${ctx.origin}/datei/${b.schluessel}`,
-      })),
-      offen: tueren.filter((t) => t.status !== "generiert").length,
-      alle_als_zip: `${ctx.origin}/wartung/${encodeURIComponent(w.id)}/paket.zip`,
+      gespeichert: `Tür ${b.nr}`,
+      bauteil: { nr: b.nr, kennung: b.kennung, art: b.art, raum: b.raum },
+      naechste_nr: await naechsteNr(ctx.env.DB, objekt.id),
     };
   },
 };
 
-/* ── Schreiben ─────────────────────────────────────────────────────────────── */
-
-const wartungStarten: ToolDef = {
-  name: "wartung_starten",
-  title: "Wartung starten",
+const bauteilAendernTool: ToolDef = {
+  name: "bauteil_aendern",
+  title: "Bauteil ändern",
   description:
-    "Legt eine Wartung mit ihren Stammdaten an — einmal je Objekttermin, danach gelten sie für " +
-    "jede Tür. Ohne Kennung wird eine aus Datum und Objekt gebildet. Fehlende Angaben werden " +
-    "sinnvoll vorbelegt: Befähigung 'Sachkundiger DGWZ', Ort 'Hamburg', nächste Prüfung " +
-    "Prüfdatum + 1 Jahr, Rechtsgrundlagen passend zur Vorlage. Existiert die Kennung schon, " +
-    "werden die Stammdaten aktualisiert.",
+    "Schreibt Stammdaten eines Bauteils fort oder legt es still. 'felder' wird gemischt, nicht " +
+    "ersetzt: ein leerer Wert entfernt ein Feld. 'aktiv: false' heißt ausgebaut — das Bauteil " +
+    "bleibt für die Historie, ist aber nicht mehr fällig.",
   inputSchema: {
     type: "object",
     properties: {
-      vorlage: str(`Pflicht. Eine von: ${VORLAGEN_IDS.join(", ")}`),
-      objekt: str("Objektbeschreibung/Adresse — NICHT die Stadt"),
-      id: str("Eigene Kennung, sonst wird eine gebildet"),
-      betreiber: str("Betreiber / Auftraggeber"),
-      ident: str("Ident-Nummer, falls vorhanden"),
-      tuertyp: str("Türtyp"),
+      objekt: str("ID, Name oder Adresse"),
+      nr: int("Nummer des Bauteils"),
+      kennung: str("Alternativ: Kennung"),
+      neue_kennung: str("Kennung setzen oder ändern"),
+      art: str(`Vorlage wechseln: ${VORLAGEN_IDS.join(", ")}`),
+      geschoss: str("Name oder ID des Geschosses"),
+      raumnummer: str("Raumnummer"),
+      raum: str("Raumbezeichnung"),
+      flur: str("Flur"),
+      bezeichnung: str("Freier Name"),
+      felder: {
+        type: "object",
+        description: "Bauteilfelder als Schlüssel/Wert; leerer Wert entfernt das Feld.",
+        additionalProperties: { type: "string" },
+      },
+      intervall_monate: int("Eigenes Prüfintervall; 0 = Objektintervall"),
+      wartungspflichtig: bool("false = nicht Teil der Wartung"),
+      aktiv: bool("false = stillgelegt/ausgebaut"),
+    },
+    required: ["objekt"],
+    additionalProperties: false,
+  },
+  annotations: SCHREIBT,
+  async handler(args, ctx) {
+    const objekt = await holeObjekt(ctx, pflicht<string>(args, "objekt"));
+    const b = await holeBauteil(ctx, objekt, args);
+    const patch: Record<string, unknown> = {};
+    if (args.neue_kennung !== undefined) patch.kennung = String(args.neue_kennung);
+    if (args.art !== undefined) {
+      vorlage(String(args.art));
+      patch.art = String(args.art);
+    }
+    for (const feld of ["raumnummer", "raum", "flur", "bezeichnung"]) {
+      if (args[feld] !== undefined) patch[feld] = String(args[feld]);
+    }
+    if (args.geschoss !== undefined) {
+      patch.geschoss_id = await geschossFinden(ctx, objekt, args.geschoss);
+    }
+    if (args.felder !== undefined) patch.felder = args.felder;
+    if (args.intervall_monate !== undefined) {
+      patch.intervall_monate = Number(args.intervall_monate) || null;
+    }
+    if (args.wartungspflichtig !== undefined) {
+      patch.wartungspflichtig = args.wartungspflichtig ? 1 : 0;
+    }
+    if (args.aktiv !== undefined) patch.aktiv = args.aktiv ? 1 : 0;
+    const neu = await bauteilAendern(ctx.env.DB, b.id, patch);
+    return {
+      gespeichert: `Tür ${neu!.nr}`,
+      geaendert: Object.keys(patch),
+      bauteil: { nr: neu!.nr, kennung: neu!.kennung, art: neu!.art, aktiv: neu!.aktiv === 1 },
+    };
+  },
+};
+
+/** Geschoss über Name oder ID finden; ein unbekannter Name wird angelegt. */
+async function geschossFinden(
+  ctx: Kontext,
+  objekt: Objekt,
+  wunsch: unknown,
+): Promise<string | undefined> {
+  if (wunsch === undefined || wunsch === null || wunsch === "") return undefined;
+  const text = String(wunsch).trim();
+  const geschosse = await geschosseListe(ctx.env.DB, objekt.id);
+  const treffer =
+    geschosse.find((g) => g.id === text) ??
+    geschosse.find((g) => g.name.toLowerCase() === text.toLowerCase());
+  if (treffer) return treffer.id;
+  const { geschossAnlegen } = await import("../daten/objekte");
+  const neu = await geschossAnlegen(ctx.env.DB, objekt.id, text);
+  return neu.id;
+}
+
+/* ── Schreiben: Begehung ───────────────────────────────────────────────────── */
+
+const begehungStarten: ToolDef = {
+  name: "begehung_starten",
+  title: "Begehung starten",
+  description:
+    "Startet einen Termin an einem Objekt — einmal je Begehung. Das Objekt darf als ID, Name " +
+    "oder Adresse angegeben werden; kennt der Server es nicht, wird es angelegt: die erste " +
+    "Begehung ist die Bestandsaufnahme. Läuft am selben Objekt und Tag schon eine Begehung, " +
+    "wird sie fortgesetzt statt verdoppelt. Die Antwort nennt die fälligen Bauteile in " +
+    "Laufreihenfolge und was an ihnen noch offen ist.",
+  inputSchema: {
+    type: "object",
+    properties: {
+      objekt: str("ID, Name oder Adresse des Objekts"),
+      datum: str("Prüfdatum YYYY-MM-DD, Standard heute"),
       pruefer: str("Name des Prüfers"),
       befaehigung: str("Befähigungsnachweis"),
-      datum: str("Prüfdatum YYYY-MM-DD, Standard heute"),
       ort: str("Prüfort/Stadt"),
-      rechtsgrundlagen: str("Rechtsgrundlagen"),
-      letzte_pruefung: str("Datum der letzten Prüfung"),
-      naechste_pruefung: str("Datum der nächsten Prüfung"),
       beteiligte: str("Beteiligte Personen / Messgeräte"),
+      adresse: str("Adresse, falls das Objekt neu angelegt wird"),
+      betreiber: str("Betreiber, falls das Objekt neu angelegt wird"),
+      art_vorgabe: str(`Vorlage für neue Bauteile: ${VORLAGEN_IDS.join(", ")}`),
     },
-    required: ["vorlage", "objekt"],
+    required: ["objekt"],
     additionalProperties: false,
   },
   annotations: SCHREIBT,
   async handler(args, ctx) {
     const person = await personLesen(ctx.env.DB, ctx.nutzer.benutzer);
     const v = person?.vorgaben ?? {};
-    const w = await wartungAnlegen(ctx.env.DB, {
-      vorlage: pflicht<string>(args, "vorlage"),
-      objekt: pflicht<string>(args, "objekt"),
-      id: args.id,
-      betreiber: args.betreiber,
-      ident: args.ident,
-      tuertyp: args.tuertyp,
-      pruefer: args.pruefer ?? v.pruefer ?? ctx.nutzer.name,
-      befaehigung: args.befaehigung ?? v.befaehigung,
-      datum: args.datum || heute(),
-      ort: args.ort ?? v.ort,
-      rechtsgrundlagen: args.rechtsgrundlagen ?? v.rechtsgrundlagen,
-      letzte_pruefung: args.letzte_pruefung,
-      naechste_pruefung: args.naechste_pruefung,
-      beteiligte: args.beteiligte,
-      angelegt_von: ctx.nutzer.benutzer,
-    });
+    const datum = args.datum || heute();
+
+    let objekt = await objektSuchen(ctx.env.DB, pflicht<string>(args, "objekt"));
+    let objektNeu = false;
+    if (!objekt) {
+      objekt = await objektAnlegen(ctx.env.DB, {
+        name: String(args.objekt).trim(),
+        adresse: args.adresse ?? "",
+        betreiber: args.betreiber ?? "",
+        angelegt_von: ctx.nutzer.benutzer,
+      });
+      objektNeu = true;
+    }
+    zugriffPruefen(ctx.nutzer.benutzer, objekt.id);
+
+    /* Gespräch abgebrochen? Dieselbe Begehung fortsetzen statt eine zweite anzulegen. */
+    const laufende = (await begehungenListe(ctx.env.DB, { objekt_id: objekt.id, limit: 10 })).find(
+      (b) => b.datum === datum && b.status !== "abgeschlossen",
+    );
+    const begehung = laufende
+      ? (await begehungLesen(ctx.env.DB, laufende.id))!
+      : await begehungAnlegen(ctx.env.DB, {
+          objekt_id: objekt.id,
+          datum,
+          pruefer: args.pruefer ?? v.pruefer ?? ctx.nutzer.name,
+          befaehigung: args.befaehigung ?? v.befaehigung,
+          ort: args.ort ?? v.ort,
+          beteiligte: args.beteiligte,
+          angelegt_von: ctx.nutzer.benutzer,
+        });
+
+    if (args.art_vorgabe) vorlage(String(args.art_vorgabe));
+
+    const geschosse = await geschosseListe(ctx.env.DB, objekt.id);
+    const bauteile = inLaufreihenfolge(
+      await bauteileMitStand(ctx.env.DB, objekt),
+      geschosse,
+    );
+    const faellige = bauteile.filter(istFaellig);
+    const offeneMaengel = await maengelListe(ctx.env.DB, { objekt_id: objekt.id, status: "offen" });
+
     return {
-      wartung: wartungAnsicht(w),
-      link: `${ctx.origin}/wartung/${encodeURIComponent(w.id)}`,
-      naechste_tuer: await naechsteNr(ctx.env.DB, w.id),
-      hinweis:
-        "Stammdaten gelten ab jetzt für jede Tür. Vor der ersten Tür 'pruefpunkte' lesen, " +
-        "falls noch nicht geschehen.",
+      begehung: begehungAnsicht(begehung),
+      fortgesetzt: Boolean(laufende),
+      objekt: objektAnsicht(objekt),
+      objekt_neu_angelegt: objektNeu,
+      link: `${ctx.origin}/begehung/${begehung.id}`,
+      bauteile_gesamt: bauteile.length,
+      faellige_bauteile: faellige.map((b) => ({
+        nr: b.nr,
+        kennung: b.kennung || undefined,
+        ort: [b.raumnummer, b.raum, b.flur].filter(Boolean).join(" · ") || undefined,
+        faellig_am: b.stand.faellig_am || "sofort",
+        offene_maengel: b.offene_maengel,
+      })),
+      offene_maengel: offeneMaengel.map((m) => ({
+        ...mangelAnsicht(m),
+        bauteil_nr: m.bauteil_nr,
+      })),
+      naechste_nr: await naechsteNr(ctx.env.DB, objekt.id),
+      hinweis: objektNeu
+        ? "Neues Objekt — diese Begehung ist die Bestandsaufnahme. Jede diktierte Tür legt ein Bauteil an."
+        : undefined,
     };
   },
 };
 
-const wartungAendernTool: ToolDef = {
-  name: "wartung_aendern",
-  title: "Stammdaten einer Wartung ändern",
+const begehungAendernTool: ToolDef = {
+  name: "begehung_aendern",
+  title: "Begehung ändern",
   description:
-    "Ändert Stammdaten einer laufenden Wartung. Nur die genannten Felder werden angefasst. " +
-    "Gilt rückwirkend für alle Türen, weil die Stammdaten erst beim Erzeugen eingesetzt werden.",
+    "Ändert die Stammdaten oder den Status einer Begehung. Nur die genannten Felder werden " +
+    "angefasst. 'status: laufend' nimmt einen Abschluss zurück.",
   inputSchema: {
     type: "object",
     properties: {
-      wartung: str("Kennung der Wartung"),
-      objekt: str("Objektbeschreibung/Adresse"),
-      betreiber: str("Betreiber / Auftraggeber"),
-      ident: str("Ident-Nummer"),
-      tuertyp: str("Türtyp"),
+      begehung: str("Kennung der Begehung oder Name des Objekts"),
+      datum: str("Prüfdatum YYYY-MM-DD"),
       pruefer: str("Name des Prüfers"),
       befaehigung: str("Befähigungsnachweis"),
-      datum: str("Prüfdatum YYYY-MM-DD"),
       ort: str("Prüfort/Stadt"),
-      rechtsgrundlagen: str("Rechtsgrundlagen"),
-      letzte_pruefung: str("Datum der letzten Prüfung"),
-      naechste_pruefung: str("Datum der nächsten Prüfung"),
       beteiligte: str("Beteiligte Personen / Messgeräte"),
-      status: str("offen | abgeschlossen"),
+      status: str("geplant | laufend | abgeschlossen"),
     },
-    required: ["wartung"],
+    required: ["begehung"],
     additionalProperties: false,
   },
   annotations: SCHREIBT,
   async handler(args, ctx) {
-    const w = await holeWartung(ctx, pflicht<string>(args, "wartung"));
+    const begehung = await holeBegehung(ctx, pflicht<string>(args, "begehung"));
     const patch: Record<string, string> = {};
-    for (const feld of [
-      "objekt", "betreiber", "ident", "tuertyp", "pruefer", "befaehigung", "datum", "ort",
-      "rechtsgrundlagen", "letzte_pruefung", "naechste_pruefung", "beteiligte", "status",
-    ]) {
+    for (const feld of ["datum", "pruefer", "befaehigung", "ort", "beteiligte", "status"]) {
       if (args[feld] !== undefined) patch[feld] = String(args[feld]);
     }
-    if (patch.datum && !args.naechste_pruefung && !w.naechste_pruefung) {
-      patch.naechste_pruefung = inEinemJahr(patch.datum);
-    }
-    const neu = await wartungAendern(ctx.env.DB, w.id, patch);
-    return { wartung: wartungAnsicht(neu!), geaendert: Object.keys(patch) };
+    const neu = await begehungAendern(ctx.env.DB, begehung.id, patch);
+    return { begehung: begehungAnsicht(neu!), geaendert: Object.keys(patch) };
   },
 };
 
-/** Gemeinsame Logik für eine einzelne Tür — benutzt von tuer_erfassen und tueren_erfassen. */
-async function tuerSchreiben(
-  ctx: Kontext,
-  w: Wartung,
-  eingabe: Record<string, any>,
-): Promise<Tuer> {
-  const nr: number = eingabe.nr ?? (await naechsteNr(ctx.env.DB, w.id));
-  const vorher = eingabe.wie_davor ? await tuerLesen(ctx.env.DB, w.id, nr - 1) : null;
-  const bestehend = await tuerLesen(ctx.env.DB, w.id, nr);
-
-  const felder = {
-    ...(vorher?.felder ?? {}),
-    ...(bestehend?.felder ?? {}),
-    ...(eingabe.felder ?? {}),
-  };
-  const checks =
-    eingabe.checks !== undefined
-      ? pruefeChecks(w.vorlage, eingabe.checks)
-      : (vorher?.checks ?? bestehend?.checks ?? {});
-
-  return tuerSpeichern(ctx.env.DB, w.id, {
-    nr,
-    felder: Object.fromEntries(
-      Object.entries(felder).filter(([, v]) => v !== null && v !== undefined && v !== ""),
-    ) as Record<string, string>,
-    checks,
-    ergebnis: eingabe.ergebnis ?? vorher?.ergebnis ?? bestehend?.ergebnis ?? "bestanden",
-    hinweise: eingabe.hinweise ?? bestehend?.hinweise ?? "",
-    dateiname: eingabe.dateiname ?? bestehend?.dateiname,
-  });
-}
-
-const TUER_FELDER = {
-  nr: int("Türnummer. Ohne Angabe wird hochgezählt. Bestehende Nummer = Korrektur."),
+const PRUEFUNG_FELDER = {
+  nr: int("Nummer des Bauteils, wie diktiert ('Tür 12'). Unbekannte Nummer legt das Bauteil an."),
+  kennung: str("Alternativ die Kennung aus Türliste/Plan, z. B. T-2.14"),
+  art: str(`Vorlage, falls das Bauteil neu angelegt wird: ${VORLAGEN_IDS.join(", ")}`),
   wie_davor: bool(
-    "true, wenn der Monteur 'wie davor' oder 'alles gleich außer …' sagt: Felder und " +
-      "Bewertungen der vorigen Tür werden übernommen und nur die genannten überschrieben. " +
-      "Standard false.",
+    "true, wenn der Monteur 'wie davor' oder 'alles gleich außer …' sagt: Felder, Bewertungen " +
+      "und Ergebnis der zuletzt erfassten Prüfung werden übernommen und nur die genannten " +
+      "überschrieben. Standard false.",
   ),
   felder: {
     type: "object",
     description:
-      "Felder, die je Tür abweichen, als Schlüssel/Wert — z. B. {\"ETAGE\":\"2\",\"RAUM\":\"Flur Ost\"}. " +
-      "Welche Schlüssel die Vorlage kennt, sagt 'pruefpunkte'.",
+      "Felder, die je Bauteil abweichen, als Schlüssel/Wert — z. B. {\"ETAGE\":\"2\",\"RAUM\":\"Flur Ost\"}. " +
+      "Welche Schlüssel die Vorlage kennt, sagt 'pruefpunkte'. Sie werden aufs Bauteil " +
+      "geschrieben und gelten damit auch im nächsten Jahr.",
     additionalProperties: { type: "string" },
   },
   checks: {
@@ -437,94 +919,288 @@ const TUER_FELDER = {
   },
   ergebnis: str("bestanden | Nachbesserung — Standard 'bestanden'"),
   hinweise: str("Bemerkungen, Mängeltext, Folgebedarf"),
-  dateiname: str("Eigener Dateiname des Berichts, sonst wird einer gebildet"),
+  raumnummer: str("Raumnummer, z. B. 2.14"),
+  raum: str("Raumbezeichnung"),
+  flur: str("Flur"),
+  neu: bool("false verbietet das Anlegen eines unbekannten Bauteils"),
 };
 
-const tuerErfassen: ToolDef = {
-  name: "tuer_erfassen",
-  title: "Tür erfassen",
+const pruefungErfassenTool: ToolDef = {
+  name: "pruefung_erfassen",
+  title: "Prüfung erfassen",
   description:
-    "Schreibt eine Tür sofort in die Datenbank — nach jeder diktierten Tür genau einmal " +
-    "aufrufen und kurz quittieren ('Tür 3 gespeichert'). Eine bereits vorhandene Nummer wird " +
-    "überschrieben, das ist der Weg für Korrekturen ('Tür 3 doch in Ordnung').",
+    "Schreibt die Prüfung eines Bauteils sofort in die Datenbank — nach jeder diktierten Tür " +
+    "genau einmal aufrufen und kurz quittieren ('Tür 3 gespeichert'). Eine bereits geprüfte " +
+    "Nummer wird überschrieben, das ist der Weg für Korrekturen. Ist die Nummer am Objekt " +
+    "unbekannt, wird das Bauteil angelegt ('Tür 12 ist neu — lege ich an'). Kommt " +
+    "'offene_maengel_vorjahr' zurück, vorlesen und nachfragen; bestätigt der Monteur die " +
+    "Behebung, 'mangel_schliessen' aufrufen.",
   inputSchema: {
     type: "object",
-    properties: { wartung: str("Kennung der Wartung"), ...TUER_FELDER },
-    required: ["wartung"],
+    properties: { begehung: str("Kennung der Begehung"), ...PRUEFUNG_FELDER },
+    required: ["begehung"],
     additionalProperties: false,
   },
   annotations: SCHREIBT,
   async handler(args, ctx) {
-    const w = await holeWartung(ctx, pflicht<string>(args, "wartung"));
-    const t = await tuerSchreiben(ctx, w, args);
-    return {
-      gespeichert: `Tür ${t.nr}`,
-      tuer: tuerAnsicht(t),
-      naechste_tuer: await naechsteNr(ctx.env.DB, w.id),
-    };
+    const begehung = await holeBegehung(ctx, pflicht<string>(args, "begehung"));
+    const objekt = (await objektLesen(ctx.env.DB, begehung.objekt_id))!;
+    const e = await pruefungErfassen(ctx.env.DB, objekt, begehung, args, ctx.nutzer.benutzer);
+    return erfassungsAntwort(e, objekt);
   },
 };
 
-const tuerenErfassen: ToolDef = {
-  name: "tueren_erfassen",
-  title: "Mehrere Türen auf einmal erfassen",
+const pruefungenErfassenTool: ToolDef = {
+  name: "pruefungen_erfassen",
+  title: "Mehrere Prüfungen auf einmal erfassen",
   description:
-    "Mehrere Türen in einem Aufruf — für Serien gleicher Türen oder wenn ein Diktat " +
+    "Mehrere Bauteile in einem Aufruf — für Serien gleicher Türen oder wenn ein Diktat " +
     "nachträglich gebündelt übertragen wird. Reihenfolge zählt: 'wie_davor' bezieht sich auf " +
-    "die jeweils vorige Nummer.",
+    "die jeweils vorige Zeile.",
   inputSchema: {
     type: "object",
     properties: {
-      wartung: str("Kennung der Wartung"),
-      tueren: {
+      begehung: str("Kennung der Begehung"),
+      pruefungen: {
         type: "array",
-        description: "Liste von Türen, gleiche Felder wie bei tuer_erfassen.",
-        items: { type: "object", properties: TUER_FELDER, additionalProperties: false },
+        description: "Liste von Prüfungen, gleiche Felder wie bei pruefung_erfassen.",
+        items: { type: "object", properties: PRUEFUNG_FELDER, additionalProperties: false },
       },
     },
-    required: ["wartung", "tueren"],
+    required: ["begehung", "pruefungen"],
     additionalProperties: false,
   },
   annotations: SCHREIBT,
   async handler(args, ctx) {
-    const w = await holeWartung(ctx, pflicht<string>(args, "wartung"));
-    const eingaben = pflicht<Record<string, any>[]>(args, "tueren");
+    const begehung = await holeBegehung(ctx, pflicht<string>(args, "begehung"));
+    const objekt = (await objektLesen(ctx.env.DB, begehung.objekt_id))!;
+    const eingaben = pflicht<Record<string, any>[]>(args, "pruefungen");
     const geschrieben: number[] = [];
+    const neu: number[] = [];
+    const vorjahr: unknown[] = [];
     for (const e of eingaben) {
-      const t = await tuerSchreiben(ctx, w, e);
-      geschrieben.push(t.nr);
+      const r = await pruefungErfassen(ctx.env.DB, objekt, begehung, e, ctx.nutzer.benutzer);
+      geschrieben.push(r.bauteil.nr);
+      if (r.neu_angelegt) neu.push(r.bauteil.nr);
+      for (const m of r.offene_maengel_vorjahr) {
+        vorjahr.push({ bauteil_nr: r.bauteil.nr, ...mangelAnsicht(m) });
+      }
     }
     return {
       gespeichert: geschrieben.length,
-      tueren: geschrieben,
-      naechste_tuer: await naechsteNr(ctx.env.DB, w.id),
+      bauteile: geschrieben,
+      neu_angelegt: neu,
+      offene_maengel_vorjahr: vorjahr,
+      naechste_nr: await naechsteNr(ctx.env.DB, objekt.id),
     };
   },
 };
 
-const wartungAbschliessen: ToolDef = {
-  name: "wartung_abschliessen",
-  title: "Wartung abschließen",
+function erfassungsAntwort(
+  e: Awaited<ReturnType<typeof pruefungErfassen>>,
+  objekt: Objekt,
+) {
+  return {
+    gespeichert: `Tür ${e.bauteil.nr}`,
+    neu_angelegt: e.neu_angelegt,
+    bauteil: {
+      nr: e.bauteil.nr,
+      kennung: e.bauteil.kennung || undefined,
+      art: e.bauteil.art,
+      ort:
+        [e.bauteil.raumnummer, e.bauteil.raum, e.bauteil.flur].filter(Boolean).join(" · ") ||
+        undefined,
+      felder: e.bauteil.felder,
+    },
+    ergebnis: e.pruefung.ergebnis,
+    abweichungen: abweichungenKlartext(e.bauteil.art, e.pruefung.checks),
+    mangel_angelegt: e.mangel ? mangelAnsicht(e.mangel) : undefined,
+    offene_maengel_vorjahr: e.offene_maengel_vorjahr.map((m) => ({
+      ...mangelAnsicht(m),
+      seit: new Date(m.angelegt_am).toISOString().slice(0, 10),
+    })),
+    naechste_nr: e.naechste_nr,
+    objekt: objekt.name,
+  };
+}
+
+/* ── Schreiben: Mängel ─────────────────────────────────────────────────────── */
+
+const mangelAnlegenTool: ToolDef = {
+  name: "mangel_anlegen",
+  title: "Mangel anlegen",
   description:
-    "Markiert die Erfassung als fertig und liest alle Türen zurück. Danach 'berichte_erzeugen' " +
-    "aufrufen — oder vorher noch korrigieren, das bleibt jederzeit möglich.",
+    "Legt einen Mangel außerhalb einer Prüfung an — etwa wenn jemand vor Ort etwas meldet, " +
+    "das nicht zur laufenden Begehung gehört. Aus einer Prüfung mit 'nio' entsteht der Mangel " +
+    "von selbst.",
   inputSchema: {
     type: "object",
-    properties: { wartung: str("Kennung der Wartung") },
-    required: ["wartung"],
+    properties: {
+      objekt: str("ID, Name oder Adresse"),
+      nr: int("Nummer des Bauteils"),
+      kennung: str("Alternativ: Kennung"),
+      beschreibung: str("Was ist der Mangel?"),
+      punkte: wortliste("Betroffene Prüfpunkte, z. B. [\"8\",\"10\"]"),
+      prioritaet: str("hoch | mittel | niedrig — Standard mittel"),
+      frist: str("Frist YYYY-MM-DD, Standard vier Wochen"),
+      zustaendig: str("Seehafer | Betreiber | Freitext"),
+    },
+    required: ["objekt", "beschreibung"],
     additionalProperties: false,
   },
   annotations: SCHREIBT,
   async handler(args, ctx) {
-    const w = await holeWartung(ctx, pflicht<string>(args, "wartung"));
-    await wartungAendern(ctx.env.DB, w.id, { status: "abgeschlossen" });
-    const tueren = await tuerenLesen(ctx.env.DB, w.id);
+    const objekt = await holeObjekt(ctx, pflicht<string>(args, "objekt"));
+    const b = await holeBauteil(ctx, objekt, args);
+    const m = await mangelAnlegen(ctx.env.DB, {
+      objekt_id: objekt.id,
+      bauteil_id: b.id,
+      beschreibung: pflicht<string>(args, "beschreibung"),
+      punkte: (args.punkte ?? []).map(String),
+      prioritaet: args.prioritaet,
+      frist: args.frist ?? monateSpaeter(heute(), 1),
+      zustaendig: args.zustaendig,
+    });
+    return { angelegt: mangelAnsicht(m), bauteil_nr: b.nr, link: `${ctx.origin}/mangel/${m.id}` };
+  },
+};
+
+const mangelAendernTool: ToolDef = {
+  name: "mangel_aendern",
+  title: "Mangel ändern",
+  description: "Ändert Frist, Zuständigkeit, Priorität, Beschreibung oder Status eines Mangels.",
+  inputSchema: {
+    type: "object",
+    properties: {
+      mangel: str("ID des Mangels"),
+      beschreibung: str("Text des Mangels"),
+      prioritaet: str("hoch | mittel | niedrig"),
+      frist: str("Frist YYYY-MM-DD"),
+      zustaendig: str("Seehafer | Betreiber | Freitext"),
+      status: str("offen | in_arbeit | behoben | verworfen"),
+    },
+    required: ["mangel"],
+    additionalProperties: false,
+  },
+  annotations: SCHREIBT,
+  async handler(args, ctx) {
+    const id = pflicht<string>(args, "mangel");
+    const vorher = await mangelLesen(ctx.env.DB, id);
+    if (!vorher) throw new Error(`Mangel '${id}' gibt es nicht.`);
+    zugriffPruefen(ctx.nutzer.benutzer, vorher.objekt_id);
+    const patch: Record<string, unknown> = {};
+    for (const feld of ["beschreibung", "prioritaet", "frist", "zustaendig", "status"]) {
+      if (args[feld] !== undefined) patch[feld] = String(args[feld]);
+    }
+    const m = await mangelAendern(ctx.env.DB, id, patch);
+    return { mangel: mangelAnsicht(m!), geaendert: Object.keys(patch) };
+  },
+};
+
+const mangelSchliessenTool: ToolDef = {
+  name: "mangel_schliessen",
+  title: "Mangel freimelden",
+  description:
+    "Meldet einen Mangel frei ('Dichtung ist getauscht'). Mit 'mangel' genau einen, mit " +
+    "'objekt' + 'nr' alle offenen Mängel dieses Bauteils. Der Regelweg beim Diktat: der " +
+    "Monteur bestätigt, dass ein Mangel aus dem Vorjahr behoben ist.",
+  inputSchema: {
+    type: "object",
+    properties: {
+      mangel: str("ID des Mangels"),
+      objekt: str("Alternativ: ID, Name oder Adresse des Objekts"),
+      nr: int("Nummer des Bauteils"),
+      kennung: str("Alternativ: Kennung"),
+      freimeldung: str("Was wurde gemacht?"),
+    },
+    additionalProperties: false,
+  },
+  annotations: SCHREIBT,
+  async handler(args, ctx) {
+    const freimeldung = String(args.freimeldung ?? "");
+    if (args.mangel) {
+      const vorher = await mangelLesen(ctx.env.DB, String(args.mangel));
+      if (!vorher) throw new Error(`Mangel '${args.mangel}' gibt es nicht.`);
+      zugriffPruefen(ctx.nutzer.benutzer, vorher.objekt_id);
+      const m = await mangelSchliessen(
+        ctx.env.DB, vorher.id, freimeldung, ctx.nutzer.benutzer,
+      );
+      return { geschlossen: 1, maengel: [mangelAnsicht(m!)] };
+    }
+    const objekt = await holeObjekt(ctx, pflicht<string>(args, "objekt"));
+    const b = await holeBauteil(ctx, objekt, args);
+    const offene = await maengelZuBauteil(ctx.env.DB, b.id, true);
+    const out = [];
+    for (const m of offene) {
+      out.push(
+        mangelAnsicht((await mangelSchliessen(ctx.env.DB, m.id, freimeldung, ctx.nutzer.benutzer))!),
+      );
+    }
     return {
-      wartung: w.id,
-      tueren_gesamt: tueren.length,
-      mit_abweichungen: tueren.filter((t) => Object.keys(t.checks).length).length,
-      rueckblick: tueren.map(tuerAnsicht),
+      geschlossen: out.length,
+      bauteil_nr: b.nr,
+      maengel: out,
+      hinweis: out.length ? undefined : `An Tür ${b.nr} war nichts offen.`,
     };
+  },
+};
+
+/* ── Schreiben: Abschluss und Berichte ─────────────────────────────────────── */
+
+/** Der Rückblick: was wurde geprüft, was weicht ab, was fehlt noch. */
+async function rueckblick(ctx: Kontext, begehung: Begehung) {
+  const objekt = (await objektLesen(ctx.env.DB, begehung.objekt_id))!;
+  const geschosse = await geschosseListe(ctx.env.DB, objekt.id);
+  const pruefungen = await pruefungenLesen(ctx.env.DB, begehung.id);
+  const bauteile = inLaufreihenfolge(await bauteileMitStand(ctx.env.DB, objekt), geschosse);
+  const geprueft = new Set(pruefungen.map((p) => p.bauteil_id));
+  const fehlend = bauteile.filter((b) => istFaellig(b) && !geprueft.has(b.id));
+  const reihenfolge = new Map(bauteile.map((b, i) => [b.id, i]));
+
+  return {
+    begehung: begehungAnsicht(begehung),
+    objekt: objektAnsicht(objekt),
+    link: `${ctx.origin}/begehung/${begehung.id}`,
+    pruefungen_gesamt: pruefungen.length,
+    mit_abweichungen: pruefungen.filter((p) => Object.keys(p.checks).length).length,
+    nachbesserung: pruefungen.filter((p) => p.ergebnis === "Nachbesserung").length,
+    rueckblick: pruefungen
+      .sort((a, b) => (reihenfolge.get(a.bauteil_id) ?? 0) - (reihenfolge.get(b.bauteil_id) ?? 0))
+      .map((p) => ({
+        nr: p.bauteil.nr,
+        ort:
+          [p.bauteil.raumnummer, p.bauteil.raum, p.bauteil.flur].filter(Boolean).join(" · ") ||
+          undefined,
+        ergebnis: p.ergebnis,
+        abweichungen: abweichungenKlartext(p.bauteil.art, p.checks),
+        hinweise: p.hinweise || undefined,
+      })),
+    fehlende_faellige_bauteile: fehlend.map((b) => ({
+      nr: b.nr,
+      ort: [b.raumnummer, b.raum, b.flur].filter(Boolean).join(" · ") || undefined,
+      faellig_am: b.stand.faellig_am || "sofort",
+    })),
+  };
+}
+
+const begehungAbschliessen: ToolDef = {
+  name: "begehung_abschliessen",
+  title: "Begehung abschließen",
+  description:
+    "Markiert die Erfassung als fertig und liest alles zurück: je Bauteil Ort, Abweichungen im " +
+    "Klartext und Ergebnis, dazu die fälligen Bauteile, die noch fehlen ('3 Türen im 2. OG " +
+    "fehlen noch — absichtlich?'). Rücknehmbar über 'begehung_aendern' mit status=laufend.",
+  inputSchema: {
+    type: "object",
+    properties: { begehung: str("Kennung der Begehung oder Name des Objekts") },
+    required: ["begehung"],
+    additionalProperties: false,
+  },
+  annotations: SCHREIBT,
+  async handler(args, ctx) {
+    const begehung = await holeBegehung(ctx, pflicht<string>(args, "begehung"));
+    const neu = await begehungAendern(ctx.env.DB, begehung.id, { status: "abgeschlossen" });
+    return rueckblick(ctx, neu!);
   },
 };
 
@@ -532,28 +1208,56 @@ const berichteErzeugenTool: ToolDef = {
   name: "berichte_erzeugen",
   title: "Berichte erzeugen",
   description:
-    "Füllt für jede Tür die Vorlage aus und legt das PDF ab. Läuft in Stücken: kommt 'fertig: " +
-    "false' zurück, einfach erneut aufrufen, bis nichts mehr offen ist. Schon erzeugte Türen " +
-    "werden übersprungen, geänderte automatisch neu gemacht.",
+    "Füllt für jede Prüfung die Vorlage aus und legt das PDF ab. Erzeugt wird nur, wo sich seit " +
+    "der letzten Version etwas geändert hat — zweimal hintereinander aufgerufen entsteht keine " +
+    "zweite Version. Läuft in Stücken: kommt 'fertig: false' zurück, einfach erneut aufrufen.",
   inputSchema: {
     type: "object",
     properties: {
-      wartung: str("Kennung der Wartung"),
-      alle_neu: bool("true erzeugt auch bereits fertige Berichte noch einmal"),
+      begehung: str("Kennung der Begehung oder Name des Objekts"),
+      alle_neu: bool("true erzeugt für jede Prüfung eine neue Version"),
     },
-    required: ["wartung"],
+    required: ["begehung"],
     additionalProperties: false,
   },
   annotations: SCHREIBT,
   async handler(args, ctx) {
-    const w = await holeWartung(ctx, pflicht<string>(args, "wartung"));
-    const lauf = await berichteErzeugen(ctx.env, w.id, { alle: args.alle_neu === true });
+    const begehung = await holeBegehung(ctx, pflicht<string>(args, "begehung"));
+    const lauf = await berichteErzeugen(ctx.env, begehung.id, {
+      alle: args.alle_neu === true,
+      nutzer: ctx.nutzer.benutzer,
+    });
     return {
       ...lauf,
-      link: `${ctx.origin}/wartung/${encodeURIComponent(w.id)}`,
+      link: `${ctx.origin}/begehung/${begehung.id}`,
       alle_als_zip: lauf.fertig
-        ? `${ctx.origin}/wartung/${encodeURIComponent(w.id)}/paket.zip`
+        ? `${ctx.origin}/begehung/${begehung.id}/paket.zip`
         : undefined,
+    };
+  },
+};
+
+const sammelberichtErzeugenTool: ToolDef = {
+  name: "sammelbericht_erzeugen",
+  title: "Sammelbericht erzeugen",
+  description:
+    "Deckblatt mit allen geprüften Bauteilen plus die neuesten Einzelberichte in einem PDF — " +
+    "das Dokument für den Betreiber. Vorher 'berichte_erzeugen' laufen lassen.",
+  inputSchema: {
+    type: "object",
+    properties: { begehung: str("Kennung der Begehung oder Name des Objekts") },
+    required: ["begehung"],
+    additionalProperties: false,
+  },
+  annotations: SCHREIBT,
+  async handler(args, ctx) {
+    const begehung = await holeBegehung(ctx, pflicht<string>(args, "begehung"));
+    const s = await sammelberichtErzeugen(ctx.env, begehung.id, ctx.nutzer.benutzer);
+    return {
+      version: s.version,
+      seiten: s.seiten,
+      enthaltene_berichte: s.berichte,
+      link: `${ctx.origin}/datei/${s.schluessel}`,
     };
   },
 };
@@ -563,7 +1267,7 @@ const vorgabenSpeichern: ToolDef = {
   title: "Eigene Vorgaben speichern",
   description:
     "Speichert die Standardwerte des angemeldeten Nutzers dauerhaft. Sie füllen künftige " +
-    "Wartungen vor, sodass Prüfer, Befähigungsnachweis, Rechtsgrundlagen und Ort nicht jedes " +
+    "Begehungen vor, sodass Prüfer, Befähigungsnachweis, Rechtsgrundlagen und Ort nicht jedes " +
     "Mal diktiert werden müssen.",
   inputSchema: {
     type: "object",
@@ -588,28 +1292,48 @@ const vorgabenSpeichern: ToolDef = {
 };
 
 export const TOOLS: ToolDef[] = [
-  vorlagenAuflisten,
-  pruefpunkte,
-  wartungenAuflisten,
-  wartungLesenTool,
-  vorgabenLesen,
+  objekteAuflisten,
+  objektLesenTool,
+  bauteilLesenTool,
+  faellig,
+  begehungLesenTool,
+  maengelAuflisten,
   berichteAuflisten,
-  wartungStarten,
-  wartungAendernTool,
-  tuerErfassen,
-  tuerenErfassen,
-  wartungAbschliessen,
+  pruefpunkte,
+  vorlagenAuflisten,
+  vorgabenLesen,
+  objektAnlegenTool,
+  objektAendernTool,
+  bauteilAnlegenTool,
+  bauteilAendernTool,
+  begehungStarten,
+  begehungAendernTool,
+  pruefungErfassenTool,
+  pruefungenErfassenTool,
+  mangelAnlegenTool,
+  mangelAendernTool,
+  mangelSchliessenTool,
+  begehungAbschliessen,
   berichteErzeugenTool,
+  sammelberichtErzeugenTool,
   vorgabenSpeichern,
 ];
 
 export const ANLEITUNG =
-  "Türenwartung für Seehafer Elemente — Diktat vor Ort, fertige Wartungsprotokolle am Ende. " +
+  "Türwerk — Türenwartung für Seehafer Elemente. Objekte tragen ihren Bestand, Begehungen " +
+  "prüfen ihn, Berichte fallen hinten heraus. " +
   "Ablauf: (1) 'pruefpunkte' der passenden Vorlage lesen, damit Punkt-Nummern verständlich sind. " +
-  "(2) 'wartung_starten' mit Objekt und Stammdaten — einmal je Termin. " +
-  "(3) Nach JEDER diktierten Tür sofort 'tuer_erfassen' und kurz quittieren; nicht im Gespräch " +
-  "puffern, damit bei Abbruch nichts verloren geht. Standard ist: alles in Ordnung — nur " +
-  "Abweichungen als checks nennen, z. B. {\"8\":\"nio\"}. Sagt der Monteur 'wie davor', " +
-  "wie_davor=true setzen. (4) Auf 'Fertig' 'wartung_abschliessen' und den Rückblick kompakt " +
-  "vorlesen. (5) Auf 'Go' 'berichte_erzeugen' — bei 'fertig: false' erneut aufrufen. " +
+  "(2) 'begehung_starten' mit dem Objekt — einmal je Termin. Kennt der Server das Objekt nicht, " +
+  "legt 'begehung_starten' es an: die erste Begehung ist die Bestandsaufnahme. Die Antwort " +
+  "nennt die fälligen Bauteile in Laufreihenfolge und die offenen Mängel. " +
+  "(3) Nach JEDER diktierten Tür sofort 'pruefung_erfassen' und kurz quittieren; nicht im " +
+  "Gespräch puffern, damit bei Abbruch nichts verloren geht. 'Tür 12' meint das Bauteil Nr. 12 " +
+  "des Objekts, nicht die zwölfte Tür des Tages; unbekannte Nummern werden angelegt ('Tür 12 " +
+  "ist neu — lege ich an'). Standard ist: alles in Ordnung — nur Abweichungen als checks " +
+  "nennen, z. B. {\"8\":\"nio\"}. Sagt der Monteur 'wie davor', wie_davor=true setzen. " +
+  "(4) Kommt 'offene_maengel_vorjahr' zurück, vorlesen und nachfragen ('an dieser Tür ist seit " +
+  "2025 die Dichtung offen — behoben?'); bestätigt er es, 'mangel_schliessen' aufrufen. " +
+  "(5) Auf 'Fertig' 'begehung_abschliessen' und den Rückblick kompakt vorlesen, samt der " +
+  "fälligen Bauteile, die noch fehlen. (6) Auf 'Go' 'berichte_erzeugen' — bei 'fertig: false' " +
+  "erneut aufrufen — und danach 'sammelbericht_erzeugen' für den Betreiber. " +
   "Kurz antworten, der Monteur hat die Hände voll und schaut nicht aufs Display.";

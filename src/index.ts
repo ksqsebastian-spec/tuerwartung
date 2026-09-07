@@ -1,7 +1,7 @@
 /**
- * Türenwartung — ein Worker, drei Gesichter:
+ * Türwerk — ein Worker, drei Gesichter:
  *
- *   1. die Arbeitsfläche im Browser (Wartungen ansehen, korrigieren, Berichte holen),
+ *   1. die Arbeitsfläche im Browser (Bestand ansehen, Prüfungen korrigieren, Berichte holen),
  *   2. der OAuth-geschützte MCP-Server, über den Claude beim Diktat schreibt,
  *   3. die Ablage der fertigen PDFs.
  *
@@ -32,30 +32,44 @@ import {
   anmeldeSeite,
   einstellungenSeite,
   freigabeSeite,
-  tuerSeite,
   verbindenSeite,
-  wartungSeite,
-  wartungenSeite,
-} from "./web/seiten";
+} from "./web/allgemein";
+import { geschosseSeite, objektSeite, objekteSeite } from "./web/objekte";
+import { bauteilSeite } from "./web/bauteile";
+import { begehungSeite, pruefungSeite, unterschriftSeite } from "./web/begehungen";
+import { maengelSeite, mangelSeite } from "./web/maengel";
+import { heute, zugriffPruefen } from "./daten/basis";
 import {
-  naechsteNr,
   personGesehen,
   personLesen,
   personSpeichern,
   personenListe,
-  tuerLoeschen,
-  tuerSpeichern,
-  wartungAendern,
-  wartungAnlegen,
-} from "./daten/wartungen";
-import type { Bewertung } from "./vorlagen";
+} from "./daten/personen";
+import {
+  geschossAendern,
+  geschossAnlegen,
+  geschosseListe,
+  objektAendern,
+  objektAnlegen,
+  objektLesen,
+} from "./daten/objekte";
+import { bauteilAendern, bauteilAnlegen, bauteileMitStand } from "./daten/bauteile";
+import {
+  begehungAendern,
+  begehungAnlegen,
+  begehungLesen,
+  betreiberUnterschrift,
+  pruefungErfassen,
+} from "./daten/begehungen";
+import { mangelAendern, mangelLesen, mangelSchliessen } from "./daten/maengel";
 import { vorlage } from "./vorlagen";
-import { berichtePaket, berichteErzeugen } from "./pdf/berichte";
+import type { Bewertung } from "./vorlagen";
+import { berichtePaket, berichteErzeugen, sammelberichtErzeugen } from "./pdf/berichte";
 
 const SERVER_INFO = {
   name: "tuerwerk",
   title: "Türwerk — Türenwartung Seehafer Elemente",
-  version: "1.0.0",
+  version: "2.0.0",
   websiteUrl: "https://seehafer-elemente.de",
 };
 
@@ -76,7 +90,7 @@ const json = (data: unknown, status = 200) =>
 
 /** Nur eigene Pfade sind als Weiterleitungsziel zulässig — sonst wird die Anmeldung zur Schleuder. */
 function sicheresZiel(wert: string | null): string {
-  return wert && wert.startsWith("/") && !wert.startsWith("//") ? wert : "/wartungen";
+  return wert && wert.startsWith("/") && !wert.startsWith("//") ? wert : "/objekte";
 }
 
 export default {
@@ -136,7 +150,11 @@ export default {
       /** Öffentlicher Katalog — der Hub baut daraus seine Übersicht, ohne Anmeldung. */
       case "GET /tools.json":
         return json({
-          server: { name: SERVER_INFO.name, version: SERVER_INFO.version, protocolVersion: PROTOCOL_VERSION },
+          server: {
+            name: SERVER_INFO.name,
+            version: SERVER_INFO.version,
+            protocolVersion: PROTOCOL_VERSION,
+          },
           mcpUrl: `${origin}/mcp`,
           auth: "oauth2",
           tools: toolKatalog(TOOLS),
@@ -200,30 +218,39 @@ export default {
 
     /* ── Angemeldet ──────────────────────────────────────────────────────── */
 
+    const meldung = url.searchParams.get("meldung") ?? undefined;
+
     switch (`${request.method} ${pfad}`) {
       case "GET /":
-        return umleitung("/wartungen");
+        return umleitung("/objekte");
 
-      case "GET /wartungen":
-        return wartungenSeite(env, nutzer, url.searchParams.get("suche") ?? "");
+      case "GET /objekte":
+        return objekteSeite(env, nutzer, url.searchParams.get("suche") ?? "");
 
-      case "POST /wartungen": {
+      case "POST /objekte": {
         const form = await request.formData();
-        const w = await wartungAnlegen(env.DB, {
-          vorlage: String(form.get("vorlage") ?? ""),
-          objekt: String(form.get("objekt") ?? ""),
+        const o = await objektAnlegen(env.DB, {
+          name: String(form.get("name") ?? "").trim(),
+          adresse: String(form.get("adresse") ?? ""),
           betreiber: String(form.get("betreiber") ?? ""),
-          datum: String(form.get("datum") ?? ""),
+          intervall_monate: Number(form.get("intervall_monate") ?? 12) || 12,
           angelegt_von: nutzer.benutzer,
         });
-        return umleitung(`/wartung/${encodeURIComponent(w.id)}`);
+        return umleitung(`/objekt/${o.id}`);
       }
+
+      case "GET /maengel":
+        return maengelSeite(env, nutzer, {
+          objekt: url.searchParams.get("objekt") ?? "",
+          status: url.searchParams.get("status") ?? "",
+          faellig_bis: url.searchParams.get("faellig_bis") ?? "",
+        });
 
       case "GET /verbinden":
         return verbindenSeite(origin, nutzer);
 
       case "GET /einstellungen":
-        return einstellungenSeite(env, nutzer, url.searchParams.get("meldung") ?? undefined);
+        return einstellungenSeite(env, nutzer, meldung);
 
       case "POST /einstellungen": {
         const form = await request.formData();
@@ -259,57 +286,19 @@ export default {
     const teile = pfad.split("/").filter(Boolean);
 
     if (teile[0] === "datei") {
-      return datei(env, teile.slice(1).join("/"));
+      return datei(env, teile.slice(1).map(decodeURIComponent).join("/"));
     }
 
-    if (teile[0] === "wartung" && teile[1]) {
-      const id = decodeURIComponent(teile[1]);
+    if (teile[0] === "objekt" && teile[1]) {
+      return objektRoute(request, env, nutzer, decodeURIComponent(teile[1]), teile, url);
+    }
 
-      if (teile.length === 2) {
-        if (request.method === "GET") {
-          return wartungSeite(env, nutzer, id, url.searchParams.get("meldung") ?? undefined);
-        }
-        if (request.method === "POST") {
-          const form = await request.formData();
-          const patch: Record<string, string> = {};
-          for (const feld of [
-            "objekt", "betreiber", "ident", "tuertyp", "pruefer", "befaehigung", "datum",
-            "ort", "rechtsgrundlagen", "letzte_pruefung", "naechste_pruefung", "beteiligte",
-          ]) {
-            if (form.get(feld) !== null) patch[feld] = String(form.get(feld));
-          }
-          await wartungAendern(env.DB, id, patch);
-          return umleitung(`/wartung/${encodeURIComponent(id)}?meldung=Stammdaten+gespeichert.`);
-        }
-      }
+    if (teile[0] === "begehung" && teile[1]) {
+      return begehungRoute(request, env, nutzer, decodeURIComponent(teile[1]), teile, url);
+    }
 
-      if (teile.length === 3 && teile[2] === "paket.zip") {
-        try {
-          const paket = await berichtePaket(env, id);
-          return new Response(paket.daten as BodyInit, {
-            headers: {
-              "content-type": "application/zip",
-              "content-disposition": `attachment; filename="${paket.name}"`,
-              "cache-control": "no-store",
-            },
-          });
-        } catch (e) {
-          return fehlerSeite("Kein Paket", (e as Error).message, 404);
-        }
-      }
-
-      if (teile.length === 3 && teile[2] === "erzeugen" && request.method === "POST") {
-        try {
-          const lauf = await berichteErzeugen(env, id);
-          return json({ ...lauf, fehler_je_tuer: lauf.fehler });
-        } catch (e) {
-          return json({ fehler: (e as Error).message }, 400);
-        }
-      }
-
-      if (teile[2] === "tuer" && teile[3]) {
-        return tuerRoute(request, env, nutzer, id, teile);
-      }
+    if (teile[0] === "mangel" && teile[1]) {
+      return mangelRoute(request, env, nutzer, decodeURIComponent(teile[1]), teile, url);
     }
 
     return fehlerSeite("Nicht gefunden", `${request.method} ${pfad} gibt es hier nicht.`, 404);
@@ -362,8 +351,8 @@ async function anmelden(request: Request, env: Env, origin: string): Promise<Res
 
   await bremseLoesen(env.OAUTH_KV, benutzer);
   await personGesehen(env.DB, benutzer);
-  const nutzer: Nutzer = { benutzer: person.benutzer, name: person.name || person.benutzer };
-  return umleitung(weiter, await sitzungsCookie(env.SITZUNGS_SCHLUESSEL, nutzer));
+  const angemeldeter: Nutzer = { benutzer: person.benutzer, name: person.name || person.benutzer };
+  return umleitung(weiter, await sitzungsCookie(env.SITZUNGS_SCHLUESSEL, angemeldeter));
 }
 
 /* ── /authorize ────────────────────────────────────────────────────────────── */
@@ -375,8 +364,7 @@ async function authorize(
   origin: string,
   nutzer: Nutzer | null,
 ): Promise<Response> {
-  const quelle =
-    request.method === "POST" ? await request.formData() : url.searchParams;
+  const quelle = request.method === "POST" ? await request.formData() : url.searchParams;
   const parsed = leseAuthParams(quelle as URLSearchParams | FormData);
   if ("error" in parsed) return fehlerSeite("Ungültige Anfrage", parsed.error);
 
@@ -428,8 +416,8 @@ async function authorize(
 /* ── Dateien ───────────────────────────────────────────────────────────────── */
 
 async function datei(env: Env, schluessel: string): Promise<Response> {
-  // Nur die beiden Ablagen sind über diesen Weg lesbar — Vorlagen und alles andere nicht.
-  if (!/^(berichte|unterschriften)\//.test(schluessel)) {
+  /* Nur diese vier Ablagen sind über diesen Weg lesbar — Vorlagen und Importe nicht. */
+  if (!/^(berichte|fotos|plaene|unterschriften)\//.test(schluessel)) {
     return fehlerSeite("Nicht gefunden", "Diesen Pfad gibt es nicht.", 404);
   }
   const obj = await env.R2.get(schluessel);
@@ -444,59 +432,322 @@ async function datei(env: Env, schluessel: string): Promise<Response> {
   });
 }
 
-/* ── Türen ─────────────────────────────────────────────────────────────────── */
+/* ── Objekt ────────────────────────────────────────────────────────────────── */
 
-async function tuerRoute(
+async function objektRoute(
   request: Request,
   env: Env,
   nutzer: Nutzer,
-  wartungId: string,
+  id: string,
   teile: string[],
+  url: URL,
 ): Promise<Response> {
-  const kennung = teile[3];
-  const nr = kennung === "neu" ? null : Number(kennung);
-  if (nr !== null && !Number.isFinite(nr)) {
-    return fehlerSeite("Ungültige Tür", `'${kennung}' ist keine Türnummer.`, 400);
-  }
+  const objekt = await objektLesen(env.DB, id);
+  if (!objekt) return fehlerSeite("Nicht gefunden", "Dieses Objekt gibt es nicht.", 404);
+  zugriffPruefen(nutzer.benutzer, objekt.id);
+  const meldung = url.searchParams.get("meldung") ?? undefined;
 
-  if (request.method === "GET" && teile.length === 4) {
-    return tuerSeite(env, nutzer, wartungId, nr);
-  }
-
-  if (request.method === "POST" && teile.length === 5 && teile[4] === "loeschen" && nr !== null) {
-    await tuerLoeschen(env.DB, wartungId, nr);
-    return umleitung(`/wartung/${encodeURIComponent(wartungId)}?meldung=Tür+${nr}+gelöscht.`);
-  }
-
-  if (request.method === "POST" && teile.length === 4) {
-    const w = await env.DB.prepare("SELECT vorlage FROM wartungen WHERE id = ?")
-      .bind(wartungId)
-      .first<{ vorlage: string }>();
-    if (!w) return fehlerSeite("Nicht gefunden", "Diese Wartung gibt es nicht.", 404);
-    const v = vorlage(w.vorlage);
-
-    const form = await request.formData();
-    const felder: Record<string, string> = {};
-    for (const feld of v.bauteilfelder) {
-      const wert = String(form.get(`f_${feld}`) ?? "").trim();
-      if (wert) felder[feld] = wert;
+  if (teile.length === 2) {
+    if (request.method === "GET") {
+      return objektSeite(env, nutzer, objekt.id, {
+        meldung,
+        nurFaellige: url.searchParams.get("faellig") === "1",
+      });
     }
-    /* Nur Abweichungen speichern — „in Ordnung" ist der Standard und braucht keinen Eintrag. */
-    const checks: Record<string, Bewertung> = {};
-    for (const p of v.punkte) {
-      const wert = String(form.get(`p_${p.nr}`) ?? "io");
-      if (wert !== "io") checks[p.nr] = wert as Bewertung;
+    if (request.method === "POST") {
+      const form = await request.formData();
+      const patch: Record<string, unknown> = {};
+      for (const feld of [
+        "name", "adresse", "plz", "betreiber", "betreiber_kontakt", "ident",
+        "rechtsgrundlagen", "notizen",
+      ]) {
+        if (form.get(feld) !== null) patch[feld] = String(form.get(feld));
+      }
+      const intervall = Number(form.get("intervall_monate"));
+      if (Number.isFinite(intervall) && intervall > 0) patch.intervall_monate = intervall;
+      await objektAendern(env.DB, objekt.id, patch);
+      return umleitung(`/objekt/${objekt.id}?meldung=Stammdaten+gespeichert.`);
     }
+  }
 
-    await tuerSpeichern(env.DB, wartungId, {
-      nr: nr ?? (await naechsteNr(env.DB, wartungId)),
-      felder,
-      checks,
-      ergebnis: String(form.get("ergebnis") ?? "bestanden"),
-      hinweise: String(form.get("hinweise") ?? "").trim(),
+  if (teile.length === 3 && teile[2] === "begehung" && request.method === "POST") {
+    const person = await personLesen(env.DB, nutzer.benutzer);
+    const v = person?.vorgaben ?? {};
+    const b = await begehungAnlegen(env.DB, {
+      objekt_id: objekt.id,
+      datum: heute(),
+      pruefer: v.pruefer ?? nutzer.name,
+      befaehigung: v.befaehigung,
+      ort: v.ort,
+      angelegt_von: nutzer.benutzer,
     });
-    return umleitung(`/wartung/${encodeURIComponent(wartungId)}`);
+    return umleitung(`/begehung/${b.id}`);
   }
 
-  return fehlerSeite("Nicht gefunden", "Diesen Weg gibt es nicht.", 404);
+  if (teile.length === 3 && teile[2] === "geschosse") {
+    if (request.method === "GET") return geschosseSeite(env, nutzer, objekt.id, meldung);
+    if (request.method === "POST") {
+      const form = await request.formData();
+      for (const g of await geschosseListe(env.DB, objekt.id)) {
+        const name = form.get(`name_${g.id}`);
+        const reihenfolge = form.get(`reihenfolge_${g.id}`);
+        const patch: { name?: string; reihenfolge?: number } = {};
+        if (name !== null && String(name).trim()) patch.name = String(name).trim();
+        if (reihenfolge !== null && String(reihenfolge).trim() !== "") {
+          const zahl = Number(reihenfolge);
+          if (Number.isFinite(zahl)) patch.reihenfolge = zahl;
+        }
+        await geschossAendern(env.DB, g.id, patch);
+      }
+      const neu = String(form.get("neu") ?? "").trim();
+      if (neu) await geschossAnlegen(env.DB, objekt.id, neu);
+      return umleitung(`/objekt/${objekt.id}/geschosse?meldung=Geschosse+gespeichert.`);
+    }
+  }
+
+  if (teile.length === 4 && teile[2] === "bauteil") {
+    const kennung = teile[3];
+    const nr = kennung === "neu" ? null : Number(kennung);
+    if (nr !== null && !Number.isFinite(nr)) {
+      return fehlerSeite("Ungültiges Bauteil", `'${kennung}' ist keine Nummer.`, 400);
+    }
+    if (request.method === "GET") {
+      return bauteilSeite(env, nutzer, objekt.id, nr, meldung);
+    }
+    if (request.method === "POST") {
+      const form = await request.formData();
+      const art = String(form.get("art") ?? "wartung_drehfluegel");
+      const v = vorlage(art);
+      const felder: Record<string, string> = {};
+      for (const feld of v.bauteilfelder) {
+        const wert = form.get(`f_${feld}`);
+        if (wert !== null) felder[feld] = String(wert).trim();
+      }
+      const intervall = Number(form.get("intervall_monate"));
+      const gemeinsam = {
+        art,
+        kennung: String(form.get("kennung") ?? "").trim(),
+        geschoss_id: String(form.get("geschoss_id") ?? "") || null,
+        raumnummer: String(form.get("raumnummer") ?? "").trim(),
+        raum: String(form.get("raum") ?? "").trim(),
+        flur: String(form.get("flur") ?? "").trim(),
+        bezeichnung: String(form.get("bezeichnung") ?? "").trim(),
+        felder,
+        intervall_monate: Number.isFinite(intervall) && intervall > 0 ? intervall : null,
+        wartungspflichtig: form.get("wartungspflichtig") ? 1 : 0,
+        aktiv: form.get("aktiv") ? 1 : 0,
+      };
+      const bestehende = await bauteileMitStand(env.DB, objekt, { auch_stillgelegte: true });
+      const vorhanden = nr === null ? null : bestehende.find((b) => b.nr === nr);
+      if (vorhanden) {
+        const gewuenschteNr = Number(form.get("nr"));
+        await bauteilAendern(env.DB, vorhanden.id, {
+          ...gemeinsam,
+          nr: Number.isFinite(gewuenschteNr) && gewuenschteNr > 0 ? gewuenschteNr : undefined,
+        });
+        return umleitung(`/objekt/${objekt.id}/bauteil/${vorhanden.nr}?meldung=Gespeichert.`);
+      }
+      const gewuenschteNr = Number(form.get("nr"));
+      const b = await bauteilAnlegen(env.DB, {
+        objekt_id: objekt.id,
+        ...gemeinsam,
+        nr: Number.isFinite(gewuenschteNr) && gewuenschteNr > 0 ? gewuenschteNr : undefined,
+      });
+      return umleitung(`/objekt/${objekt.id}/bauteil/${b.nr}?meldung=Angelegt.`);
+    }
+  }
+
+  return fehlerSeite("Nicht gefunden", "Diesen Weg gibt es hier nicht.", 404);
+}
+
+/* ── Begehung ──────────────────────────────────────────────────────────────── */
+
+async function begehungRoute(
+  request: Request,
+  env: Env,
+  nutzer: Nutzer,
+  id: string,
+  teile: string[],
+  url: URL,
+): Promise<Response> {
+  const begehung = await begehungLesen(env.DB, id);
+  if (!begehung) return fehlerSeite("Nicht gefunden", "Diese Begehung gibt es nicht.", 404);
+  zugriffPruefen(nutzer.benutzer, begehung.objekt_id);
+  const meldung = url.searchParams.get("meldung") ?? undefined;
+
+  if (teile.length === 2) {
+    if (request.method === "GET") return begehungSeite(env, nutzer, begehung.id, meldung);
+    if (request.method === "POST") {
+      const form = await request.formData();
+      const patch: Record<string, string> = {};
+      for (const feld of ["datum", "pruefer", "befaehigung", "ort", "beteiligte", "status"]) {
+        if (form.get(feld) !== null) patch[feld] = String(form.get(feld));
+      }
+      await begehungAendern(env.DB, begehung.id, patch);
+      return umleitung(`/begehung/${begehung.id}?meldung=Stammdaten+gespeichert.`);
+    }
+  }
+
+  if (teile.length === 3 && teile[2] === "paket.zip") {
+    try {
+      const paket = await berichtePaket(env, begehung.id);
+      return new Response(paket.daten as BodyInit, {
+        headers: {
+          "content-type": "application/zip",
+          "content-disposition": `attachment; filename="${paket.name}"`,
+          "cache-control": "no-store",
+        },
+      });
+    } catch (e) {
+      return fehlerSeite("Kein Paket", (e as Error).message, 404);
+    }
+  }
+
+  if (teile.length === 3 && teile[2] === "erzeugen" && request.method === "POST") {
+    try {
+      return json(await berichteErzeugen(env, begehung.id, { nutzer: nutzer.benutzer }));
+    } catch (e) {
+      return json({ fehler: (e as Error).message }, 400);
+    }
+  }
+
+  if (teile.length === 3 && teile[2] === "sammelbericht" && request.method === "POST") {
+    try {
+      const s = await sammelberichtErzeugen(env, begehung.id, nutzer.benutzer);
+      return json({ ...s, fertig: true, erzeugt: 1 });
+    } catch (e) {
+      return json({ fehler: (e as Error).message }, 400);
+    }
+  }
+
+  if (teile.length === 3 && teile[2] === "unterschrift") {
+    if (request.method === "GET") return unterschriftSeite(env, nutzer, begehung.id, meldung);
+    if (request.method === "POST") {
+      const form = await request.formData();
+      const bild = String(form.get("bild") ?? "");
+      const name = String(form.get("name") ?? "").trim();
+      const treffer = /^data:image\/png;base64,([A-Za-z0-9+/=]+)$/.exec(bild);
+      if (!treffer) {
+        return fehlerSeite("Keine Unterschrift", "Das Unterschriftsfeld war leer.");
+      }
+      const roh = atob(treffer[1]);
+      const bytes = new Uint8Array(roh.length);
+      for (let i = 0; i < roh.length; i++) bytes[i] = roh.charCodeAt(i);
+      if (bytes.length > 2 * 1024 * 1024) {
+        return fehlerSeite("Zu groß", "Die Unterschrift darf höchstens 2 MB haben.");
+      }
+      const schluessel = `unterschriften/betreiber/${begehung.id}.png`;
+      await env.R2.put(schluessel, bytes, { httpMetadata: { contentType: "image/png" } });
+      await betreiberUnterschrift(env.DB, begehung.id, schluessel, name);
+      /* Die Unterschrift ändert den Stand — die Berichte entstehen in neuer Version. */
+      let meldungText = "Unterschrift+gespeichert.";
+      try {
+        const lauf = await berichteErzeugen(env, begehung.id, { nutzer: nutzer.benutzer });
+        meldungText = `Unterschrift+gespeichert,+${lauf.erzeugt}+Berichte+neu.`;
+      } catch {
+        /* Ohne Prüfungen gibt es noch nichts zu erzeugen — das ist kein Fehler. */
+      }
+      return umleitung(`/begehung/${begehung.id}?meldung=${meldungText}`);
+    }
+  }
+
+  if (teile.length === 4 && teile[2] === "pruefung") {
+    const kennung = teile[3];
+    const nr = kennung === "neu" ? null : Number(kennung);
+    if (nr !== null && !Number.isFinite(nr)) {
+      return fehlerSeite("Ungültige Prüfung", `'${kennung}' ist keine Bauteilnummer.`, 400);
+    }
+    if (request.method === "GET") {
+      return pruefungSeite(env, nutzer, begehung.id, nr);
+    }
+    if (request.method === "POST") {
+      const objekt = await objektLesen(env.DB, begehung.objekt_id);
+      if (!objekt) return fehlerSeite("Nicht gefunden", "Objekt fehlt.", 404);
+      const form = await request.formData();
+      const art = String(form.get("art") ?? "") || undefined;
+      const bestehende = await bauteileMitStand(env.DB, objekt, { auch_stillgelegte: true });
+      const vorhanden = nr === null ? null : bestehende.find((b) => b.nr === nr);
+      const vorlagenId = vorhanden?.art ?? art ?? "wartung_drehfluegel";
+      const v = vorlage(vorlagenId);
+
+      const felder: Record<string, string> = {};
+      for (const feld of v.bauteilfelder) {
+        const wert = form.get(`f_${feld}`);
+        if (wert !== null) felder[feld] = String(wert).trim();
+      }
+      /* Nur Abweichungen speichern — „in Ordnung" ist der Standard und braucht keinen Eintrag. */
+      const checks: Record<string, Bewertung> = {};
+      for (const p of v.punkte) {
+        const wert = String(form.get(`p_${p.nr}`) ?? "io");
+        if (wert !== "io") checks[p.nr] = wert as Bewertung;
+      }
+      const gewuenschteNr = Number(form.get("nr"));
+
+      const e = await pruefungErfassen(
+        env.DB,
+        objekt,
+        begehung,
+        {
+          nr: vorhanden ? vorhanden.nr : Number.isFinite(gewuenschteNr) ? gewuenschteNr : undefined,
+          art: vorlagenId,
+          felder,
+          checks,
+          ergebnis: String(form.get("ergebnis") ?? "bestanden"),
+          hinweise: String(form.get("hinweise") ?? "").trim(),
+          raumnummer: String(form.get("raumnummer") ?? "").trim(),
+          raum: String(form.get("raum") ?? "").trim(),
+          flur: String(form.get("flur") ?? "").trim(),
+        },
+        nutzer.benutzer,
+      );
+      return umleitung(`/begehung/${begehung.id}?meldung=Tür+${e.bauteil.nr}+gespeichert.`);
+    }
+  }
+
+  return fehlerSeite("Nicht gefunden", "Diesen Weg gibt es hier nicht.", 404);
+}
+
+/* ── Mangel ────────────────────────────────────────────────────────────────── */
+
+async function mangelRoute(
+  request: Request,
+  env: Env,
+  nutzer: Nutzer,
+  id: string,
+  teile: string[],
+  url: URL,
+): Promise<Response> {
+  const m = await mangelLesen(env.DB, id);
+  if (!m) return fehlerSeite("Nicht gefunden", "Diesen Mangel gibt es nicht.", 404);
+  zugriffPruefen(nutzer.benutzer, m.objekt_id);
+
+  if (teile.length === 2) {
+    if (request.method === "GET") {
+      return mangelSeite(env, nutzer, m.id, url.searchParams.get("meldung") ?? undefined);
+    }
+    if (request.method === "POST") {
+      const form = await request.formData();
+      const patch: Record<string, unknown> = {};
+      for (const feld of ["beschreibung", "prioritaet", "zustaendig", "status"]) {
+        if (form.get(feld) !== null) patch[feld] = String(form.get(feld));
+      }
+      const frist = String(form.get("frist") ?? "").trim();
+      patch.frist = frist || null;
+      await mangelAendern(env.DB, m.id, patch);
+      return umleitung(`/mangel/${m.id}?meldung=Gespeichert.`);
+    }
+  }
+
+  if (teile.length === 3 && teile[2] === "schliessen" && request.method === "POST") {
+    const form = await request.formData();
+    await mangelSchliessen(
+      env.DB,
+      m.id,
+      String(form.get("freimeldung") ?? "").trim(),
+      nutzer.benutzer,
+    );
+    return umleitung(`/mangel/${m.id}?meldung=Als+behoben+gemeldet.`);
+  }
+
+  return fehlerSeite("Nicht gefunden", "Diesen Weg gibt es hier nicht.", 404);
 }

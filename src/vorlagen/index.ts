@@ -31,6 +31,15 @@ export const BEWERTUNGEN: Record<Bewertung, string> = {
   none: "kein Kreuz",
 };
 
+/** Dieselben Bewertungen als Knopfbeschriftung — kurz genug für einen Daumen. */
+export const BEWERTUNGEN_KURZ: Record<Bewertung, string> = {
+  io: "i.O.",
+  nio: "nicht",
+  nz: "entf.",
+  sb: "Bem.",
+  none: "leer",
+};
+
 export interface Profil {
   page: [number, number];
   font?: string;

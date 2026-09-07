@@ -83,6 +83,8 @@ a.posten:hover { background: var(--wash); }
 .chip.voll { background: var(--ink); color: var(--bg); border-color: var(--ink); }
 .chip.mangel { border-color: #c8382f; color: #c8382f; }
 .chip.gut { border-color: #12833f; color: #12833f; }
+.chip.bald { border-color: #a9761b; color: #a9761b; }
+.chip.leise { border-color: var(--line); color: var(--ink-3); }
 
 /* ── Formular ─────────────────────────────────────────────────────────── */
 form.karte { border: 1px solid var(--line); border-radius: var(--radius); padding: 24px; }
@@ -148,7 +150,8 @@ export function seite(inhalt: string, opt: SeitenOptionen): Response {
   const logo = `data:image/svg+xml;base64,${btoa(MARKE)}`;
   const nav = opt.nutzer
     ? `<nav>
-<a href="/wartungen"${opt.aktiv === "wartungen" ? ' aria-current="page"' : ""}>Wartungen</a>
+<a href="/objekte"${opt.aktiv === "objekte" ? ' aria-current="page"' : ""}>Objekte</a>
+<a href="/maengel"${opt.aktiv === "maengel" ? ' aria-current="page"' : ""}>Mängel</a>
 <a href="/verbinden"${opt.aktiv === "verbinden" ? ' aria-current="page"' : ""}>Claude</a>
 <a href="/einstellungen"${opt.aktiv === "einstellungen" ? ' aria-current="page"' : ""}>Einstellungen</a>
 <span class="wer">${esc(opt.nutzer.name)}</span>
@@ -179,7 +182,7 @@ export function fehlerSeite(titel: string, text: string, status = 400): Response
   return seite(
     `<h1 class="seite">${esc(titel)}</h1>
      <div class="err" style="margin-top:18px;max-width:520px">${esc(text)}</div>
-     <div class="knopfleiste"><a class="btn schmal leise" href="/wartungen">Zur Übersicht</a></div>`,
+     <div class="knopfleiste"><a class="btn schmal leise" href="/objekte">Zur Übersicht</a></div>`,
     { titel, status },
   );
 }
@@ -189,3 +192,69 @@ export function umleitung(nach: string, cookie?: string): Response {
   if (cookie) headers["set-cookie"] = cookie;
   return new Response(null, { status: 302, headers });
 }
+
+/* ── Bausteine ────────────────────────────────────────────────────────────── */
+
+export function textfeld(name: string, beschriftung: string, wert = "", extra = ""): string {
+  return `<div class="feld"><label for="${esc(name)}">${esc(beschriftung)}</label>
+<input class="field" id="${esc(name)}" name="${esc(name)}" value="${esc(wert)}" ${extra}></div>`;
+}
+
+export function datumsfeld(name: string, beschriftung: string, wert = ""): string {
+  return `<div class="feld"><label for="${esc(name)}">${esc(beschriftung)}</label>
+<input class="field" type="date" id="${esc(name)}" name="${esc(name)}" value="${esc(wert)}"></div>`;
+}
+
+export function auswahlfeld(
+  name: string,
+  beschriftung: string,
+  optionen: { wert: string; text: string }[],
+  gewaehlt: string,
+): string {
+  return `<div class="feld"><label for="${esc(name)}">${esc(beschriftung)}</label>
+<select class="field" id="${esc(name)}" name="${esc(name)}">
+${optionen
+  .map(
+    (o) =>
+      `<option value="${esc(o.wert)}"${o.wert === gewaehlt ? " selected" : ""}>${esc(o.text)}</option>`,
+  )
+  .join("")}
+</select></div>`;
+}
+
+export function zeitpunkt(ms: number | null | undefined): string {
+  if (!ms) return "";
+  return new Date(ms).toLocaleString("de-DE", {
+    day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit",
+  });
+}
+
+/** Aus „2026-09-07" wird „07.09.2026" — im Formular bleibt ISO, in der Anzeige nicht. */
+export function datum(text: string | null | undefined): string {
+  if (!text) return "";
+  const t = /^(\d{4})-(\d{2})-(\d{2})$/.exec(text);
+  return t ? `${t[3]}.${t[2]}.${t[1]}` : text;
+}
+
+/** Fälligkeit als Merkmal: rot überfällig, gelb in 30 Tagen, grün sonst. */
+export function faelligChip(stand: {
+  faellig_am: string;
+  zustand: string;
+  tage: number | null;
+  nie_geprueft: boolean;
+}): string {
+  if (stand.nie_geprueft) return '<span class="chip mangel">nie geprüft</span>';
+  if (stand.zustand === "ueberfaellig") {
+    return `<span class="chip mangel">überfällig seit ${esc(datum(stand.faellig_am))}</span>`;
+  }
+  if (stand.zustand === "bald") {
+    return `<span class="chip bald">fällig ${esc(datum(stand.faellig_am))}</span>`;
+  }
+  return `<span class="chip gut">bis ${esc(datum(stand.faellig_am))}</span>`;
+}
+
+/** Das Kopier-Skript der Anmelde- und Verbinden-Seite. */
+export const KOPIER_SKRIPT = `document.addEventListener('click',function(e){var b=e.target.closest('[data-copy]');
+if(!b)return;navigator.clipboard.writeText(b.getAttribute('data-copy')).then(function(){
+var o=b.textContent;b.textContent='Kopiert';b.classList.add('done');
+setTimeout(function(){b.textContent=o;b.classList.remove('done')},1500)})});`;
