@@ -29,6 +29,10 @@ Ausgangspunkt bestehen — was übernommen wird, steht in Abschnitt 13.
    Kita", nicht „ich setze eine Begehung fort". Interne Größen — die Begehung, das Geschoss —
    bleiben im Datenmodell und entstehen aus dem, was ohnehin gesagt wird; sie werden nicht zu
    Knöpfen und Verwaltungsseiten.
+9. **Ein Tool je Absicht, nicht je Datenbankschritt.** Was zusammen gemeint ist, wird zusammen
+   erledigt: „ich bin fertig" heißt abschließen *und* Berichte *und* Sammelbericht. Und was der
+   Server ausrechnen kann, fragt er nicht ab — weder den Menschen noch den Agenten (Lagebild,
+   Tagesplanung, Etage).
 
 ### Nicht-Ziele (v2)
 
@@ -349,12 +353,25 @@ sich auf die vorige Zeile des Stapels bzw. die letzte gespeicherte Prüfung.
 `behoben`, `behoben_am`, `behoben_von`. Das Tool nimmt `bauteil` (Objekt + nr) und schließt
 dann **alle** offenen Mängel des Bauteils, oder eine `mangel`-ID gezielt.
 
-### 2.4 Begehung abschließen
+### 2.4 Begehung abschließen — ein Aufruf, alles fertig
 
-`begehung_abschliessen(begehung)` → Status `abgeschlossen`, Antwort ist der Rückblick:
-je Prüfung Ort, Abweichungen im Klartext, Ergebnis; Summe; **Liste der fälligen, aber nicht
-geprüften Bauteile** („3 Türen im 2. OG fehlen noch — absichtlich?"). Abschließen ist
-jederzeit rücknehmbar (`begehung_aendern status=laufend`).
+`begehung_abschliessen(begehung, berichte=true, alle_neu=false)` erledigt, was zusammen gemeint
+ist (Leitsatz 9):
+
+1. Status `abgeschlossen`,
+2. **Rückblick** — je Prüfung Ort, Abweichungen im Klartext, Ergebnis; Summe; **Liste der
+   fälligen, aber nicht geprüften Bauteile** („3 Türen im 2. OG fehlen noch — absichtlich?"),
+3. **Einzelberichte** im selben Zeitbudget wie `berichte_erzeugen`,
+4. **Sammelbericht**, sobald kein Einzelbericht mehr offen ist.
+
+Reicht die Rechenzeit nicht, kommt `berichte.fertig: false` zurück — dann einfach noch einmal
+aufrufen. Erzeugt wird nur, wo sich der Stand geändert hat, ein zweiter Aufruf macht also keine
+zweite Version. Ein Termin ohne Prüfung schließt ohne Berichte ab, das ist kein Fehler.
+`berichte=false` schließt nur ab. Abschließen ist jederzeit rücknehmbar
+(`begehung_aendern status=laufend`).
+
+Vorher waren das drei Aufrufe — abschließen, erzeugen (mehrfach), Sammelbericht —, also drei
+Gelegenheiten für den Agenten, in der Mitte aufzuhören.
 
 ### 2.5 Begehung abbrechen
 
@@ -801,6 +818,7 @@ Namen deutsch, `readOnlyHint` gesetzt wie in v1. Alle Argumente optional außer 
 
 | Tool | Argumente | Liefert |
 |---|---|---|
+| `lage` | tage=30 | **Das Lagebild in einem Aufruf**: überfällig, bald fällig, Mängel über der Frist, Termine mit ausstehenden Berichten, dazu `naechste_schritte` mit dem Tool je Punkt. Ersetzt den Rundruf über `faellig`, `maengel_auflisten`, `berichte_auflisten` |
 | `objekte_auflisten` | suche, nur_faellige, limit | Objekte mit Fälligkeit, Bauteilzahl, offenen Mängeln |
 | `objekt_lesen` | objekt* | Stammdaten, Geschosse, Bauteile in Laufreihenfolge mit letzter Prüfung/Fälligkeit, offene Mängel, letzte Begehungen |
 | `bauteil_lesen` | objekt*, nr/kennung* | Bauteil, alle Prüfungen (Historie), Mängel, Fotos, Berichte |
@@ -832,11 +850,12 @@ Namen deutsch, `readOnlyHint` gesetzt wie in v1. Alle Argumente optional außer 
 | `mangel_anlegen` | objekt*, nr*, beschreibung*, punkte, prioritaet, frist, zustaendig | Mangel außerhalb einer Prüfung |
 | `mangel_aendern` | mangel*, Felder | Frist, Zuständigkeit, Priorität, Status |
 | `mangel_schliessen` | objekt+nr oder mangel*, freimeldung | Abschnitt 2.3 |
-| `begehung_abschliessen` | begehung* | Abschnitt 2.4 |
+| `begehung_abschliessen` | begehung*, berichte=true, alle_neu | Abschnitt 2.4 — abschließen, Rückblick, Berichte und Sammelbericht in einem Zug |
 | `begehung_abbrechen` | begehung* | Abschnitt 2.5 — leer: gelöscht, sonst `abgebrochen` |
 | `berichte_erzeugen` | begehung*, alle_neu | versioniert, stückweise wie v1 (`fertig: false` → erneut) |
 | `sammelbericht_erzeugen` | begehung* | Abschnitt 4.4 |
 | `tour_planen` | datum*, objekte[]*, person | Tagestour setzen |
+| `tour_vorschlagen` | datum=heute, anzahl=4, vorlauf_tage=30, naehe, uebernehmen=false, person | **Rechnet den Fahrtag aus**: dringendstes Objekt zuerst, danach jeweils das nächstgelegene (Nähe über PLZ). Niemand zählt Objekte auf. `uebernehmen=true` setzt den Tag gleich |
 | `geschoss_anlegen` | objekt*, name*, reihenfolge | Geschoss, Reihenfolge aus dem Namen |
 | `import_starten` | objekt*, art*, dateiname, geschoss | Abschnitt 7.0 |
 | `vorschlaege_anlegen` | import*, kandidaten[]* | was der Agent gefunden hat |
@@ -845,6 +864,33 @@ Namen deutsch, `readOnlyHint` gesetzt wie in v1. Alle Argumente optional außer 
 | `import_zusammenfuehren` | tuerliste*, plan* | Abschnitt 7.7 |
 | `import_abschliessen` | import* | Status `bestaetigt` |
 | `vorgaben_speichern` | wie v1 | |
+
+### 9.1 Prompts und Ressourcen
+
+Der Server meldete beim `initialize` die Fähigkeiten `prompts` und `resources` — und lieferte
+dann leere Listen. Beide sind jetzt gefüllt, weil beide dasselbe tun wie der Rest dieser Stufe:
+**dem Menschen das Formulieren abnehmen.**
+
+**Prompts** erscheinen im Client als Schrägstrich-Befehle. Sie tragen den Ablauf schon in sich:
+
+| Prompt | Argumente | Wofür |
+|---|---|---|
+| `wartung` | objekt* | „Ich stehe an X und fange an" — Prüfpunkte, `begehung_starten`, dann zuhören |
+| `tag` | datum, anzahl | `lage` lesen, zusammenfassen, mit `tour_vorschlagen` einen Fahrtag anbieten |
+| `abschluss` | objekt | Rücklesen und `begehung_abschliessen`, bis `fertig` |
+| `bauplan` | objekt* | `import_anleitung` lesen und danach vorgehen, Freigabe einholen |
+
+**Ressourcen** sind Nachschlagewissen, das der Client anhängen kann, ohne dass ein Tool-Aufruf
+im Gespräch auftaucht:
+
+| URI | Inhalt |
+|---|---|
+| `tuerwerk://anleitung/import` | die Agenten-Anleitung aus Abschnitt 7.0 |
+| `tuerwerk://bestand` | alle Objekte mit Fälligkeit und offenen Mängeln als Tabelle |
+| `tuerwerk://pruefpunkte/<vorlage>` | die nummerierten Prüfpunkte zum Vorlesen |
+
+Kein Sampling und keine Elicitation: der Server ist zustandslos über Streamable HTTP, und beides
+setzt Client-Fähigkeiten voraus, auf die wir uns nicht verlassen können.
 
 `ANLEITUNG` (Server-Instructions) wird angepasst: Objekt statt Wartung, `pruefung_erfassen`
 statt `tuer_erfassen`, der Hinweis auf offene Vorjahresmängel („vorlesen, nachfragen, bei

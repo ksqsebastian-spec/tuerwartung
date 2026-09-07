@@ -65,7 +65,7 @@ import {
   maengelZuBauteil,
 } from "../daten/maengel";
 import { fotosZuBauteil } from "../daten/fotos";
-import { mapsLink, tourLesen, tourSpeichern } from "../daten/touren";
+import { mapsLink, tagePlus, tourLesen, tourSpeichern, tourenZeitraum } from "../daten/touren";
 import { berichteZuPruefung } from "../daten/berichte";
 import { berichteErzeugen, berichtsUebersicht, sammelberichtErzeugen } from "../pdf/berichte";
 import { IMPORT_TOOLS } from "./import_werkzeuge";
@@ -1303,22 +1303,64 @@ async function rueckblick(ctx: Kontext, begehung: Begehung) {
 
 const begehungAbschliessen: ToolDef = {
   name: "begehung_abschliessen",
-  title: "Begehung abschließen",
+  title: "Begehung abschließen und Berichte erzeugen",
   description:
-    "Markiert die Erfassung als fertig und liest alles zurück: je Bauteil Ort, Abweichungen im " +
-    "Klartext und Ergebnis, dazu die fälligen Bauteile, die noch fehlen ('3 Türen im 2. OG " +
-    "fehlen noch — absichtlich?'). Rücknehmbar über 'begehung_aendern' mit status=laufend.",
+    "Schließt die Erfassung ab UND erzeugt gleich die Berichte — ein Aufruf statt drei. Liest " +
+    "zuerst alles zurück (je Bauteil Ort, Abweichungen im Klartext, Ergebnis) und nennt die " +
+    "fälligen Bauteile, die noch fehlen ('3 Türen im 2. OG fehlen noch — absichtlich?'). " +
+    "Danach entstehen die Einzelberichte und, sobald keiner mehr offen ist, der Sammelbericht. " +
+    "Kommt 'fertig: false' zurück, reichte die Rechenzeit nicht: einfach noch einmal aufrufen. " +
+    "Erzeugt wird nur, wo sich etwas geändert hat — zweimal aufrufen macht keine zweite " +
+    "Version. Mit berichte=false nur abschließen. Rücknehmbar über 'begehung_aendern' mit " +
+    "status=laufend.",
   inputSchema: {
     type: "object",
-    properties: { begehung: str("Kennung der Begehung oder Name des Objekts") },
+    properties: {
+      begehung: str("Kennung der Begehung oder Name des Objekts"),
+      berichte: bool("false schließt nur ab, ohne Berichte zu erzeugen. Standard true."),
+      alle_neu: bool("true erzwingt eine neue Version aller Berichte. Standard false."),
+    },
     required: ["begehung"],
     additionalProperties: false,
   },
   annotations: SCHREIBT,
   async handler(args, ctx) {
     const begehung = await holeBegehung(ctx, pflicht<string>(args, "begehung"));
-    const neu = await begehungAendern(ctx.env.DB, begehung.id, { status: "abgeschlossen" });
-    return rueckblick(ctx, neu!);
+    const neu = (await begehungAendern(ctx.env.DB, begehung.id, { status: "abgeschlossen" }))!;
+    const zurueck = await rueckblick(ctx, neu);
+    if (args.berichte === false) return zurueck;
+    /* Ein Termin ohne Prüfung hat nichts zu berichten — das ist kein Fehler, nur nichts zu tun. */
+    if (!(await pruefungenLesen(ctx.env.DB, neu.id)).length) {
+      return { ...zurueck, berichte: { erzeugt: 0, offen: 0, fertig: true }, sammelbericht: null };
+    }
+
+    /*
+     * Der Abschluss ist ein Vorgang, kein Dreisprung. Früher musste der Agent danach noch
+     * 'berichte_erzeugen' (mehrfach, bis fertig) und 'sammelbericht_erzeugen' rufen — drei
+     * Aufrufe für eine Absicht. Jetzt läuft das hier mit, im selben Zeitbudget wie zuvor.
+     */
+    const lauf = await berichteErzeugen(ctx.env, neu.id, {
+      alle: args.alle_neu === true,
+      nutzer: ctx.nutzer.benutzer,
+    });
+    let sammel: { version: number; link: string } | null = null;
+    if (lauf.fertig) {
+      const sb = await sammelberichtErzeugen(ctx.env, neu.id, ctx.nutzer.benutzer);
+      sammel = { version: sb.version, link: `${ctx.origin}/datei/${sb.schluessel}` };
+    }
+    return {
+      ...zurueck,
+      berichte: {
+        erzeugt: lauf.erzeugt,
+        offen: lauf.offen,
+        fertig: lauf.fertig,
+        hinweis: lauf.fertig
+          ? undefined
+          : "Rechenzeit war knapp — 'begehung_abschliessen' noch einmal aufrufen.",
+      },
+      sammelbericht: sammel,
+      alle_als_zip: lauf.fertig ? `${ctx.origin}/begehung/${neu.id}/paket.zip` : undefined,
+    };
   },
 };
 
@@ -1487,10 +1529,139 @@ const tourPlanenTool: ToolDef = {
       datum,
       person,
       objekte: namen,
-      link: `${ctx.origin}/touren?woche=${datum}`,
+      link: `${ctx.origin}/touren`,
     };
   },
 };
+
+/**
+ * Den Tag ausrechnen statt ihn zu erfragen.
+ *
+ * `tour_planen` will eine fertige Objektliste — die musste bisher jemand aufstellen: erst
+ * `faellig` lesen, dann im Kopf nach Nähe sortieren, dann die Namen aufzählen. Das ist reine
+ * Rechnung (Leitsatz 5): Dringlichkeit gibt den Startpunkt, danach wird jeweils das nächste
+ * Objekt genommen, das am dichtesten liegt. Nähe schätzen wir über die Postleitzahl — genau
+ * genug für Hamburg und ohne Kartendienst.
+ */
+const tourVorschlagenTool: ToolDef = {
+  name: "tour_vorschlagen",
+  title: "Tagestour vorschlagen",
+  description:
+    "Rechnet einen Fahrtag aus: nimmt die fälligen Objekte, beginnt beim dringendsten und " +
+    "hängt jeweils das nächstgelegene an (Nähe über die Postleitzahl). Antwortet mit der " +
+    "Reihenfolge, dem Maps-Link und der Begründung je Halt. Mit uebernehmen=true wird der Tag " +
+    "gleich gesetzt, sonst ist es nur ein Vorschlag. Das ist die Antwort auf 'plan mir morgen' " +
+    "— niemand muss die Objekte aufzählen.",
+  inputSchema: {
+    type: "object",
+    properties: {
+      datum: str("Tag YYYY-MM-DD, Standard heute"),
+      anzahl: int("Höchstzahl der Objekte an diesem Tag, Standard 4"),
+      vorlauf_tage: int("Wie weit voraus gilt etwas als fällig, Standard 30"),
+      naehe: str("Optionaler Startpunkt: PLZ oder Adresse, von der aus gefahren wird"),
+      uebernehmen: bool("true setzt den Tag gleich, Standard false (nur Vorschlag)"),
+      person: str("Benutzerkennung, Standard der angemeldete Nutzer"),
+    },
+    additionalProperties: false,
+  },
+  annotations: SCHREIBT,
+  async handler(args, ctx) {
+    const datum = String(args.datum || heute());
+    const anzahl = Math.min(Math.max(Number(args.anzahl ?? 4), 1), 12);
+    const vorlauf = Math.min(Math.max(Number(args.vorlauf_tage ?? 30), 0), 365);
+    const person = String(args.person || ctx.nutzer.benutzer).toLowerCase();
+    const grenze = new Date(Date.now() + vorlauf * 86_400_000).toISOString().slice(0, 10);
+
+    const alle = await objekteListe(ctx.env.DB, { limit: 500 });
+    /* Was schon auf einem anderen Tag liegt, wird nicht zweimal verplant. */
+    const belegt = new Set(
+      (await tourenZeitraum(ctx.env.DB, person, datum, tagePlus(datum, vorlauf)))
+        .filter((t) => t.datum !== datum)
+        .flatMap((t) => t.objekte),
+    );
+    const kandidaten = alle.filter(
+      (o) =>
+        !belegt.has(o.id) &&
+        o.faellige_bauteile > 0 &&
+        (o.stand.nie_geprueft || !o.stand.faellig_am || o.stand.faellig_am <= grenze),
+    );
+
+    if (!kandidaten.length) {
+      return {
+        datum,
+        objekte: [],
+        hinweis: `Nichts fällig innerhalb von ${vorlauf} Tagen, was nicht schon verplant wäre.`,
+      };
+    }
+
+    /* Dringlichkeit zuerst: nie geprüft, dann das früheste Fälligkeitsdatum. */
+    const dringlichkeit = (o: (typeof kandidaten)[number]) =>
+      o.stand.nie_geprueft ? "0000-00-00" : o.stand.faellig_am || "9999-99-99";
+    const sortiert = [...kandidaten].sort(
+      (a, b) => dringlichkeit(a).localeCompare(dringlichkeit(b)) || a.plz.localeCompare(b.plz),
+    );
+
+    const route: typeof sortiert = [];
+    const rest = [...sortiert];
+    /* Start: der dringendste — oder das, was dem genannten Ausgangspunkt am nächsten liegt. */
+    const start = String(args.naehe ?? "").trim();
+    let zuletzt = start ? (/\b(\d{5})\b/.exec(start)?.[1] ?? "") : "";
+    if (start && zuletzt) {
+      rest.sort((a, b) => plzAbstand(zuletzt, a.plz) - plzAbstand(zuletzt, b.plz));
+    }
+    while (route.length < anzahl && rest.length) {
+      let beste = 0;
+      if (zuletzt) {
+        for (let i = 1; i < rest.length; i++) {
+          if (plzAbstand(zuletzt, rest[i].plz) < plzAbstand(zuletzt, rest[beste].plz)) beste = i;
+        }
+      }
+      const naechstes = rest.splice(beste, 1)[0];
+      route.push(naechstes);
+      zuletzt = naechstes.plz || zuletzt;
+    }
+
+    if (args.uebernehmen === true) {
+      await tourSpeichern(ctx.env.DB, datum, person, route.map((o) => o.id));
+    }
+
+    return {
+      datum,
+      person,
+      uebernommen: args.uebernehmen === true,
+      objekte: route.map((o, i) => ({
+        nr: i + 1,
+        id: o.id,
+        name: o.name,
+        adresse: o.adresse,
+        faellige_bauteile: o.faellige_bauteile,
+        offene_maengel: o.offene_maengel,
+        grund: o.stand.nie_geprueft
+          ? "nie geprüft"
+          : o.stand.zustand === "ueberfaellig"
+            ? `überfällig seit ${o.stand.faellig_am}`
+            : `fällig ${o.stand.faellig_am}`,
+      })),
+      maps: mapsLink(route),
+      nicht_eingeplant: rest.length,
+      link: `${ctx.origin}/touren`,
+    };
+  },
+};
+
+/**
+ * Grobe Nähe zweier Postleitzahlen: gemeinsame Vorsilbe zählt mehr als der Zahlenabstand.
+ * 22453 und 22459 sind Nachbarn, 22453 und 21029 nicht — das genügt, um eine Tagesroute nicht
+ * quer durch die Stadt zu legen.
+ */
+function plzAbstand(a: string, b: string): number {
+  if (!a || !b) return 50;
+  if (a === b) return 0;
+  let gleich = 0;
+  while (gleich < 5 && a[gleich] === b[gleich]) gleich++;
+  const zahl = Math.abs(Number(a) - Number(b)) || 0;
+  return (5 - gleich) * 10 + Math.min(zahl / 1000, 9);
+}
 
 const vorgabenSpeichern: ToolDef = {
   name: "vorgaben_speichern",
@@ -1521,7 +1692,175 @@ const vorgabenSpeichern: ToolDef = {
   },
 };
 
+/* ── Lagebild ──────────────────────────────────────────────────────────────── */
+
+/**
+ * Alles, was liegen geblieben ist, in einem Aufruf.
+ *
+ * Vorher brauchte „was ist zu tun?" vier Abfragen — `faellig`, `maengel_auflisten`, je Objekt
+ * `berichte_auflisten` und ein Blick auf hängende Termine — und der Agent musste daraus selbst
+ * einen Plan bauen. Das ist Arbeit, die der Server billiger erledigt: er rechnet ohnehin mit
+ * diesen Zahlen. `naechste_schritte` nennt zu jedem Punkt gleich das Tool, das ihn erledigt,
+ * damit Claude handeln kann statt zu recherchieren.
+ */
+const lageTool: ToolDef = {
+  name: "lage",
+  title: "Was ist zu tun?",
+  description:
+    "Das Lagebild in einem Aufruf: überfällige und bald fällige Objekte, Mängel über ihrer " +
+    "Frist, Berichte die noch ausstehen, und Termine die offen hängen. Dazu 'naechste_schritte' " +
+    "— konkrete Vorschläge mit dem Tool, das sie erledigt. Das ist die Antwort auf 'was ist " +
+    "los?', 'was steht an?' oder 'womit fange ich an?'. Ersetzt den Rundruf über 'faellig', " +
+    "'maengel_auflisten' und 'berichte_auflisten'.",
+  inputSchema: {
+    type: "object",
+    properties: { tage: int("Vorlauf für 'bald fällig' in Tagen, Standard 30") },
+    additionalProperties: false,
+  },
+  annotations: NUR_LESEN,
+  async handler(args, ctx) {
+    const tage = Math.min(Math.max(Number(args.tage ?? 30), 1), 365);
+    const heuteIso = heute();
+    const grenze = new Date(Date.now() + tage * 86_400_000).toISOString().slice(0, 10);
+
+    const objekte = await objekteListe(ctx.env.DB, { limit: 500 });
+    const ueberfaellig = objekte.filter(
+      (o) => o.stand.zustand === "ueberfaellig" || o.stand.nie_geprueft,
+    );
+    const bald = objekte.filter(
+      (o) =>
+        o.stand.zustand !== "ueberfaellig" &&
+        !o.stand.nie_geprueft &&
+        o.stand.faellig_am &&
+        o.stand.faellig_am <= grenze,
+    );
+
+    /* Mängel über ihrer Frist — die kippen still, wenn niemand hinsieht. */
+    const maengel = await maengelListe(ctx.env.DB, { status: "offen", limit: 500 });
+    const ueberFrist = maengel.filter((m) => m.frist && m.frist < heuteIso);
+
+    /*
+     * Ausstehende Berichte ohne PDF-Arbeit zählen: eine Prüfung ohne Bericht-Zeile ist offen.
+     * Veraltete Versionen bleiben hier außen vor — die erkennt erst der Stand-Hash, und dafür
+     * lohnt der Aufwand in einer Übersicht nicht.
+     */
+    const { results: offeneBerichte } = await ctx.env.DB.prepare(
+      `SELECT b.id, b.objekt_id, b.datum, o.name AS objekt_name, b.status,
+              COUNT(p.id) AS pruefungen,
+              SUM(CASE WHEN r.id IS NULL THEN 1 ELSE 0 END) AS ohne_bericht
+         FROM begehungen b
+         JOIN objekte o ON o.id = b.objekt_id
+         JOIN pruefungen p ON p.begehung_id = b.id
+         LEFT JOIN berichte r ON r.pruefung_id = p.id
+        WHERE b.status != 'abgebrochen'
+        GROUP BY b.id
+       HAVING ohne_bericht > 0
+        ORDER BY b.datum DESC
+        LIMIT 50`,
+    ).all<{
+      id: string;
+      objekt_id: string;
+      datum: string;
+      objekt_name: string;
+      status: string;
+      pruefungen: number;
+      ohne_bericht: number;
+    }>();
+
+    /* Termine, an denen etwas erfasst wurde, die aber seit gestern offen hängen. */
+    const haengend = (offeneBerichte ?? []).filter(
+      (b) => b.status !== "abgeschlossen" && b.datum < heuteIso,
+    );
+
+    const schritte: { was: string; womit: string; wo?: string }[] = [];
+    for (const b of (offeneBerichte ?? []).slice(0, 10)) {
+      schritte.push({
+        was: `${b.objekt_name} (${b.datum}): ${b.ohne_bericht} von ${b.pruefungen} Prüfungen ohne Bericht`,
+        womit: "begehung_abschliessen",
+        wo: b.id,
+      });
+    }
+    for (const m of ueberFrist.slice(0, 10)) {
+      schritte.push({
+        was: `${m.objekt_name}, Tür ${m.bauteil_nr}: Frist ${m.frist} verstrichen — ${
+          m.beschreibung || "ohne Beschreibung"
+        }`,
+        womit: "mangel_schliessen",
+        wo: m.id,
+      });
+    }
+    if (ueberfaellig.length) {
+      schritte.push({
+        was: `${ueberfaellig.length} ${
+          ueberfaellig.length === 1 ? "Objekt ist überfällig" : "Objekte sind überfällig"
+        } — Tag planen lassen`,
+        womit: "tour_vorschlagen",
+      });
+    }
+
+    const kurz = schritte.length
+      ? `${schritte.length} ${schritte.length === 1 ? "Sache" : "Sachen"} offen.`
+      : "Nichts liegt an.";
+
+    return {
+      stand: heuteIso,
+      zusammenfassung:
+        `${kurz} ${ueberfaellig.length} überfällig, ${bald.length} in ${tage} Tagen fällig, ` +
+        `${ueberFrist.length} Mängel über der Frist, ${(offeneBerichte ?? []).length} Termine ` +
+        "mit ausstehenden Berichten.",
+      ueberfaellig: ueberfaellig.map(objektZeile),
+      bald_faellig: bald.map(objektZeile),
+      maengel_ueber_frist: ueberFrist.slice(0, 30).map((m) => ({
+        id: m.id,
+        objekt: m.objekt_name,
+        bauteil_nr: m.bauteil_nr,
+        frist: m.frist,
+        beschreibung: m.beschreibung,
+        zustaendig: m.zustaendig,
+      })),
+      berichte_ausstehend: (offeneBerichte ?? []).map((b) => ({
+        begehung_id: b.id,
+        objekt: b.objekt_name,
+        datum: b.datum,
+        status: b.status,
+        ohne_bericht: Number(b.ohne_bericht),
+        von: Number(b.pruefungen),
+      })),
+      termine_offen: haengend.map((b) => ({
+        begehung_id: b.id,
+        objekt: b.objekt_name,
+        datum: b.datum,
+      })),
+      naechste_schritte: schritte,
+    };
+  },
+};
+
+/** Eine Objektzeile im Lagebild — knapp genug, dass 500 davon nicht das Fenster sprengen. */
+function objektZeile(o: {
+  id: string;
+  name: string;
+  adresse: string;
+  plz: string;
+  faellige_bauteile: number;
+  bauteile: number;
+  offene_maengel: number;
+  stand: { faellig_am: string; zustand: string; nie_geprueft: boolean };
+}) {
+  return {
+    id: o.id,
+    name: o.name,
+    adresse: o.adresse,
+    plz: o.plz,
+    faellige_bauteile: o.faellige_bauteile,
+    bauteile: o.bauteile,
+    offene_maengel: o.offene_maengel,
+    faellig_am: o.stand.nie_geprueft ? "nie geprüft" : o.stand.faellig_am,
+  };
+}
+
 export const TOOLS: ToolDef[] = [
+  lageTool,
   objekteAuflisten,
   objektLesenTool,
   bauteilLesenTool,
@@ -1550,6 +1889,7 @@ export const TOOLS: ToolDef[] = [
   berichteErzeugenTool,
   sammelberichtErzeugenTool,
   tourPlanenTool,
+  tourVorschlagenTool,
   vorgabenSpeichern,
   ...IMPORT_TOOLS,
 ];
@@ -1568,7 +1908,12 @@ export const ANLEITUNG =
   "nennen, z. B. {\"8\":\"nio\"}. Sagt der Monteur 'wie davor', wie_davor=true setzen. " +
   "(4) Kommt 'offene_maengel_vorjahr' zurück, vorlesen und nachfragen ('an dieser Tür ist seit " +
   "2025 die Dichtung offen — behoben?'); bestätigt er es, 'mangel_schliessen' aufrufen. " +
-  "(5) Auf 'Fertig' 'begehung_abschliessen' und den Rückblick kompakt vorlesen, samt der " +
-  "fälligen Bauteile, die noch fehlen. (6) Auf 'Go' 'berichte_erzeugen' — bei 'fertig: false' " +
-  "erneut aufrufen — und danach 'sammelbericht_erzeugen' für den Betreiber. " +
+  "(5) Auf 'Fertig' 'begehung_abschliessen' — das liest zurück UND erzeugt die Berichte samt " +
+  "Sammelbericht in einem Zug; bei 'fertig: false' einfach noch einmal aufrufen. Den Rückblick " +
+  "kompakt vorlesen, samt der fälligen Bauteile, die noch fehlen. " +
+  "Selbst rechnen lassen statt nachfragen: 'lage' beantwortet 'was ist zu tun?' in einem " +
+  "Aufruf (überfällige Objekte, Mängel über der Frist, ausstehende Berichte, dazu konkrete " +
+  "nächste Schritte), und 'tour_vorschlagen' plant einen Fahrtag nach Dringlichkeit und Nähe, " +
+  "ohne dass jemand Objekte aufzählen muss. Die Etage eines Bauteils erkennt der Server selbst " +
+  "aus Raumnummer, ETAGE oder Flur — danach nicht fragen. " +
   "Kurz antworten, der Monteur hat die Hände voll und schaut nicht aufs Display.";

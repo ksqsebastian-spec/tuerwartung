@@ -113,21 +113,31 @@ lesen, die gefundenen Türen mit `vorschlaege_anlegen` melden, berichten, was ge
 **die Freigabe einholen**, bevor daraus Bauteile werden. Mitten im Diktat lohnt das nicht: dann
 lieber vertrösten und nach der Begehung machen.
 
-## „Was fahre ich morgen?"
-**`tour_lesen`** mit dem Datum — Objekte in Reihenfolge, Adressen und ein fertiger Maps-Link.
-Plant er im Gespräch um („morgen erst Heselstücken, dann Abbestraße"), setzt **`tour_planen`**
-den Tag neu.
+## „Was ist los?" / „Was fahre ich morgen?"
+**`lage`** beantwortet „was steht an?" in einem Aufruf: überfällige Objekte, Mängel über ihrer
+Frist, Termine mit ausstehenden Berichten — und `naechste_schritte` mit dem Tool, das jeden Punkt
+erledigt. Nicht vier Abfragen zusammensuchen, das rechnet der Server.
 
-## „Fertig" → Rücklesen
-`begehung_abschliessen` aufrufen und den Rückblick **kompakt vorlesen**: je Tür Ort, Abweichungen,
-Ergebnis. Dazu die **fälligen Bauteile, die noch fehlen** — „drei Türen im 2. OG fehlen noch,
-absichtlich?" Das ist die Vollständigkeitskontrolle. Der Monteur bestätigt oder korrigiert.
+**`tour_vorschlagen`** plant den Tag selbst: nimmt die fälligen Objekte, beginnt beim dringendsten
+und hängt jeweils das nächstgelegene an. Die Objekte muss niemand aufzählen. Erst vorschlagen und
+vorlesen, dann auf sein Wort mit `uebernehmen: true` setzen.
 
-## „Go" → Berichte
-`berichte_erzeugen`. Kommt `fertig: false` zurück, **einfach erneut aufrufen**, bis nichts mehr
-offen ist — der Server arbeitet in Stücken. Danach `sammelbericht_erzeugen` für das Dokument, das
-der Betreiber bekommt. Kurz bestätigen: „14 Berichte erstellt, 2 mit Nachbesserung." und den
-Link nennen.
+**`tour_lesen`** mit dem Datum liest einen gesetzten Tag — Objekte in Reihenfolge, Adressen und
+ein fertiger Maps-Link. Plant er im Gespräch um („morgen erst Heselstücken, dann Abbestraße"),
+setzt **`tour_planen`** den Tag neu.
+
+## „Fertig" → ein Aufruf, alles fertig
+`begehung_abschliessen`. Das ist **ein** Schritt, nicht drei: es liest zurück, schließt ab,
+erzeugt die Einzelberichte und den Sammelbericht. Kommt `fertig: false` zurück, reichte die
+Rechenzeit nicht — **einfach noch einmal aufrufen**, bis nichts mehr offen ist.
+
+Den Rückblick **kompakt vorlesen**: je Tür Ort, Abweichungen, Ergebnis. Dazu die **fälligen
+Bauteile, die noch fehlen** — „drei Türen im 2. OG fehlen noch, absichtlich?" Das ist die
+Vollständigkeitskontrolle. Der Monteur bestätigt oder korrigiert. Am Ende ein Satz: „14 Berichte
+erstellt, 2 mit Nachbesserung." und den Link nennen.
+
+Erzeugt wird nur, wo sich etwas geändert hat. Will er nur abschließen, ohne Berichte:
+`berichte: false`. Braucht er später neue Versionen, geht `berichte_erzeugen` weiterhin einzeln.
 
 Erzeugt wird nur, wo sich etwas geändert hat: zweimal hintereinander aufgerufen entsteht keine
 zweite Version. Ändert sich später doch etwas, entsteht eine neue Version daneben — der Bericht,
@@ -138,6 +148,12 @@ Steht jemand vom Betreiber daneben, kann er auf dem Handy unterschreiben:
 `https://tuerwerk.ksqsebastian.workers.dev/begehung/<Kennung>/unterschrift`. Danach entstehen die
 Berichte in neuer Version — mit Unterschrift und Namen im Formular. Den Link nur nennen, wenn er
 danach fragt oder die Begehung abgeschlossen ist.
+
+## Befehle im Client
+Der Connector bringt vier Schrägstrich-Befehle mit, falls der Monteur sie lieber antippt als
+diktiert: **/wartung** (Objekt nennen, dann losdiktieren), **/tag** (Lagebild und ein geplanter
+Fahrtag), **/abschluss** (Rücklesen und Berichte), **/bauplan** (Grundriss einlesen). Sie tun
+dasselbe wie dieser Skill — nur ohne dass jemand den Einstieg formulieren muss.
 
 ## Wenn etwas schiefgeht
 - Gespräch abgebrochen? `begehung_starten` mit demselben Objekt und Datum setzt dieselbe Begehung

@@ -153,15 +153,20 @@ echo "$A" | jq -e '.mangel_angelegt.punkte == ["8"]' >/dev/null \
 ruf maengel_auflisten "$(jq -nc --arg o "$OID" '{objekt:$o}')" \
   | jq -e '.maengel | length == 1' >/dev/null && ok "Mangel in der Liste" || bad "Mangelliste"
 
-ruf begehung_abschliessen "$(jq -nc --arg b "$BEG1" '{begehung:$b}')" \
-  | jq -e '.pruefungen_gesamt == 3 and .nachbesserung == 1' >/dev/null \
+# Ein Aufruf, alles fertig: Rückblick, Berichte und Sammelbericht.
+A=$(ruf begehung_abschliessen "$(jq -nc --arg b "$BEG1" '{begehung:$b}')")
+echo "$A" | jq -e '.pruefungen_gesamt == 3 and .nachbesserung == 1' >/dev/null \
   && ok "Rückblick: 3 Prüfungen, 1 Nachbesserung" || bad "Rückblick"
+echo "$A" | jq -e '.berichte.erzeugt == 3 and .berichte.fertig == true' >/dev/null \
+  && ok "Abschluss erzeugt die Berichte gleich mit" || bad "Abschluss ohne Berichte: $A"
+echo "$A" | jq -e '.sammelbericht.version == 1' >/dev/null \
+  && ok "und den Sammelbericht" || bad "kein Sammelbericht"
+echo "$A" | jq -e '.alle_als_zip | endswith("/paket.zip")' >/dev/null \
+  && ok "ZIP-Link dabei" || bad "ZIP-Link"
 
 echo "== 6. Versionierte Berichte =="
-L=$(ruf berichte_erzeugen "$(jq -nc --arg b "$BEG1" '{begehung:$b}')")
-echo "$L" | jq -e '.erzeugt == 3 and .fertig == true' >/dev/null \
-  && ok "3 Berichte, v1" || bad "Erzeugung: $L"
-V1=$(echo "$L" | jq -r '.berichte[] | select(.nr == 1) | .schluessel')
+BER=$(ruf berichte_auflisten "$(jq -nc --arg b "$BEG1" '{begehung:$b}')")
+V1=$(echo "$BER" | jq -r '.berichte[] | select(.nr == 1) | .link' | sed 's#.*/datei/##')
 typ=$(curl -s -o /dev/null -w "%{content_type}" -b $J "$B/datei/$V1")
 [ "$typ" = "application/pdf" ] && ok "PDF abrufbar" || bad "PDF-Typ $typ"
 
@@ -190,7 +195,7 @@ echo "$BER" | jq -e '[.berichte[].veraltet] | any | not' >/dev/null \
 
 echo "== 8. Sammelbericht =="
 S=$(ruf sammelbericht_erzeugen "$(jq -nc --arg b "$BEG1" '{begehung:$b}')")
-echo "$S" | jq -e '.version == 1 and .enthaltene_berichte == 3 and .seiten >= 4' >/dev/null \
+echo "$S" | jq -e '.version >= 1 and .enthaltene_berichte == 3 and .seiten >= 4' >/dev/null \
   && ok "Deckblatt + 3 Berichte" || bad "Sammelbericht: $S"
 SKEY=$(echo "$S" | jq -r .link | sed 's#.*/datei/##')
 typ=$(curl -s -o /dev/null -w "%{content_type}" -b $J "$B/datei/$SKEY")
@@ -302,6 +307,51 @@ ruf berichte_erzeugen "$(jq -nc --arg b "$BEG2" '{begehung:$b}')" >/dev/null
 ruf berichte_auflisten "$(jq -nc --arg b "$BEG2" '{begehung:$b}')" \
   | jq -e '[.berichte[] | select(.nr == 4) | .seiten] == [2]' >/dev/null \
   && ok "Bericht mit Fotoanhang (2 Seiten)" || bad "Fotoanhang fehlt"
+
+echo "== 13b. Automatik: Lagebild, Tagesplanung, Abschluss in einem Zug =="
+L=$(ruf lage '{}')
+echo "$L" | jq -e '.zusammenfassung | length > 0' >/dev/null && ok "Lagebild" || bad "lage: $L"
+echo "$L" | jq -e --arg o "$OID" '[.ueberfaellig[].id, .bald_faellig[].id] | index($o)' >/dev/null \
+  && ok "zurückdatiertes Objekt taucht als fällig auf" || bad "lage sieht das fällige Objekt nicht"
+echo "$L" | jq -e '.naechste_schritte | type == "array"' >/dev/null \
+  && ok "nächste Schritte als Liste" || bad "naechste_schritte"
+# Ein Mangel über der Frist muss auftauchen.
+echo "$L" | jq -e --arg o "$OBJEKT" '[.maengel_ueber_frist[].objekt] | index($o)' >/dev/null \
+  && ok "Mangel über der Frist gemeldet" || bad "Mangel über Frist fehlt"
+
+# Ein Termin ohne Prüfung hat nichts zu berichten — das darf nicht scheitern.
+LEER=$(ruf begehung_starten "$(jq -nc --arg o "E2E Leerprobe $STEMPEL" '{objekt:$o}')" | jq -r .begehung.id)
+ruf begehung_abschliessen "$(jq -nc --arg b "$LEER" '{begehung:$b}')" \
+  | jq -e '.berichte.fertig == true and .sammelbericht == null' >/dev/null \
+  && ok "leerer Termin schließt ohne Fehler ab" || bad "leerer Abschluss"
+LEER_OID=$(ruf objekt_lesen "$(jq -nc --arg o "E2E Leerprobe $STEMPEL" '{objekt:$o}')" | jq -r .objekt.id)
+curl -s -o /dev/null -b $J -X POST "$B/objekt/$LEER_OID/loeschen"
+
+V=$(ruf tour_vorschlagen '{"anzahl":2}')
+echo "$V" | jq -e '.uebernommen == false' >/dev/null && ok "Vorschlag ändert nichts" || bad "tour_vorschlagen: $V"
+echo "$V" | jq -e '.objekte | type == "array"' >/dev/null && ok "Route berechnet" || bad "Route"
+
+echo "== 13c. Prompts und Ressourcen =="
+rpc() { curl -s -X POST $B/mcp -H "authorization: Bearer $AT" -H 'content-type: application/json' -d "$1"; }
+rpc '{"jsonrpc":"2.0","id":1,"method":"prompts/list"}' \
+  | jq -e '[.result.prompts[].name] | index("wartung") and index("tag") and index("abschluss") and index("bauplan")' >/dev/null \
+  && ok "vier Prompts" || bad "prompts/list"
+rpc '{"jsonrpc":"2.0","id":1,"method":"prompts/get","params":{"name":"wartung","arguments":{"objekt":"Kita X"}}}' \
+  | jq -e '.result.messages[0].content.text | contains("Kita X")' >/dev/null \
+  && ok "Prompt trägt das Argument" || bad "prompts/get"
+rpc '{"jsonrpc":"2.0","id":1,"method":"prompts/get","params":{"name":"wartung","arguments":{}}}' \
+  | jq -e '.error.code == -32602' >/dev/null && ok "Pflichtargument wird verlangt" || bad "Prompt ohne Argument"
+rpc '{"jsonrpc":"2.0","id":1,"method":"resources/list"}' \
+  | jq -e '[.result.resources[].uri] | index("tuerwerk://bestand") and index("tuerwerk://anleitung/import")' >/dev/null \
+  && ok "Ressourcen gelistet" || bad "resources/list"
+rpc '{"jsonrpc":"2.0","id":1,"method":"resources/read","params":{"uri":"tuerwerk://bestand"}}' \
+  | jq -e --arg o "$OBJEKT" '.result.contents[0].text | contains($o)' >/dev/null \
+  && ok "Bestand als Ressource lesbar" || bad "resources/read"
+rpc '{"jsonrpc":"2.0","id":1,"method":"resources/read","params":{"uri":"tuerwerk://pruefpunkte/wartung_drehfluegel"}}' \
+  | jq -e '.result.contents[0].text | contains("Leichtgängigkeit")' >/dev/null \
+  && ok "Prüfpunkte als Ressource" || bad "Prüfpunkte-Ressource"
+rpc '{"jsonrpc":"2.0","id":1,"method":"resources/read","params":{"uri":"tuerwerk://gibtsnicht"}}' \
+  | jq -e '.error.code == -32602' >/dev/null && ok "unbekannte Ressource abgewiesen" || bad "Ressourcenfehler"
 
 echo "== 14. Tagestour =="
 T=$(ruf tour_planen "$(jq -nc --arg d "$HEUTE" --arg o "$OID" '{datum:$d,objekte:[$o]}')")

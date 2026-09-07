@@ -32,8 +32,14 @@ diktiert dann Tür für Tür. Standard ist „alles in Ordnung" — er nennt nur
 „Tür 6, Punkt 8 nicht." Jede Tür geht sofort in die Datenbank; bricht das Gespräch ab, ist nichts
 verloren. Kennt Türwerk das Objekt nicht, legt es das Objekt an: die erste Begehung ist die
 Bestandsaufnahme. Hängt an einer Tür noch ein Mangel aus dem Vorjahr, fragt Claude danach. Auf
-„Fertig" liest Claude zurück und nennt die fälligen Türen, die noch fehlen; auf „Go" entstehen
-die PDFs.
+„Fertig" liest Claude zurück, nennt die fälligen Türen die noch fehlen — und erzeugt in
+demselben Zug die Berichte und den Sammelbericht.
+
+**So wenig Eingabe wie möglich.** Was der Server ausrechnen kann, fragt er nicht: die Etage einer
+Tür erkennt er aus Raumnummer, ETAGE oder Flur; `lage` beantwortet „was ist zu tun?" in einem
+Aufruf statt in vieren; `tour_vorschlagen` plant den Fahrtag nach Dringlichkeit und Nähe, ohne
+dass jemand Objekte aufzählt. Und der Connector bringt vier Schrägstrich-Befehle mit — **/wartung,
+/tag, /abschluss, /bauplan** —, damit auch der Einstieg nicht formuliert werden muss.
 
 **Die Objektseite** (`/objekt/:id`) ist die eine Arbeitsfläche, mit vier Reitern: **Bestand ·
 Checkliste · Mängel · Berichte**. Darüber ein Satz, der sagt wo man steht, und ein Knopf, der
@@ -72,7 +78,8 @@ src/
   web/rundgang.client.js.txt, web/plan.client.js.txt, web/sw.js.txt
                       die Browser-Skripte, als Text einkompiliert
   auth/               Anmeldung (Benutzer + Passwort), Sitzungs-Cookies, OAuth 2.1
-  mcp/                MCP-Protokoll und die 39 Tools (werkzeuge + import_werkzeuge)
+  mcp/                MCP-Protokoll, die 41 Tools (werkzeuge + import_werkzeuge),
+                      dazu prompts.ts: die vier Schrägstrich-Befehle und die Ressourcen
   import/             Anleitung für den Agenten, Zusammenführung Liste + Plan
   daten/              D1-Zugriff: objekte, bauteile, begehungen, maengel, fotos,
                       berichte, touren, sync, personen, basis (IDs, Fristen, Zugriff)
@@ -157,6 +164,11 @@ abgeleitet, wer nur KV lesen kann, bekommt Chiffretext.
 
 Der öffentliche Katalog steht unter `/tools.json`, gleiche Machart wie bei `hero-mcp` und
 `tarifcheck` — der Hub kann ihn abgreifen.
+
+Neben den Tools bietet der Server **Prompts** (`/wartung`, `/tag`, `/abschluss`, `/bauplan` —
+fertige Gesprächsanfänge, die im Client als Befehle erscheinen) und **Ressourcen**
+(`tuerwerk://bestand`, `tuerwerk://anleitung/import`, `tuerwerk://pruefpunkte/<vorlage>` —
+Nachschlagewissen, das der Client anhängen kann, ohne dass ein Tool-Aufruf im Gespräch steht).
 
 ## Entwickeln und Deployen
 

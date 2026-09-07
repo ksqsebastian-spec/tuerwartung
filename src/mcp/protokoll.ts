@@ -41,6 +41,34 @@ export interface ToolDef {
   handler: (args: Record<string, any>, ctx: Kontext) => Promise<unknown>;
 }
 
+/**
+ * Ein Prompt ist ein fertiger Gesprächsanfang, den der Client als Befehl anbietet — in Claude
+ * taucht er als Schrägstrich-Befehl auf. Er nimmt dem Menschen das Formulieren ab: statt „nimm
+ * eine Wartung auf, das Objekt ist …" reicht ein Klick und ein Objektname.
+ */
+export interface PromptDef {
+  name: string;
+  title: string;
+  description: string;
+  arguments?: { name: string; description: string; required?: boolean }[];
+  /** Baut die Nachrichten, mit denen das Gespräch beginnt. */
+  bauen: (args: Record<string, string>, ctx: Kontext) => Promise<string> | string;
+}
+
+/**
+ * Eine Ressource ist Wissen zum Nachschlagen, das der Client von sich aus anhängen kann —
+ * ohne dass ein Tool-Aufruf im Gespräch auftaucht. Hier: die Prüfpunkte der Vorlagen, die
+ * Anleitung für den Bauplan-Import und das aktuelle Lagebild.
+ */
+export interface RessourceDef {
+  uri: string;
+  name: string;
+  title: string;
+  description: string;
+  mimeType: string;
+  lesen: (ctx: Kontext) => Promise<string> | string;
+}
+
 interface RpcRequest {
   jsonrpc: "2.0";
   id?: string | number | null;
@@ -78,6 +106,8 @@ export async function handleRpc(
   tools: ToolDef[],
   serverInfo: ServerInfo,
   instructions: string,
+  prompts: PromptDef[] = [],
+  ressourcen: RessourceDef[] = [],
 ): Promise<unknown | null> {
   if (Array.isArray(body)) {
     return rpcError(null, -32600, "JSON-RPC-Batches werden von MCP nicht mehr unterstützt.");
@@ -120,13 +150,62 @@ export async function handleRpc(
       return result(req.id, { tools: toolKatalog(tools) });
 
     case "resources/list":
-      return result(req.id, { resources: [] });
+      return result(req.id, {
+        resources: ressourcen.map((r) => ({
+          uri: r.uri,
+          name: r.name,
+          title: r.title,
+          description: r.description,
+          mimeType: r.mimeType,
+        })),
+      });
 
     case "resources/templates/list":
       return result(req.id, { resourceTemplates: [] });
 
+    case "resources/read": {
+      const uri = String(req.params?.uri ?? "");
+      const r = ressourcen.find((x) => x.uri === uri);
+      if (!r) return rpcError(req.id, -32602, `Unbekannte Ressource '${uri}'.`);
+      try {
+        return result(req.id, {
+          contents: [{ uri: r.uri, mimeType: r.mimeType, text: await r.lesen(ctx) }],
+        });
+      } catch (e) {
+        return rpcError(req.id, -32603, (e as Error).message);
+      }
+    }
+
     case "prompts/list":
-      return result(req.id, { prompts: [] });
+      return result(req.id, {
+        prompts: prompts.map((p) => ({
+          name: p.name,
+          title: p.title,
+          description: p.description,
+          arguments: p.arguments ?? [],
+        })),
+      });
+
+    case "prompts/get": {
+      const name = String(req.params?.name ?? "");
+      const prompt = prompts.find((p) => p.name === name);
+      if (!prompt) return rpcError(req.id, -32602, `Unbekannter Prompt '${name}'.`);
+      const fehlend = (prompt.arguments ?? [])
+        .filter((a) => a.required && !String(req.params?.arguments?.[a.name] ?? "").trim())
+        .map((a) => a.name);
+      if (fehlend.length) {
+        return rpcError(req.id, -32602, `Pflichtargument fehlt: ${fehlend.join(", ")}.`);
+      }
+      try {
+        const text = await prompt.bauen(req.params?.arguments ?? {}, ctx);
+        return result(req.id, {
+          description: prompt.description,
+          messages: [{ role: "user", content: { type: "text", text } }],
+        });
+      } catch (e) {
+        return rpcError(req.id, -32603, (e as Error).message);
+      }
+    }
 
     case "tools/call": {
       const name = req.params?.name;

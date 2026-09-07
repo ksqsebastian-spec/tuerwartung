@@ -26,6 +26,7 @@ import {
 } from "./auth/oauth";
 import { bremseLoesen, fehlversuch, gesperrt, pruefen } from "./auth/passwoerter";
 import { PROTOCOL_VERSION, handleRpc, toolKatalog } from "./mcp/protokoll";
+import { PROMPTS, RESSOURCEN } from "./mcp/prompts";
 import { ANLEITUNG, TOOLS } from "./mcp/werkzeuge";
 import { MARKE, fehlerSeite, umleitung } from "./web/layout";
 import {
@@ -232,6 +233,8 @@ export default {
           TOOLS,
           SERVER_INFO,
           ANLEITUNG,
+          PROMPTS,
+          RESSOURCEN,
         );
         if (antwort === null) return new Response(null, { status: 202, headers: CORS });
         return json(antwort);
