@@ -59,10 +59,11 @@ entstehen die Berichte in neuer Version, mit Unterschrift und Klarnamen im Formu
 src/
   index.ts            Router — ein switch über Methode und Pfad
   reihenfolge.ts      Laufreihenfolge der Bauteile (Geschoss, Raumnummer, Weg)
-  web/rundgang.client.js.txt, web/sw.js.txt
-                      die beiden Browser-Skripte, als Text einkompiliert
+  web/rundgang.client.js.txt, web/plan.client.js.txt, web/sw.js.txt
+                      die Browser-Skripte, als Text einkompiliert
   auth/               Anmeldung (Benutzer + Passwort), Sitzungs-Cookies, OAuth 2.1
-  mcp/                MCP-Protokoll und die 28 Tools
+  mcp/                MCP-Protokoll und die 38 Tools (werkzeuge + import_werkzeuge)
+  import/             Anleitung für den Agenten, Zusammenführung Liste + Plan
   daten/              D1-Zugriff: objekte, bauteile, begehungen, maengel, fotos,
                       berichte, touren, sync, personen, basis (IDs, Fristen, Zugriff)
   pdf/                Formular-Overlay (pdf-lib), Deckblatt, ZIP, Erzeugungslauf
@@ -101,6 +102,19 @@ trägt sie in `sync_ops` ein, und eine bereits bekannte `op_id` bleibt wirkungsl
 ist damit harmlos. Prüfen zwei Geräte dasselbe Bauteil, gewinnt die jüngere Erfassung
 (`geprueft_am`). Ist eine im Rundgang vergebene Türnummer inzwischen belegt, legt der Server sie
 um und schickt die Zuordnung zurück, die der Client in seine wartenden Operationen einträgt.
+
+### Bauplan-Import
+
+Türwerk liest keine Pläne — der Agent liest sie. Du hängst den Grundriss oder die Türliste in
+Claude, sagst „importier das nach Türwerk", und Claude holt sich mit `import_anleitung` das
+Format, meldet die gefundenen Türen als **Vorschläge** und berichtet, was dabei herauskam. Erst
+eine Freigabe macht daraus Bauteile — im Gespräch („nimm alle ab 0.85") oder auf der Planseite,
+die das Rasterbild mit Markern nach Konfidenz zeigt. Das Bild rendert der Browser (PDFs über
+pdf.js), der Worker legt es nur ab. Kein API-Schlüssel, kein KI-Aufruf aus dem Worker.
+
+Liegen Türliste und Plan vor, führt `import_zusammenfuehren` sie zusammen: gleiche Kennung,
+sonst gleiche Raumnummer, wenn dort auf beiden Seiten genau eine Tür steht. Position kommt vom
+Plan, Felder von der Liste; was nicht sicher zusammenpasst, bleibt getrennt stehen.
 
 ### Versionierte Berichte
 
@@ -197,18 +211,14 @@ npx wrangler d1 execute tuerwartung --remote --file schema_personen_rolle.sql
 
 ## Stand
 
-Umgesetzt sind **Stufe 1 und 2** aus `KONZEPT.md`, Abschnitt 14: Bestand, Fristen,
-Mängel-Lebenslauf, versionierte Berichte, Betreiber-Unterschrift, Sammelbericht, dazu Rundgang
-ohne Netz, Fotos und Tagestour — und die Checkliste fürs Diktat, die im Konzept nachgetragen ist
-(Abschnitt 4.5).
+Umgesetzt sind **Stufe 1 bis 3** aus `KONZEPT.md`, Abschnitt 14: Bestand, Fristen,
+Mängel-Lebenslauf, versionierte Berichte, Betreiber-Unterschrift, Sammelbericht, Rundgang ohne
+Netz, Fotos, Tagestour, Bauplan-Import über den Agenten mit Planseite — und die Checkliste fürs
+Diktat, die im Konzept nachgetragen ist (Abschnitt 4.5).
 
-Offen:
+Offen ist **Stufe 4**, der Vorlagen-Editor: eine vierte Vorlage ohne Deployment anlegen.
 
-- **Stufe 3** — Bauplan-Import. Nach der Entscheidung in Abschnitt 7.0 **über den Agenten**:
-  der Plan liegt ohnehin in der Claude-App, also liest ihn das Modell dort und meldet die
-  gefundenen Türen über MCP-Tools an Türwerk; die Website hält die Anleitung dafür bereit.
-  Türwerk ruft keine KI auf, also braucht es auch keinen `ANTHROPIC_API_KEY`.
-- **Stufe 4** — Vorlagen-Editor.
-
-Im Datenmodell vorgesehen, aber noch unbedient: `importe`, `vorschlaege` und die Plan- und
-Positionsspalten an `geschosse` und `bauteile`.
+Zur Probe wurde ein frei lizenzierter Grundriss aus Wikimedia Commons durch den Import geschickt
+(„2 bhk Bungalow floor plan", 7 Türen): alle sieben gefunden, keine falsche, die Marker sitzen
+auf den Türen. Mit einem echten Kundenplan und dessen Türliste ist das zu wiederholen — dann
+zählt die Trefferquote gegen eine Zahl, die nicht vom Leser selbst stammt.

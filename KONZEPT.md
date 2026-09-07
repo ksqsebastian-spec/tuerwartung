@@ -753,6 +753,9 @@ Namen deutsch, `readOnlyHint` gesetzt wie in v1. Alle Argumente optional außer 
 | `vorlagen_auflisten` | — | wie v1 |
 | `vorgaben_lesen` | — | wie v1 |
 | `tour_lesen` | datum=heute, person=ich | Objekte in Reihenfolge, Adressen, Maps-Link |
+| `import_anleitung` | — | die Anleitung für den Agenten (Abschnitt 7.0) |
+| `importe_auflisten` | objekt* | Pläne und Türlisten dieses Objekts mit Zahlen |
+| `vorschlaege_lesen` | import\|objekt*, status, limit | Kandidaten eines Imports |
 
 **Schreibend**
 
@@ -774,6 +777,13 @@ Namen deutsch, `readOnlyHint` gesetzt wie in v1. Alle Argumente optional außer 
 | `berichte_erzeugen` | begehung*, alle_neu | versioniert, stückweise wie v1 (`fertig: false` → erneut) |
 | `sammelbericht_erzeugen` | begehung* | Abschnitt 4.4 |
 | `tour_planen` | datum*, objekte[]*, person | Tagestour setzen |
+| `geschoss_anlegen` | objekt*, name*, reihenfolge | Geschoss, Reihenfolge aus dem Namen |
+| `import_starten` | objekt*, art*, dateiname, geschoss | Abschnitt 7.0 |
+| `vorschlaege_anlegen` | import*, kandidaten[]* | was der Agent gefunden hat |
+| `vorschlaege_annehmen` | import*, ids\|ab_konfidenz\|nur_wartungspflichtige\|alle | die Freigabe — hier entstehen Bauteile |
+| `vorschlaege_verwerfen` | import*, ids\|unter_konfidenz | rücknehmbar bis zum Abschluss |
+| `import_zusammenfuehren` | tuerliste*, plan* | Abschnitt 7.7 |
+| `import_abschliessen` | import* | Status `bestaetigt` |
 | `vorgaben_speichern` | wie v1 | |
 
 `ANLEITUNG` (Server-Instructions) wird angepasst: Objekt statt Wartung, `pruefung_erfassen`
@@ -802,7 +812,8 @@ Alle mit Sitzung, außer den in v1 öffentlichen (OAuth, `/tools.json`, `/anmeld
 | `GET/POST /objekt/:id/bauteil/neu`, `/objekt/:id/bauteil/:nr` | Bauteil mit Historie (Prüfungen, Mängel, Fotos, Berichte aller Versionen) |
 | `GET /objekt/:id/import`, `POST /api/import/*` | Abschnitt 7.0, 7.2, 7.7 |
 | `GET /anleitung/import` | die Anleitung für den Agenten, zum Nachlesen (Abschnitt 7.0) |
-| `GET /objekt/:id/plan/:geschoss` | Abschnitt 7.8 |
+| `GET /objekt/:id/plan/:geschoss`, `GET …/daten.json` | Abschnitt 7.8 — Karte mit Markern |
+| `POST /api/plan`, `POST /api/vorschlag/:id`, `POST /api/geschoss/:id/start` | Planbild, Freigabe, Startpunkt |
 | `GET/POST /objekt/:id/geschosse` | Geschosse anlegen, umbenennen, Reihenfolge |
 | `POST /objekt/:id/begehung` | starten → `/begehung/:id` |
 | `GET /begehung/:id` | Prüfungen, fehlende Bauteile, Berichte (Versionen), Sammelbericht, ZIP, Unterschrift, „Im Rundgang öffnen" |

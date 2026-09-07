@@ -311,7 +311,58 @@ code=$(curl -s -o /dev/null -w "%{http_code}" -b $J -X POST "$B/touren" \
   -d "woche=$MONTAG" -d "datum=$HEUTE" -d "objekt=$OID" -d "tun=weg")
 [ "$code" = "302" ] && ok "Objekt aus der Tour genommen" || bad "Tour entfernen $code"
 
-echo "== 15. Zugriffsschutz =="
+echo "== 15. Bauplan-Import über den Agenten =="
+ruf import_anleitung '{}' | jq -e '.anleitung | contains("Türwerk liest keine Pläne")' >/dev/null \
+  && ok "Anleitung liegt bereit" || bad "Anleitung"
+code=$(curl -s -o /dev/null -w "%{http_code}" -b $J "$B/anleitung/import")
+[ "$code" = "200" ] && ok "Anleitung als Seite" || bad "Anleitungsseite $code"
+
+IPLAN=$(ruf import_starten "$(jq -nc --arg o "$OID" '{objekt:$o,art:"plan",dateiname:"EG.pdf",geschoss:"EG"}')" | jq -r .import)
+[ -n "$IPLAN" ] && ok "Plan-Import $IPLAN" || bad "import_starten"
+ruf vorschlaege_anlegen "$(jq -nc --arg i "$IPLAN" '{import:$i,kandidaten:[
+ {kennung:"T-1.01",raumnummer:"1.01",raum:"Flur",x:0.2,y:0.3,konfidenz:0.9},
+ {kennung:"T-1.02",raumnummer:"1.02",raum:"Buero",x:0.4,y:0.3,konfidenz:0.9},
+ {kennung:"",raumnummer:"1.03",raum:"Lager",x:0.6,y:0.3,konfidenz:0.7}]}')" \
+  | jq -e '.angelegt == 3 and .zahlen.mit_position == 3' >/dev/null \
+  && ok "3 Plankandidaten mit Position" || bad "vorschlaege_anlegen"
+
+ILISTE=$(ruf import_starten "$(jq -nc --arg o "$OID" '{objekt:$o,art:"tuerliste",dateiname:"Tuerliste.xlsx"}')" | jq -r .import)
+ruf vorschlaege_anlegen "$(jq -nc --arg i "$ILISTE" '{import:$i,kandidaten:[
+ {kennung:"T 1.01",raumnummer:"1.01",konfidenz:1.0,wartungspflichtig:true,felder:{ZULASSUNG:"T30-RS",HERSTELLER:"Hoermann"}},
+ {kennung:"T-1.02",raumnummer:"1.02",konfidenz:1.0,wartungspflichtig:true,felder:{ZULASSUNG:"T90"}},
+ {kennung:"",raumnummer:"1.03",konfidenz:1.0,felder:{HERSTELLER:"Schoerghuber"}},
+ {kennung:"T-9.99",raumnummer:"9.99",raum:"Nur in der Liste",konfidenz:1.0}]}')" \
+  | jq -e '.angelegt == 4' >/dev/null && ok "4 Listenzeilen" || bad "Türliste"
+
+Z=$(ruf import_zusammenfuehren "$(jq -nc --arg l "$ILISTE" --arg p "$IPLAN" '{tuerliste:$l,plan:$p}')")
+echo "$Z" | jq -e '.zusammengefuehrt == 3 and .ueber_kennung == 2 and .ueber_raumnummer == 1' >/dev/null \
+  && ok "3 Paare: 2 über Kennung, 1 über Raumnummer" || bad "Zusammenführung: $Z"
+echo "$Z" | jq -e '.nur_in_der_liste == 1 and .nur_im_plan == 0' >/dev/null \
+  && ok "eine Listenzeile bleibt allein" || bad "Rest"
+
+ruf vorschlaege_annehmen "$(jq -nc --arg i "$IPLAN" '{import:$i,ab_konfidenz:0.8}')" \
+  | jq -e '.angelegt == 3' >/dev/null && ok "3 Bauteile aus dem Plan" || bad "Freigabe"
+ruf bauteil_lesen "$(jq -nc --arg o "$OID" '{objekt:$o,kennung:"T-1.01"}')" \
+  | jq -e '.bauteil.felder.ZULASSUNG == "T30-RS" and .bauteil.wartungspflichtig == true' >/dev/null \
+  && ok "Listenfelder am Bauteil" || bad "Felder fehlen"
+
+# Ohne Freigabe entsteht nichts: die allein gebliebene Zeile ist noch offen.
+ruf vorschlaege_lesen "$(jq -nc --arg i "$ILISTE" '{import:$i}')" \
+  | jq -e '[.vorschlaege[].kennung] == ["T-9.99"]' >/dev/null \
+  && ok "unbestätigte Zeile bleibt Vorschlag" || bad "Rest der Liste"
+ruf vorschlaege_verwerfen "$(jq -nc --arg i "$ILISTE" '{import:$i,unter_konfidenz:1.1}')" \
+  | jq -e '.verworfen == 1' >/dev/null && ok "verwerfen" || bad "verwerfen"
+ruf import_abschliessen "$(jq -nc --arg i "$IPLAN" '{import:$i}')" \
+  | jq -e '.status == "bestaetigt"' >/dev/null && ok "Import abgeschlossen" || bad "abschliessen"
+
+GID=$(ruf objekt_lesen "$(jq -nc --arg o "$OID" '{objekt:$o}')" | jq -r '.geschosse[] | select(.name=="EG") | .id')
+code=$(curl -s -o /dev/null -w "%{http_code}" -b $J "$B/objekt/$OID/plan/$GID")
+[ "$code" = "200" ] && ok "Planseite" || bad "Planseite $code"
+curl -s -b $J "$B/objekt/$OID/plan/$GID/daten.json" \
+  | jq -e '[.bauteile[] | select(.x != null)] | length == 3' >/dev/null \
+  && ok "drei verortete Bauteile auf der Karte" || bad "Karte"
+
+echo "== 16. Zugriffsschutz =="
 code=$(curl -s -o /dev/null -w "%{http_code}" "$B/datei/$V1")
 [ "$code" = "302" ] && ok "Datei ohne Anmeldung gesperrt" || bad "Datei ohne Anmeldung $code"
 code=$(curl -s -o /dev/null -w "%{http_code}" -b $J "$B/datei/vorlagen/wartung_drehfluegel.pdf")
@@ -320,7 +371,7 @@ FEHL=$(ruf pruefung_erfassen "$(jq -nc --arg b "$BEG2" '{begehung:$b,nr:1,checks
 echo "$FEHL" | grep -q "^FEHLER" && ok "ungültiger Punkt abgewiesen" || bad "Punktprüfung"
 
 if [ "$AUFRAEUMEN" = "1" ]; then
-  echo "== 16. Testdaten entfernen =="
+  echo "== 17. Testdaten entfernen =="
   code=$(curl -s -o /dev/null -w "%{http_code}" -b $J -X POST "$B/objekt/$OID/loeschen")
   [ "$code" = "302" ] && ok "Objekt samt Begehungen entfernt" || bad "Aufräumen $code"
   ruf objekte_auflisten "$(jq -nc --arg s "$OBJEKT" '{suche:$s}')" \
