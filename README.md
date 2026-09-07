@@ -35,6 +35,11 @@ Bestandsaufnahme. Hängt an einer Tür noch ein Mangel aus dem Vorjahr, fragt Cl
 „Fertig" liest Claude zurück und nennt die fälligen Türen, die noch fehlen; auf „Go" entstehen
 die PDFs.
 
+**Die Begehungsseite** (`/begehung/:id`) ist zum Nachsehen, nicht zum Zweitbedienen: ein Satz
+sagt, wo der Termin steht, ein Knopf führt weiter — „Erste Tür erfassen", „Checkliste öffnen",
+„Begehung abschließen", „Berichte erzeugen", „Alles als ZIP", je nachdem. Alles andere steht
+leise darunter. Daneben liegt als eigener Reiter:
+
 **Die Checkliste** (`/begehung/:id/checkliste`) ist der Blick fürs Diktat: eine Hand hält das
 Telefon, die andere die Tür. Fortschritt, die nächste ungeprüfte Tür groß, darunter alle Bauteile
 in Laufreihenfolge zum Abhaken und die Prüfpunkte zum verbalen Abgehen. Sie schreibt nichts und

@@ -21,6 +21,10 @@ Ausgangspunkt bestehen — was übernommen wird, steht in Abschnitt 13.
    Mängel bleiben offen, bis jemand sie schließt. Offline Erfasstes kommt an.
 5. **KI dort, wo Sprache oder Bilder zu deuten sind — Geometrie und Sortierung sind Rechnung.**
 6. **Der Mensch bestätigt den Bestand.** Kein Import legt Bauteile ohne Freigabe an.
+7. **Die Website ist nicht die zweite Bedienung.** Die Intelligenz sitzt im Agenten am Diktat;
+   die Seiten sind zum Nachsehen und für den einen Griff, der gerade dran ist. Wo eine Seite
+   einen Zustand hat, sagt sie ihn in einem Satz und bietet genau einen Knopf an — der Rest
+   steht leise darunter. Doppelte Wege zum selben Ziel werden entfernt, nicht ergänzt.
 
 ### Nicht-Ziele (v2)
 
@@ -372,7 +376,7 @@ Keine Tabelle, nur Berechnung (Abschnitt 1, abgeleitete Größen). Oberflächen:
 - **Tool `faellig(tage=30)`**: Objekte mit Fälligkeit ≤ heute + tage, mit Anzahl fälliger
   Bauteile — damit „was ist diese Woche dran?" im Chat funktioniert.
 - **Objektseite**: Bauteile mit letzter Prüfung und Fälligkeit; Filter „nur fällige".
-- **Checkliste `/begehung/:id/checkliste`**: der Blick fürs Diktat, siehe Abschnitt 4.5.
+- **Checkliste `/begehung/:id/checkliste`**: der Blick fürs Diktat, siehe Abschnitt 4.6.
 
 Ein Bauteil, das in einer Begehung geprüft wurde, ist ab dann für `intervall` Monate nicht
 fällig. Ein Objekt gilt als „fertig für dieses Jahr", wenn kein Bauteil fällig ist.
@@ -429,7 +433,28 @@ das der Betreiber bekommt.
 
 ---
 
-### 4.5 Checkliste fürs Diktat
+### 4.5 Begehungsseite: ein Satz, ein Knopf
+
+Eine Begehung hat zu jedem Zeitpunkt genau einen nächsten Schritt. Also steht oben ein Satz, der
+sagt wo man ist, und darunter ein Knopf, der weiterführt (Leitsatz 7):
+
+| Zustand | Satz | Knopf |
+|---|---|---|
+| Objekt ohne Bestand | „… diese Begehung ist die Bestandsaufnahme." | Erste Tür erfassen |
+| fällige Bauteile offen | „3 von 9 erfasst — 6 fällige Türen fehlen noch." | Checkliste öffnen |
+| alles erfasst | „Alle 9 fälligen Bauteile sind erfasst." | Begehung abschließen |
+| abgeschlossen, Berichte offen | „Abgeschlossen. 9 Berichte stehen aus." | Berichte erzeugen |
+| Berichte da, kein Sammelbericht | „9 Berichte erzeugt." | Sammelbericht erzeugen |
+| fertig | „Fertig: 9 Berichte, Sammelbericht v1." | Alles als ZIP |
+
+Was gerade nicht dran ist, bleibt erreichbar, aber leise: Rundgang, Unterschrift, Neuerzeugen,
+ZIP, Wieder öffnen, Abbrechen. Keine Kennzahlenleiste — was sie sagen würde, sagt der Satz, und
+darunter steht die Liste der Prüfungen selbst. Solange nichts erfasst ist, fällt der Abschnitt
+„Prüfungen" ganz weg; die Stammdaten liegen zugeklappt am Fuß.
+
+---
+
+### 4.6 Checkliste fürs Diktat
 
 Eine Hand hält das Telefon, die andere die Tür. `/begehung/:id/checkliste` ist ein **Reiter der
 Begehungsseite** und schreibt nichts — sie zeigt, wo man gerade ist, während Claude über den
@@ -817,8 +842,8 @@ Alle mit Sitzung, außer den in v1 öffentlichen (OAuth, `/tools.json`, `/anmeld
 | `POST /api/plan`, `POST /api/vorschlag/:id`, `POST /api/geschoss/:id/start` | Planbild, Freigabe, Startpunkt |
 | `GET/POST /objekt/:id/geschosse` | Geschosse anlegen, umbenennen, Reihenfolge |
 | `POST /objekt/:id/begehung` | starten → `/begehung/:id` |
-| `GET /begehung/:id` | Prüfungen, fehlende Bauteile, Berichte (Versionen), Sammelbericht, ZIP, Unterschrift, „Im Rundgang öffnen" |
-| `GET /begehung/:id/checkliste`, `GET /begehung/:id/stand.json` | Abschnitt 4.5 |
+| `GET /begehung/:id` | Reiter „Begehung“; ein Satz, ein Knopf (Abschnitt 4.5), darunter die Prüfungen, fehlende Bauteile, Berichte (Versionen), Sammelbericht; leise: ZIP, Unterschrift, „Im Rundgang öffnen“, Abbrechen |
+| `GET /begehung/:id/checkliste`, `GET /begehung/:id/stand.json` | Abschnitt 4.6 |
 | `POST /begehung/:id/abschliessen`, `POST /begehung/:id/oeffnen` | Abschnitt 2.4 |
 | `POST /begehung/:id/abbrechen` | Abschnitt 2.5 |
 | `GET/POST /begehung/:id/pruefung/:nr` | Prüfraster wie v1 `tuerSeite` + Fotos |
