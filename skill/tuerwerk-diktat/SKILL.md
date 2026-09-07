@@ -84,6 +84,26 @@ einer früheren Begehung. Das **vorlesen und nachfragen**: „An der Tür ist se
 offen — behoben?" Sagt er ja, **`mangel_schliessen`** mit dem, was er gesagt hat, als
 `freimeldung`. Sagt er nein, weiterarbeiten; der Mangel bleibt offen.
 
+## Wenn er lieber selbst tippt
+Zwei Seiten helfen am Telefon, beide brauchst du nur zu nennen, wenn er danach fragt:
+
+- **Checkliste** — `…/begehung/<Kennung>/checkliste`: zeigt, wo er gerade ist, während du
+  mitschreibst. Fortschritt, die nächste Tür groß, alle Türen zum Abhaken, die Prüfpunkte zum
+  Vorlesen. Sie frischt sich von selbst auf.
+- **Rundgang** — `…/rundgang/<Kennung>`: dasselbe zum Selbertippen, **auch ohne Netz**. Im
+  Keller ohne Empfang ist das der Weg; erfasst wird lokal und geht raus, sobald wieder
+  Verbindung da ist. Dort kann er auch Fotos aufnehmen — die hängen hinten am Bericht.
+
+## „Abbrechen" → Termin platzt
+Sagt er, der Termin ist geplatzt oder er steht am falschen Objekt: **`begehung_abbrechen`**.
+Ist noch nichts erfasst, verschwindet die Begehung; ist schon etwas erfasst, bleibt es erhalten
+und die Begehung geht auf „abgebrochen". Kurz quittieren, was davon zutraf.
+
+## „Was fahre ich morgen?"
+**`tour_lesen`** mit dem Datum — Objekte in Reihenfolge, Adressen und ein fertiger Maps-Link.
+Plant er im Gespräch um („morgen erst Heselstücken, dann Abbestraße"), setzt **`tour_planen`**
+den Tag neu.
+
 ## „Fertig" → Rücklesen
 `begehung_abschliessen` aufrufen und den Rückblick **kompakt vorlesen**: je Tür Ort, Abweichungen,
 Ergebnis. Dazu die **fälligen Bauteile, die noch fehlen** — „drei Türen im 2. OG fehlen noch,
@@ -114,6 +134,8 @@ danach fragt oder die Begehung abgeschlossen ist.
 - „Was ist diese Woche dran?" → `faellig`. „Was ist an dem Objekt los?" → `objekt_lesen`.
   „Was ist noch offen?" → `maengel_auflisten`.
 - Unterschrift des Prüfers fehlt im Bericht? Einmalig auf der Website unter Einstellungen hochladen.
+- Kein Empfang? Das Diktat braucht Netz — dann den **Rundgang** öffnen (siehe oben), der sammelt
+  offline und schiebt später hoch.
 - Standardwerte (Prüfer, Befähigung, Rechtsgrundlagen, Ort) einmal mit `vorgaben_speichern`
   hinterlegen — danach füllen sie jede neue Begehung vor.
 

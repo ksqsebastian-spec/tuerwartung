@@ -35,9 +35,20 @@ Bestandsaufnahme. Hängt an einer Tür noch ein Mangel aus dem Vorjahr, fragt Cl
 „Fertig" liest Claude zurück und nennt die fälligen Türen, die noch fehlen; auf „Go" entstehen
 die PDFs.
 
+**Die Checkliste** (`/begehung/:id/checkliste`) ist der Blick fürs Diktat: eine Hand hält das
+Telefon, die andere die Tür. Fortschritt, die nächste ungeprüfte Tür groß, darunter alle Bauteile
+in Laufreihenfolge zum Abhaken und die Prüfpunkte zum verbalen Abgehen. Sie schreibt nichts und
+frischt sich alle zehn Sekunden selbst auf — was Claude schreibt, erscheint von allein.
+
+**Der Rundgang** (`/rundgang/:begehung`) ist die Gegenrichtung: selber tippen, auch ohne Netz.
+Ein Service Worker legt die Seite in den Cache, IndexedDB hält Daten, Warteschlange und Fotos;
+hochgeschoben wird, sobald wieder Verbindung da ist. Unterwegs lassen sich unbekannte Türen
+anlegen und Fotos aufnehmen.
+
 **Am Rechner.** Die Website zeigt dieselben Daten: Objekte nach Fälligkeit sortiert, den Bestand
 in Laufreihenfolge, je Bauteil die Historie aller Jahre, das vollständige Prüfpunkt-Raster zum
-Nachbessern, die Mängel mit ihren Fristen und die Berichte einzeln, als Sammelbericht oder als ZIP.
+Nachbessern, die Mängel mit ihren Fristen, die Tagestouren der Woche und die Berichte einzeln,
+als Sammelbericht oder als ZIP.
 
 **Der Betreiber unterschreibt** auf dem Handy unter `/begehung/<id>/unterschrift`. Danach
 entstehen die Berichte in neuer Version, mit Unterschrift und Klarnamen im Formular.
@@ -48,10 +59,12 @@ entstehen die Berichte in neuer Version, mit Unterschrift und Klarnamen im Formu
 src/
   index.ts            Router — ein switch über Methode und Pfad
   reihenfolge.ts      Laufreihenfolge der Bauteile (Geschoss, Raumnummer, Weg)
+  web/rundgang.client.js.txt, web/sw.js.txt
+                      die beiden Browser-Skripte, als Text einkompiliert
   auth/               Anmeldung (Benutzer + Passwort), Sitzungs-Cookies, OAuth 2.1
-  mcp/                MCP-Protokoll und die 25 Tools
+  mcp/                MCP-Protokoll und die 28 Tools
   daten/              D1-Zugriff: objekte, bauteile, begehungen, maengel, fotos,
-                      berichte, personen, basis (IDs, Fristen, Zugriffsprüfung)
+                      berichte, touren, sync, personen, basis (IDs, Fristen, Zugriff)
   pdf/                Formular-Overlay (pdf-lib), Deckblatt, ZIP, Erzeugungslauf
   vorlagen/           Profile, Cheatsheets und Formular-PDFs der drei Vorlagen
   web/                Seiten und Gestaltung
@@ -59,6 +72,8 @@ src/
 schema.sql            D1-Schema v2
 scripts/konten.mjs    Konten anlegen und Passwörter setzen
 scripts/e2e.sh        End-to-End-Prüfung gegen einen laufenden Server
+scripts/rundgang-offline.mjs
+                      die Abnahme des Rundgangs im Browser, mit getrenntem Netz
 KONZEPT.md            Die Spezifikation von Türwerk 2 (Stufen 1–4)
 ```
 
@@ -77,6 +92,15 @@ Nirgends gespeichert, immer gerechnet: **Fälligkeit eines Bauteils** = Datum de
 plus Intervall (des Bauteils, sonst des Objekts, Standard zwölf Monate). Ohne Prüfung: sofort
 fällig. Die Fälligkeit eines Objekts ist die seines frühesten Bauteils. Rot heißt überfällig,
 gelb heißt innerhalb von 30 Tagen.
+
+### Offline
+
+Der Rundgang ist die einzige Seite ohne Netzzwang. Jede Erfassung wird lokal in eine
+Warteschlange geschrieben und mit einer selbst erzeugten `op_id` versehen; `POST /api/sync`
+trägt sie in `sync_ops` ein, und eine bereits bekannte `op_id` bleibt wirkungslos — Wiederholen
+ist damit harmlos. Prüfen zwei Geräte dasselbe Bauteil, gewinnt die jüngere Erfassung
+(`geprueft_am`). Ist eine im Rundgang vergebene Türnummer inzwischen belegt, legt der Server sie
+um und schickt die Zuordnung zurück, die der Client in seine wartenden Operationen einträgt.
 
 ### Versionierte Berichte
 
@@ -133,6 +157,15 @@ bash scripts/e2e.sh                                            # lokal
 PASSWORT=… bash scripts/e2e.sh https://tuerwerk.ksqsebastian.workers.dev   # live
 ```
 
+Der Rundgang im Browser, mit getrenntem Netz, ist die eine Abnahme, die ein Bash-Skript nicht
+leisten kann. Playwright ist deshalb keine Abhängigkeit des Projekts, sondern wird für den
+Lauf danebengelegt:
+
+```bash
+npm install --no-save playwright
+node scripts/rundgang-offline.mjs
+```
+
 `wrangler.jsonc` zeigt mit `main` auf das fertige Bündel, nicht auf die Quelle: die Vorlagen-PDFs
 und Cheatsheets brauchen eigene esbuild-Loader, die Wrangler nicht kennt. `npm run dev` und
 `npm run deploy` bauen deshalb vorher von selbst.
@@ -160,16 +193,22 @@ npx wrangler d1 execute tuerwartung --remote --file schema_personen_rolle.sql
 | `R2` | R2 `tuerwartung` — Berichte (`berichte/…`), Fotos (`fotos/…`), Pläne (`plaene/…`), Unterschriften (`unterschriften/…`) |
 | `OAUTH_KV` | Clients, Grants, Tokens, Fehlversuchszähler |
 | `SITZUNGS_SCHLUESSEL` | Secret, signiert die Sitzungs-Cookies |
-| `ANTHROPIC_API_KEY` | Secret, erst ab Stufe 3 (Bauplan-Import) nötig |
+| `ANTHROPIC_API_KEY` | vorgesehen, aber **nicht benutzt** — der Bauplan-Import läuft über den Agenten (Abschnitt 7.0) |
 
 ## Stand
 
-Umgesetzt ist **Stufe 1** aus `KONZEPT.md`, Abschnitt 14: Bestand, Fristen, Mängel-Lebenslauf,
-versionierte Berichte, Betreiber-Unterschrift, Sammelbericht, die v2-Tools und -Routen.
+Umgesetzt sind **Stufe 1 und 2** aus `KONZEPT.md`, Abschnitt 14: Bestand, Fristen,
+Mängel-Lebenslauf, versionierte Berichte, Betreiber-Unterschrift, Sammelbericht, dazu Rundgang
+ohne Netz, Fotos und Tagestour — und die Checkliste fürs Diktat, die im Konzept nachgetragen ist
+(Abschnitt 4.5).
 
-Das Datenmodell trägt die späteren Stufen bereits (Tabellen `fotos`, `importe`, `vorschlaege`,
-`touren`, `sync_ops`, Plan- und Positionsspalten), bedient sie aber noch nicht:
+Offen:
 
-- **Stufe 2** — Rundgang am Handy (offline), Fotos, Tagestour.
-- **Stufe 3** — Bauplan-Import, Plan-Bestätigung, Route.
+- **Stufe 3** — Bauplan-Import. Nach der Entscheidung in Abschnitt 7.0 **über den Agenten**:
+  der Plan liegt ohnehin in der Claude-App, also liest ihn das Modell dort und meldet die
+  gefundenen Türen über MCP-Tools an Türwerk; die Website hält die Anleitung dafür bereit.
+  Türwerk ruft keine KI auf, also braucht es auch keinen `ANTHROPIC_API_KEY`.
 - **Stufe 4** — Vorlagen-Editor.
+
+Im Datenmodell vorgesehen, aber noch unbedient: `importe`, `vorschlaege` und die Plan- und
+Positionsspalten an `geschosse` und `bauteile`.
