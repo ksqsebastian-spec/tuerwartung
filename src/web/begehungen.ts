@@ -34,6 +34,15 @@ import type { Begehung } from "../daten/begehungen";
 import { berichtsUebersicht } from "../pdf/berichte";
 import { sammelberichteLesen } from "../daten/berichte";
 
+/** Die zwei Ansichten eines Termins: die Arbeitsfläche und die Checkliste fürs Diktat. */
+function reiter(begehungId: string, aktiv: "uebersicht" | "checkliste"): string {
+  const id = esc(begehungId);
+  return `<nav class="reiter">
+<a href="/begehung/${id}"${aktiv === "uebersicht" ? ' aria-current="page"' : ""}>Begehung</a>
+<a href="/begehung/${id}/checkliste"${aktiv === "checkliste" ? ' aria-current="page"' : ""}>Checkliste</a>
+</nav>`;
+}
+
 export async function begehungSeite(
   env: Env,
   nutzer: Nutzer,
@@ -75,13 +84,27 @@ export async function begehungSeite(
 </div>`;
 
   const werkzeuge = `<div class="knopfleiste" style="margin-top:0">
+<a class="btn schmal leise" href="/begehung/${esc(begehung.id)}/checkliste">Checkliste</a>
 <button class="btn schmal" id="erzeugen" ${pruefungen.length ? "" : "disabled"}>
 ${ohneBericht || veraltet ? `${ohneBericht + veraltet} Berichte erzeugen` : "Berichte prüfen"}</button>
 <button class="btn schmal leise" id="sammel" ${posten.length ? "" : "disabled"}>Sammelbericht erzeugen</button>
 <a class="btn schmal leise" href="/begehung/${esc(begehung.id)}/unterschrift">
 ${begehung.betreiber_unterschrift ? "Unterschrift ändern" : "Betreiber unterschreiben"}</a>
 ${posten.length ? `<a class="btn schmal leise" href="/begehung/${esc(begehung.id)}/paket.zip">Alles als ZIP</a>` : ""}
-<span class="stand" id="stand">${meldung ? esc(meldung) : ""}</span></div>`;
+<span class="stand" id="stand">${meldung ? esc(meldung) : ""}</span></div>
+
+<form method="post" action="/begehung/${esc(begehung.id)}/abbrechen" class="knopfleiste"
+  style="margin-top:14px" onsubmit="return confirm(${
+    pruefungen.length
+      ? `'Begehung abbrechen? Die ${pruefungen.length} erfassten Prüfungen bleiben erhalten.'`
+      : "'Begehung abbrechen? Sie ist leer und verschwindet dann ganz.'"
+  })">
+<button class="btn schmal gefahr" type="submit">Begehung abbrechen</button>
+<span class="meta">${
+    pruefungen.length
+      ? "Der Termin platzt — die Prüfungen bleiben, die Begehung geht auf abgebrochen."
+      : "Die Begehung ist leer und verschwindet ganz."
+  }</span></form>`;
 
   const pruefungListe = geprueft.length
     ? `<div class="liste">${geprueft
@@ -183,7 +206,8 @@ document.getElementById('sammel')?.addEventListener('click', function () {
 });`;
 
   return seite(
-    `${kopf}
+    `${reiter(begehung.id, "uebersicht")}
+${kopf}
 ${werkzeuge}
 ${meldung ? `<div class="note" style="margin:22px 0">${esc(meldung)}</div>` : ""}
 <div class="zeile" style="justify-content:space-between;align-items:center;margin-top:36px">
@@ -429,3 +453,201 @@ ${textfeld("name", "Name des Unterzeichnenden", begehung.betreiber_name, "requir
 }
 
 export type { BauteilMitStand, Bewertung };
+
+/* ── Checkliste fürs Diktat ────────────────────────────────────────────────── */
+
+/**
+ * Eine Hand hält das Telefon, die andere die Tür. Diese Seite schreibt nichts — sie zeigt,
+ * wo man gerade ist, während Claude über den Connector mitschreibt: oben die nächste
+ * ungeprüfte Tür groß, darunter die Liste in Laufreihenfolge zum Abhaken, im zweiten Reiter
+ * die Prüfpunkte zum verbalen Abgehen.
+ *
+ * Sie frischt sich alle zehn Sekunden selbst auf (`stand.json`), damit ein diktiertes „Tür 7
+ * fertig" ohne Zutun als Haken erscheint. Kein Neuladen: Reiter und Scrollstand bleiben.
+ */
+export async function checklisteSeite(
+  env: Env,
+  nutzer: Nutzer,
+  id: string,
+): Promise<Response> {
+  const begehung = await begehungLesen(env.DB, id);
+  if (!begehung) return umleitung("/objekte");
+  const objekt = await objektLesen(env.DB, begehung.objekt_id);
+  if (!objekt) return umleitung("/objekte");
+
+  const geschosse = await geschosseListe(env.DB, objekt.id);
+  const alle = inLaufreihenfolge(await bauteileMitStand(env.DB, objekt), geschosse);
+  const bauteile = alle.filter((b) => b.wartungspflichtig === 1);
+  const pruefungen = await pruefungenLesen(env.DB, begehung.id);
+  const nachBauteil = new Map(pruefungen.map((p) => [p.bauteil_id, p]));
+  const geschossName = new Map(geschosse.map((g) => [g.id, g.name]));
+
+  const ort = (b: BauteilMitStand) =>
+    [geschossName.get(b.geschoss_id ?? ""), b.raumnummer, b.raum || b.bezeichnung, b.flur]
+      .filter(Boolean)
+      .join(" · ");
+
+  const zeilen = bauteile
+    .map((b) => {
+      const p = nachBauteil.get(b.id);
+      const abweichungen = p ? Object.keys(p.checks).length : 0;
+      const klasse = p ? (abweichungen ? "reihe fertig abweichung" : "reihe fertig") : "reihe";
+      const marke = p ? (abweichungen ? String(abweichungen) : "✓") : String(b.nr);
+      const unten = p
+        ? `${p.ergebnis}${abweichungen ? ` · Punkt ${esc(Object.keys(p.checks).join(", "))}` : ""}`
+        : ort(b) || "ohne Ortsangabe";
+      return `<a class="${klasse}" id="reihe-${b.nr}" href="/begehung/${esc(begehung.id)}/pruefung/${b.nr}">
+<span class="marke">${esc(marke)}</span>
+<span class="txt">Tür ${b.nr}${p ? "" : ""}<small>${esc(unten)}</small></span></a>`;
+    })
+    .join("");
+
+  /* Die Prüfpunkte der Vorlagen, die an diesem Objekt wirklich vorkommen. */
+  const arten = [...new Set(bauteile.map((b) => b.art))];
+  const gezeigteArten = arten.length ? arten : ["wartung_drehfluegel"];
+  const punkte = gezeigteArten
+    .map((art) => {
+      const v = vorlage(art);
+      return `<h2 class="abschnitt" style="margin-top:26px">${esc(v.label)}</h2>
+<div class="haken punktliste">${v.punkte
+        .map(
+          (p) => `<div class="reihe"><span class="marke">${esc(p.nr)}</span>
+<span class="txt">${esc(p.text)}</span></div>`,
+        )
+        .join("")}</div>`;
+    })
+    .join("");
+
+  const offen = bauteile.filter((b) => !nachBauteil.has(b.id));
+  const dran = offen[0];
+  const anteil = bauteile.length
+    ? Math.round(((bauteile.length - offen.length) / bauteile.length) * 100)
+    : 0;
+
+  const skript = `
+/* Alle zehn Sekunden nachsehen, was Claude inzwischen geschrieben hat. */
+async function auffrischen() {
+  try {
+    const r = await fetch(location.pathname.replace(/\\/checkliste$/, '') + '/stand.json',
+      { headers: { accept: 'application/json' } });
+    if (!r.ok) return;
+    const d = await r.json();
+    for (const b of d.bauteile) {
+      const reihe = document.getElementById('reihe-' + b.nr);
+      if (!reihe) continue;
+      reihe.className = 'reihe' + (b.geprueft ? ' fertig' : '') + (b.abweichungen ? ' abweichung' : '');
+      reihe.querySelector('.marke').textContent =
+        b.geprueft ? (b.abweichungen ? String(b.abweichungen) : '✓') : String(b.nr);
+      if (b.geprueft) reihe.querySelector('small').textContent = b.zeile;
+    }
+    document.getElementById('zahl').textContent = d.geprueft + ' von ' + d.gesamt;
+    document.getElementById('fuellung').style.width = d.anteil + '%';
+    const dran = document.getElementById('dran');
+    if (dran) {
+      if (d.naechste) {
+        dran.querySelector('.wer').textContent = 'Tür ' + d.naechste.nr;
+        dran.querySelector('.wo').textContent = d.naechste.ort;
+      } else {
+        dran.querySelector('.was').textContent = 'FERTIG';
+        dran.querySelector('.wer').textContent = 'Alle Türen geprüft';
+        dran.querySelector('.wo').textContent = 'Sag Fertig, dann liest Claude zurueck.';
+      }
+    }
+  } catch (e) { /* kein Netz im Treppenhaus: beim nächsten Mal wieder */ }
+}
+setInterval(auffrischen, 10000);
+document.addEventListener('visibilitychange', () => { if (!document.hidden) auffrischen(); });
+
+/* Reiter ohne Neuladen. */
+document.querySelectorAll('.reiter button').forEach((k) => {
+  k.addEventListener('click', () => {
+    document.querySelectorAll('.reiter button').forEach((x) => x.setAttribute('aria-selected', 'false'));
+    k.setAttribute('aria-selected', 'true');
+    document.getElementById('tab-tueren').hidden = k.dataset.ziel !== 'tueren';
+    document.getElementById('tab-punkte').hidden = k.dataset.ziel !== 'punkte';
+  });
+});`;
+
+  return seite(
+    `${reiter(begehung.id, "checkliste")}
+<div class="eyebrow">${esc(objekt.name)} · ${esc(datumAnzeige(begehung.datum))}</div>
+<h1 class="seite" style="margin-top:8px">Checkliste</h1>
+
+<div class="fortschritt"><b id="zahl">${bauteile.length - offen.length} von ${bauteile.length}</b>
+<span class="meta">geprüft</span></div>
+<div class="balken"><i id="fuellung" style="width:${anteil}%"></i></div>
+
+<div class="dran" id="dran">
+<div class="was">${dran ? "JETZT DRAN" : "FERTIG"}</div>
+<div class="wer">${dran ? `Tür ${dran.nr}` : "Alle Türen geprüft"}</div>
+<div class="wo">${
+      dran ? esc(ort(dran) || "ohne Ortsangabe") : "Sag Fertig, dann liest Claude zurück."
+    }</div>
+</div>
+
+<nav class="reiter" role="tablist">
+<button type="button" data-ziel="tueren" aria-selected="true">Türen</button>
+<button type="button" data-ziel="punkte" aria-selected="false">Punkte</button>
+</nav>
+
+<div id="tab-tueren">
+${
+  bauteile.length
+    ? `<div class="haken">${zeilen}</div>`
+    : `<div class="leer">Noch kein Bauteil im Bestand.<br>Diktier einfach los — jede Tür legt eines an.</div>`
+}
+</div>
+
+<div id="tab-punkte" hidden>
+<p class="meta">Zum Abgehen. Genannt wird nur, was abweicht — alles andere gilt als in Ordnung.</p>
+${punkte}
+</div>`,
+    { titel: "Checkliste", nutzer, aktiv: "objekte", skript },
+  );
+}
+
+/** Der Stand einer Begehung als JSON — die Checkliste frischt sich damit auf. */
+export async function checklisteStand(env: Env, id: string): Promise<unknown> {
+  const begehung = await begehungLesen(env.DB, id);
+  if (!begehung) throw new Error("Diese Begehung gibt es nicht.");
+  const objekt = await objektLesen(env.DB, begehung.objekt_id);
+  if (!objekt) throw new Error("Zu dieser Begehung gibt es kein Objekt.");
+
+  const geschosse = await geschosseListe(env.DB, objekt.id);
+  const bauteile = inLaufreihenfolge(await bauteileMitStand(env.DB, objekt), geschosse).filter(
+    (b) => b.wartungspflichtig === 1,
+  );
+  const pruefungen = await pruefungenLesen(env.DB, begehung.id);
+  const nachBauteil = new Map(pruefungen.map((p) => [p.bauteil_id, p]));
+  const geschossName = new Map(geschosse.map((g) => [g.id, g.name]));
+  const ort = (b: BauteilMitStand) =>
+    [geschossName.get(b.geschoss_id ?? ""), b.raumnummer, b.raum || b.bezeichnung, b.flur]
+      .filter(Boolean)
+      .join(" · ");
+
+  const zeilen = bauteile.map((b) => {
+    const p = nachBauteil.get(b.id);
+    const abweichungen = p ? Object.keys(p.checks).length : 0;
+    return {
+      nr: b.nr,
+      geprueft: Boolean(p),
+      abweichungen,
+      zeile: p
+        ? `${p.ergebnis}${abweichungen ? ` · Punkt ${Object.keys(p.checks).join(", ")}` : ""}`
+        : ort(b) || "ohne Ortsangabe",
+    };
+  });
+  const offen = bauteile.filter((b) => !nachBauteil.has(b.id));
+  const dran = offen[0];
+
+  return {
+    status: begehung.status,
+    gesamt: bauteile.length,
+    geprueft: bauteile.length - offen.length,
+    anteil: bauteile.length
+      ? Math.round(((bauteile.length - offen.length) / bauteile.length) * 100)
+      : 0,
+    naechste: dran ? { nr: dran.nr, ort: ort(dran) || "ohne Ortsangabe" } : null,
+    bauteile: zeilen,
+  };
+}

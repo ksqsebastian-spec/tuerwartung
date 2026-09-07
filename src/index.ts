@@ -36,7 +36,13 @@ import {
 } from "./web/allgemein";
 import { geschosseSeite, objektSeite, objekteSeite } from "./web/objekte";
 import { bauteilSeite } from "./web/bauteile";
-import { begehungSeite, pruefungSeite, unterschriftSeite } from "./web/begehungen";
+import {
+  begehungSeite,
+  checklisteSeite,
+  checklisteStand,
+  pruefungSeite,
+  unterschriftSeite,
+} from "./web/begehungen";
 import { maengelSeite, mangelSeite } from "./web/maengel";
 import { heute, zugriffPruefen } from "./daten/basis";
 import {
@@ -56,6 +62,7 @@ import {
 } from "./daten/objekte";
 import { bauteilAendern, bauteilAnlegen, bauteileMitStand } from "./daten/bauteile";
 import {
+  begehungAbbrechen,
   begehungAendern,
   begehungAnlegen,
   begehungLesen,
@@ -594,6 +601,28 @@ async function begehungRoute(
       await begehungAendern(env.DB, begehung.id, patch);
       return umleitung(`/begehung/${begehung.id}?meldung=Stammdaten+gespeichert.`);
     }
+  }
+
+  if (teile.length === 3 && teile[2] === "checkliste" && request.method === "GET") {
+    return checklisteSeite(env, nutzer, begehung.id);
+  }
+
+  if (teile.length === 3 && teile[2] === "stand.json" && request.method === "GET") {
+    try {
+      return json(await checklisteStand(env, begehung.id));
+    } catch (e) {
+      return json({ fehler: (e as Error).message }, 404);
+    }
+  }
+
+  if (teile.length === 3 && teile[2] === "abbrechen" && request.method === "POST") {
+    const e = await begehungAbbrechen(env.DB, begehung.id);
+    if (e.geloescht) {
+      return umleitung(`/objekt/${begehung.objekt_id}?meldung=Begehung+abgebrochen+und+entfernt.`);
+    }
+    return umleitung(
+      `/begehung/${begehung.id}?meldung=Begehung+abgebrochen.+${e.pruefungen}+Prüfungen+bleiben+erhalten.`,
+    );
   }
 
   if (teile.length === 3 && teile[2] === "paket.zip") {

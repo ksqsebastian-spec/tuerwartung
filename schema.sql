@@ -127,7 +127,7 @@ CREATE TABLE begehungen (
   befaehigung     TEXT NOT NULL DEFAULT 'Sachkundiger DGWZ',
   ort             TEXT NOT NULL DEFAULT 'Hamburg',
   beteiligte      TEXT NOT NULL DEFAULT '',
-  status          TEXT NOT NULL DEFAULT 'laufend',  -- geplant | laufend | abgeschlossen
+  status          TEXT NOT NULL DEFAULT 'laufend',  -- geplant | laufend | abgeschlossen | abgebrochen
   betreiber_unterschrift TEXT,                   -- R2: unterschriften/betreiber/<begehung>.png
   betreiber_name  TEXT NOT NULL DEFAULT '',      -- wer unterschrieben hat
   unterschrieben_am INTEGER,

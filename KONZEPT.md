@@ -27,7 +27,9 @@ Ausgangspunkt bestehen — was übernommen wird, steht in Abschnitt 13.
 - Kein HERO-Abgleich (kommt in v3; Felder dafür sind vorgesehen, siehe `hero_*`).
 - Kein Betreiberportal, keine Mandantentrennung (Felder vorgesehen, Zugriff bleibt „alle vier sehen alles").
 - Keine E-Mail-Erinnerungen (Fälligkeit wird angezeigt und per Tool abgefragt; Versand in v3).
-- Keine DWG-Verarbeitung (nur PDF und DXF; DWG vorher mit ODA-Konverter nach DXF wandeln).
+- Keine DWG-Verarbeitung (nur PDF und Bilder; DWG vorher wandeln).
+- **Kein KI-Aufruf aus dem Worker.** Was zu deuten ist, deutet der Agent, der den Plan
+  ohnehin in Händen hält (Abschnitt 7.0).
 - Kein eigenes Kartenrouting über Hamburg (Tagestour öffnet die Adressen in Google Maps).
 
 ---
@@ -346,6 +348,19 @@ je Prüfung Ort, Abweichungen im Klartext, Ergebnis; Summe; **Liste der fällige
 geprüften Bauteile** („3 Türen im 2. OG fehlen noch — absichtlich?"). Abschließen ist
 jederzeit rücknehmbar (`begehung_aendern status=laufend`).
 
+### 2.5 Begehung abbrechen
+
+`begehung_abbrechen(begehung)` — der Termin platzt, der Monteur wird weggerufen, das Objekt war
+das falsche. Zwei Fälle:
+
+- **Noch keine Prüfung daran** → die Begehung wird gelöscht. Sie hat nicht stattgefunden;
+  niemand soll später über eine leere Zeile stolpern.
+- **Prüfungen daran** → sie bleiben (geprüft ist geprüft), die Begehung geht auf Status
+  `abgebrochen` und zählt nicht mehr als laufend. `begehung_starten` setzt sie nicht fort,
+  sondern legt eine neue an. Rücknehmbar über `begehung_aendern status=laufend`.
+
+Status ist damit `geplant | laufend | abgeschlossen | abgebrochen`.
+
 ---
 
 ## 3. Fristen
@@ -357,6 +372,7 @@ Keine Tabelle, nur Berechnung (Abschnitt 1, abgeleitete Größen). Oberflächen:
 - **Tool `faellig(tage=30)`**: Objekte mit Fälligkeit ≤ heute + tage, mit Anzahl fälliger
   Bauteile — damit „was ist diese Woche dran?" im Chat funktioniert.
 - **Objektseite**: Bauteile mit letzter Prüfung und Fälligkeit; Filter „nur fällige".
+- **Checkliste `/begehung/:id/checkliste`**: der Blick fürs Diktat, siehe Abschnitt 4.5.
 
 Ein Bauteil, das in einer Begehung geprüft wurde, ist ab dann für `intervall` Monate nicht
 fällig. Ein Objekt gilt als „fertig für dieses Jahr", wenn kein Bauteil fällig ist.
@@ -410,6 +426,25 @@ gezeichnet: Objekt, Adresse, Betreiber, Prüfdatum, Prüfer, Tabelle aller gepr�
 Ergebnis, Summe Mängel, Betreiber-Unterschrift und -Name) + die neuesten Einzelberichte in
 Laufreihenfolge (pdf-lib `copyPages`). Versioniert wie Einzelberichte. Das ist das Dokument,
 das der Betreiber bekommt.
+
+---
+
+### 4.5 Checkliste fürs Diktat
+
+Eine Hand hält das Telefon, die andere die Tür. `/begehung/:id/checkliste` ist ein **Reiter der
+Begehungsseite** und schreibt nichts — sie zeigt, wo man gerade ist, während Claude über den
+Connector mitschreibt:
+
+- Fortschritt „7 von 19 geprüft" mit Balken,
+- **die nächste ungeprüfte Tür groß** („JETZT DRAN — Tür 5, 2.05 · Treppenhaus"),
+- darunter zwei Unterreiter: **Türen** (alle Bauteile in Laufreihenfolge zum Abhaken; Haken =
+  geprüft, rote Zahl = so viele Abweichungen; Antippen öffnet das Prüfraster) und **Punkte**
+  (die Prüfpunkte der vorkommenden Vorlagen groß, zum verbalen Abgehen).
+- Sie frischt sich alle zehn Sekunden über `GET /begehung/:id/stand.json` auf, ohne Neuladen —
+  ein diktiertes „Tür 7 fertig" erscheint von selbst als Haken. Reiter und Scrollstand bleiben.
+
+Abgrenzung zum Rundgang (Abschnitt 5): die Checkliste ist zum **Zuschauen beim Diktieren** da
+und braucht Netz; der Rundgang ist zum **Selbertippen**, auch ohne Netz.
 
 ---
 
@@ -478,7 +513,45 @@ Push-Benachrichtigungen.
 
 ## 7. Bauplan-Import
 
-### 7.1 Grundsatz
+### 7.0 Entscheidung vom 7. September 2026 — der Import läuft über den Agenten
+
+**Diese Entscheidung ersetzt 7.1, 7.5, 7.6 und Anhang A.** Der ursprüngliche Entwurf ließ den
+Worker die Anthropic-API aufrufen (Scans als Kacheln, Türlisten als Dokument) und brauchte dafür
+das Secret `ANTHROPIC_API_KEY`. Das entfällt: **Türwerk ruft keine KI auf, Türwerk wird von einer
+aufgerufen.**
+
+Der Plan liegt ohnehin dort, wo schon ein Modell sitzt — in der Claude-App oder auf dem Desktop.
+Also:
+
+1. Der Nutzer hängt Plan oder Türliste in Claude an und sagt: „Importier das nach Türwerk,
+   Objekt Kita Heselstücken."
+2. Claude liest die Anleitung des Servers (`import_anleitung`, dazu die Seite
+   `/anleitung/import` zum Nachlesen für Menschen) und weiß damit, was Türwerk erwartet.
+3. Claude **liest den Plan selbst** — Grundriss als Bild, Türliste als Tabelle oder PDF — und
+   ruft `vorschlaege_anlegen` mit den Kandidaten: normierte Position, Kennung, Raumnummer, Art,
+   Wartungspflicht, Konfidenz, gefundene Beschriftungen.
+4. Bestätigt wird **im Gespräch** („nimm alle mit T30-Kennzeichnung") über
+   `vorschlaege_annehmen` / `vorschlaege_verwerfen`, oder auf der Planseite im Browser.
+5. Das **Rasterbild** des Plans ist optional und unabhängig davon: wer die Karte im Browser will,
+   lädt den Plan auf `/objekt/:id/plan` hoch; die Seite rendert ihn mit `pdf.js` im Browser
+   (kein Schlüssel, keine Worker-CPU). Ohne Bild funktioniert der Import trotzdem — dann ohne Karte.
+
+Was das bedeutet:
+
+- **Kein `ANTHROPIC_API_KEY`**, kein `src/ki/anthropic.ts`, keine Kosten im Worker, keine
+  Kachelung, keine Kostenanzeige vor dem Start.
+- Die Tabellen `importe` und `vorschlaege` bleiben wie beschrieben — sie sind der Zwischenstand
+  zwischen „Claude hat gelesen" und „ein Mensch hat bestätigt". Leitsatz 6 gilt unverändert:
+  **kein Import legt Bauteile ohne Freigabe an.**
+- Die Bestätigungsseite (7.8), das Zusammenführen (7.7) und die Laufreihenfolge (7.9) bleiben.
+- Die deterministische Geometrieerkennung (7.3/7.4) **entfällt für v2**. Sie bleibt als Idee
+  notiert, falls sich die Trefferquote des Agenten bei Vektorplänen als zu schlecht erweist;
+  gemessen wird das in der Probe, die Stufe 3 ohnehin vorschaltet.
+
+Die folgenden Abschnitte 7.1 bis 7.6 stehen als Hintergrund weiter da; wo sie der Entscheidung
+oben widersprechen, gilt oben.
+
+### 7.1 Grundsatz (überholt, siehe 7.0)
 
 Alles Schwere läuft **im Browser**, nicht im Worker: PDF rendern, Vektoren lesen, Bilder
 kacheln. Der Worker speichert, ruft für Tabellen und Scans die Anthropic-API auf, führt
@@ -500,7 +573,7 @@ Auswertung.
 
 Mehrseitige PDF: Seite auswählbar (Miniaturen); je Seite ein Geschoss.
 
-### 7.3 Vektorplan → Kandidaten (Browser, deterministisch)
+### 7.3 Vektorplan → Kandidaten (zurückgestellt, siehe 7.0)
 
 Aus `page.getOperatorList()` (pdf.js) werden alle Pfade in Seitenkoordinaten gesammelt. Dabei
 den Transformationsstapel (`save`/`restore`/`transform`) mitführen. **Achtung:** die Kodierung
@@ -546,7 +619,7 @@ Kandidaten die Beschriftungen innerhalb 3·r zuordnen (`text_nahe_json`). Daraus
 Ausgabe: Kandidatenliste mit normierten Koordinaten `x = (cx − x0)/breite`, `y` analog, bezogen
 auf dieselbe Seitenbox wie das Rasterbild. `POST /api/import/:id/kandidaten` → `vorschlaege`.
 
-### 7.4 DXF → Kandidaten (Browser)
+### 7.4 DXF → Kandidaten (zurückgestellt, siehe 7.0)
 
 DXF ist Text. Nur die Entitäten `ARC` (Mittelpunkt, Radius, Start-/Endwinkel), `LINE`,
 `LWPOLYLINE`, `TEXT`/`MTEXT`, `INSERT` (Blöcke: Blockdefinitionen mit Türsymbolen sind der
@@ -555,7 +628,7 @@ Position = Einfügepunkt, Rotation = Einfügewinkel). Layer-Namen mit `TUER|TÜR
 heben die Konfidenz auf 0.95. Rasterbild: Bounding Box aller Entitäten auf 2400 px zeichnen
 (Canvas, nur Linien/Bögen/Text) — reicht als Hintergrund.
 
-### 7.5 Scan → Kandidaten (Worker, Anthropic-API)
+### 7.5 Scan → Kandidaten (überholt, siehe 7.0 — das liest jetzt der Agent)
 
 Nur wenn das PDF keine Vektorpfade enthält oder eine Bilddatei hochgeladen wird.
 
@@ -578,7 +651,7 @@ Nur wenn das PDF keine Vektorpfade enthält oder eine Bilddatei hochgeladen wird
   `nodejs_compat`). Fehlerbehandlung nach Klassen (`RateLimitError` → Wiederholung nach
   `retry-after`, sonst Import auf `status = 'ausgewertet'` mit Warnung).
 
-### 7.6 Türliste → Kandidaten (Worker, Anthropic-API)
+### 7.6 Türliste → Kandidaten (überholt, siehe 7.0 — das liest jetzt der Agent)
 
 - XLSX/CSV: SheetJS im Browser → JSON-Zeilen (erste Zeile als Kopf) → `POST /api/import/:id/tabelle`.
 - PDF-Tabelle: Datei als `document`-Block (base64, `application/pdf`) an die API, Modell
@@ -697,6 +770,7 @@ Namen deutsch, `readOnlyHint` gesetzt wie in v1. Alle Argumente optional außer 
 | `mangel_aendern` | mangel*, Felder | Frist, Zuständigkeit, Priorität, Status |
 | `mangel_schliessen` | objekt+nr oder mangel*, freimeldung | Abschnitt 2.3 |
 | `begehung_abschliessen` | begehung* | Abschnitt 2.4 |
+| `begehung_abbrechen` | begehung* | Abschnitt 2.5 — leer: gelöscht, sonst `abgebrochen` |
 | `berichte_erzeugen` | begehung*, alle_neu | versioniert, stückweise wie v1 (`fertig: false` → erneut) |
 | `sammelbericht_erzeugen` | begehung* | Abschnitt 4.4 |
 | `tour_planen` | datum*, objekte[]*, person | Tagestour setzen |
@@ -724,12 +798,16 @@ Alle mit Sitzung, außer den in v1 öffentlichen (OAuth, `/tools.json`, `/anmeld
 | `POST /objekte` | anlegen |
 | `GET /objekt/:id` | Kopf mit Fälligkeit; Bauteile in Laufreihenfolge mit letzter Prüfung; offene Mängel; Begehungen; Knöpfe „Begehung starten", „Import", „Plan" |
 | `POST /objekt/:id` | Stammdaten |
+| `POST /objekt/:id/loeschen` | Ausnahmeweg für Fehlanlagen und Testläufe: Objekt mit allem, was daran hängt. Im Alltag wird stillgelegt (`aktiv = 0`). |
 | `GET/POST /objekt/:id/bauteil/neu`, `/objekt/:id/bauteil/:nr` | Bauteil mit Historie (Prüfungen, Mängel, Fotos, Berichte aller Versionen) |
-| `GET /objekt/:id/import`, `POST /api/import/*` | Abschnitt 7.2–7.7 |
+| `GET /objekt/:id/import`, `POST /api/import/*` | Abschnitt 7.0, 7.2, 7.7 |
+| `GET /anleitung/import` | die Anleitung für den Agenten, zum Nachlesen (Abschnitt 7.0) |
 | `GET /objekt/:id/plan/:geschoss` | Abschnitt 7.8 |
 | `GET/POST /objekt/:id/geschosse` | Geschosse anlegen, umbenennen, Reihenfolge |
 | `POST /objekt/:id/begehung` | starten → `/begehung/:id` |
 | `GET /begehung/:id` | Prüfungen, fehlende Bauteile, Berichte (Versionen), Sammelbericht, ZIP, Unterschrift, „Im Rundgang öffnen" |
+| `GET /begehung/:id/checkliste`, `GET /begehung/:id/stand.json` | Abschnitt 4.5 |
+| `POST /begehung/:id/abbrechen` | Abschnitt 2.5 |
 | `GET/POST /begehung/:id/pruefung/:nr` | Prüfraster wie v1 `tuerSeite` + Fotos |
 | `GET/POST /begehung/:id/unterschrift` | Abschnitt 4.2 |
 | `POST /begehung/:id/erzeugen`, `/sammelbericht` | JSON, stückweise |
@@ -782,16 +860,15 @@ die beiden Seiten mit eigenem Skript.
 
 **Erweitert:** `src/pdf/fuellen.ts` (zweite Unterschrift, Fotoanhang, Deckblatt),
 `src/vorlagen/index.ts` (Betreiber-Signatur, Labels, Laufreihenfolge-Helfer als eigenes Modul
-`src/reihenfolge.ts`), `src/env.ts` (`ANTHROPIC_API_KEY`), `wrangler.jsonc` (nichts Neues an
-Bindings; Secret ergänzen).
+`src/reihenfolge.ts`), `wrangler.jsonc` (nichts Neues an Bindings, kein neues Secret —
+`ANTHROPIC_API_KEY` ist in `src/env.ts` nur noch optional vermerkt und wird nicht benutzt).
 
 **Ersetzt:** `src/daten/wartungen.ts` → `src/daten/{objekte,bauteile,begehungen,maengel,fotos,berichte,importe,touren}.ts`;
 `src/mcp/werkzeuge.ts` → v2-Tools; `src/web/seiten.ts` → aufgeteilt in
 `src/web/{objekte,bauteile,begehungen,maengel,touren,import,plan,rundgang}.ts`;
 `src/pdf/berichte.ts` → Versionierung; `schema.sql` → v2; `scripts/e2e.sh` → v2-Prüfungen.
 
-**Neu:** `src/ki/anthropic.ts` (ein Client, zwei Funktionen: `tabelleLesen`, `kachelAuswerten`,
-beide mit strukturierter Ausgabe), `src/import/{zusammenfuehren,kandidaten}.ts`,
+**Neu:** `src/import/zusammenfuehren.ts`,
 `public/rundgang.js`, `public/plan.js`, `public/import.js`, `public/sw.js` (über `ASSETS`-Binding
 oder als Text eingebettet — Entscheidung: **eingebettet** wie v1, kein neues Binding).
 
@@ -831,20 +908,22 @@ Abnahme:
 - Wiederholtes Senden derselben `op_id` ändert nichts.
 - Tour mit drei Objekten → Maps-Link enthält drei Adressen in Reihenfolge.
 
-### Stufe 3 — Bauplan-Import, Plan-Bestätigung, Route
+### Stufe 3 — Bauplan-Import über den Agenten, Plan-Bestätigung
 
-Bauen: Abschnitt 7 vollständig.
-**Vorher:** die Probe — ein echter Plan und eine echte Türliste des Kunden; Detektor 7.3 als
-Skript ohne Oberfläche; Trefferquote zählen. Unter 60 % Treffer bei Vektorplänen → Ursache
-prüfen, bevor die Oberfläche gebaut wird.
+Bauen: Abschnitt 7 in der Fassung 7.0, dazu 7.7 bis 7.9.
+**Vorher:** die Probe — ein echter Plan und eine echte Türliste des Kunden in der Claude-App
+lesen lassen, ohne dass Türwerk beteiligt ist; Trefferquote von Hand zählen. Unter 60 % Treffer
+→ Ursache prüfen, bevor Tools und Oberfläche gebaut werden.
 Abnahme:
-- Vektorplan-PDF mit bekannter Türzahl → Kandidaten ≥ 80 % davon, Falschpositive ≤ 15 %.
-- Türliste XLSX mit 20 Zeilen → 20 Vorschläge, Spaltenzuordnung angezeigt und korrigierbar.
+- Plan-PDF mit bekannter Türzahl in der App → Kandidaten ≥ 80 % davon, Falschpositive ≤ 15 %.
+- Türliste XLSX mit 20 Zeilen → 20 Vorschläge in Türwerk, Felder aus der Liste übernommen.
 - Türliste + Plan → Zusammenführung über `kennung`; angenommene Bauteile haben Position und
   Listenfelder.
+- Bestätigen im Gespräch: „alle mit T30 annehmen" legt genau diese Bauteile an.
 - Bestätigungsseite auf dem Handy bedienbar (Pan/Zoom/Antippen), „Alle ≥ 0.85 annehmen"
   legt Bauteile an; Rundgang zeigt sie in Raumnummern-Reihenfolge.
-- Scan (Foto eines Plans) → Vision-Kacheln laufen, Kosten stehen in `importe.ergebnis_json`.
+- Der ganze Weg läuft **ohne Worker-Secret** — nichts in `wrangler secret list` außer
+  `SITZUNGS_SCHLUESSEL`.
 
 ### Stufe 4 — Vorlagen-Editor
 
@@ -864,7 +943,10 @@ mit `pruefpunkte` nutzbar.
 
 ---
 
-## Anhang A — Anthropic-Aufrufe (Vorgabe für `src/ki/anthropic.ts`)
+## Anhang A — Anthropic-Aufrufe (hinfällig, siehe 7.0)
+
+> Der Worker ruft keine KI mehr auf; der Import läuft über den Agenten in der
+> Claude-App. Dieser Anhang bleibt nur als Beleg dafür stehen, was verworfen wurde.
 
 - SDK `@anthropic-ai/sdk`, ein Client je Request (`new Anthropic({ apiKey: env.ANTHROPIC_API_KEY })`).
 - Modell **`claude-opus-5`**, `output_config: { effort: "medium" }`, `max_tokens: 8192`

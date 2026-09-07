@@ -25,7 +25,7 @@ export interface Begehung {
   befaehigung: string;
   ort: string;
   beteiligte: string;
-  status: "geplant" | "laufend" | "abgeschlossen";
+  status: "geplant" | "laufend" | "abgeschlossen" | "abgebrochen";
   betreiber_unterschrift: string | null;
   betreiber_name: string;
   unterschrieben_am: number | null;
@@ -124,6 +124,36 @@ export async function begehungAendern(
       .run();
   }
   return begehungLesen(db, id);
+}
+
+/**
+ * Eine Begehung abbrechen — der Termin ist geplatzt, der Monteur wird weggerufen, das Objekt
+ * war das falsche.
+ *
+ * Zwei Fälle, und der Unterschied ist wichtig: hängt noch keine Prüfung daran, verschwindet die
+ * Begehung ganz — sie hat nie stattgefunden, und niemand soll später über eine leere Zeile
+ * stolpern. Hängen Prüfungen daran, bleiben sie: geprüft ist geprüft. Die Begehung geht dann
+ * auf `abgebrochen` und zählt nicht mehr als laufend; über `begehung_aendern` mit
+ * `status=laufend` ist das jederzeit zurückzunehmen.
+ */
+export async function begehungAbbrechen(
+  db: D1Database,
+  id: string,
+): Promise<{ geloescht: boolean; pruefungen: number }> {
+  const zahl = await db
+    .prepare("SELECT COUNT(*) AS n FROM pruefungen WHERE begehung_id = ?")
+    .bind(id)
+    .first<{ n: number }>();
+  const pruefungen = Number(zahl?.n ?? 0);
+  if (pruefungen === 0) {
+    await db.batch([
+      db.prepare("DELETE FROM sammelberichte WHERE begehung_id = ?").bind(id),
+      db.prepare("DELETE FROM begehungen WHERE id = ?").bind(id),
+    ]);
+    return { geloescht: true, pruefungen: 0 };
+  }
+  await begehungAendern(db, id, { status: "abgebrochen" });
+  return { geloescht: false, pruefungen };
 }
 
 /** Die Unterschrift des Betreibers festhalten — löst über den Stand-Hash neue Berichte aus. */

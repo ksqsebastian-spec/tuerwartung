@@ -117,6 +117,47 @@ select.field { appearance: none; background-image: none; }
 .wahl label:has(input[value="nio"]:checked) { background: #c8382f; border-color: #c8382f; }
 .wahl label:has(input:focus-visible) { outline: 2px solid var(--focus); outline-offset: 2px; }
 
+/* ── Reiter ───────────────────────────────────────────────────────────── */
+.reiter { display: flex; gap: 4px; border-bottom: 1px solid var(--line); margin: 6px 0 22px; }
+.reiter a, .reiter button {
+  appearance: none; background: none; border: 0; cursor: pointer;
+  font: inherit; font-size: .95rem; font-weight: 560; color: var(--ink-3);
+  padding: 10px 14px; border-bottom: 2px solid transparent; margin-bottom: -1px;
+}
+.reiter a:hover, .reiter button:hover { color: var(--ink); }
+.reiter a[aria-current], .reiter button[aria-selected="true"] {
+  color: var(--ink); border-bottom-color: var(--ink);
+}
+
+/* ── Checkliste: eine Hand, ein Blick ─────────────────────────────────── */
+.fortschritt { display: flex; align-items: baseline; gap: 12px; margin: 2px 0 18px; }
+.fortschritt b { font-size: 1.7rem; font-weight: 660; letter-spacing: -.04em; }
+.balken { height: 6px; border-radius: 999px; background: var(--wash); overflow: hidden; margin-bottom: 24px; }
+.balken i { display: block; height: 100%; background: var(--ink); border-radius: 999px; }
+.dran {
+  border: 1px solid var(--ink); border-radius: var(--radius); padding: 20px 22px; margin-bottom: 22px;
+}
+.dran .was { font-size: .78rem; color: var(--ink-3); letter-spacing: .04em; }
+.dran .wer { font-size: 1.6rem; font-weight: 660; letter-spacing: -.03em; margin-top: 6px; }
+.dran .wo { color: var(--ink-2); margin-top: 4px; }
+.haken { border-top: 1px solid var(--line); }
+.haken .reihe {
+  display: flex; align-items: center; gap: 16px; padding: 15px 4px;
+  border-bottom: 1px solid var(--line); font-size: 1.05rem;
+}
+.haken .reihe .marke {
+  flex: 0 0 auto; width: 30px; height: 30px; border-radius: 50%;
+  border: 1.5px solid var(--line-strong); display: grid; place-items: center;
+  font-size: .8rem; font-weight: 700; color: var(--ink-3);
+}
+.haken .reihe.fertig { color: var(--ink-3); }
+.haken .reihe.fertig .marke { background: var(--ink); border-color: var(--ink); color: var(--bg); }
+.haken .reihe.abweichung .marke { background: #c8382f; border-color: #c8382f; color: #fff; }
+.haken .reihe .txt { flex: 1; min-width: 0; }
+.haken .reihe .txt small { display: block; font-size: .82rem; color: var(--ink-3); margin-top: 2px; }
+.punktliste .reihe { align-items: flex-start; }
+.punktliste .reihe .marke { border-radius: 9px; }
+
 /* ── Kennzahlen ───────────────────────────────────────────────────────── */
 .zahlen { display: flex; gap: 34px; flex-wrap: wrap; margin: 4px 0 30px; }
 .zahl .wert { font-size: 1.9rem; font-weight: 660; letter-spacing: -.04em; line-height: 1; }
@@ -128,8 +169,9 @@ select.field { appearance: none; background-image: none; }
 
 @media (max-width: 620px) {
   .wrap { padding: 0 18px; }
-  .kopf .innen { padding: 12px 18px; gap: 12px; }
-  .kopf nav { gap: 14px; font-size: .88rem; }
+  /* Vier Ziele passen auf einem Telefon nicht neben die Marke — also darunter, ganze Breite. */
+  .kopf .innen { padding: 12px 18px; gap: 12px; flex-wrap: wrap; }
+  .kopf nav { gap: 18px; font-size: .9rem; width: 100%; margin-left: 0; }
   .kopf .wer { display: none; }
   .punkt { flex-wrap: wrap; }
   .wahl { width: 100%; }

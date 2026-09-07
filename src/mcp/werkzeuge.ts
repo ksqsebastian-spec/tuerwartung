@@ -45,6 +45,7 @@ import {
 } from "../daten/bauteile";
 import type { BauteilMitStand } from "../daten/bauteile";
 import {
+  begehungAbbrechen,
   begehungAendern,
   begehungAnlegen,
   begehungLesen,
@@ -810,7 +811,7 @@ const begehungStarten: ToolDef = {
 
     /* Gespräch abgebrochen? Dieselbe Begehung fortsetzen statt eine zweite anzulegen. */
     const laufende = (await begehungenListe(ctx.env.DB, { objekt_id: objekt.id, limit: 10 })).find(
-      (b) => b.datum === datum && b.status !== "abgeschlossen",
+      (b) => b.datum === datum && b.status !== "abgeschlossen" && b.status !== "abgebrochen",
     );
     const begehung = laufende
       ? (await begehungLesen(ctx.env.DB, laufende.id))!
@@ -875,7 +876,7 @@ const begehungAendernTool: ToolDef = {
       befaehigung: str("Befähigungsnachweis"),
       ort: str("Prüfort/Stadt"),
       beteiligte: str("Beteiligte Personen / Messgeräte"),
-      status: str("geplant | laufend | abgeschlossen"),
+      status: str("geplant | laufend | abgeschlossen | abgebrochen"),
     },
     required: ["begehung"],
     additionalProperties: false,
@@ -1204,6 +1205,37 @@ const begehungAbschliessen: ToolDef = {
   },
 };
 
+const begehungAbbrechenTool: ToolDef = {
+  name: "begehung_abbrechen",
+  title: "Begehung abbrechen",
+  description:
+    "Bricht einen Termin ab — der Monteur wird weggerufen, das Objekt war das falsche, der " +
+    "Termin platzt. Hängt noch keine Prüfung daran, verschwindet die Begehung ganz. Hängen " +
+    "Prüfungen daran, bleiben sie erhalten und die Begehung geht auf 'abgebrochen'; über " +
+    "'begehung_aendern' mit status=laufend ist das zurückzunehmen.",
+  inputSchema: {
+    type: "object",
+    properties: { begehung: str("Kennung der Begehung oder Name des Objekts") },
+    required: ["begehung"],
+    additionalProperties: false,
+  },
+  annotations: { readOnlyHint: false, destructiveHint: true, openWorldHint: false },
+  async handler(args, ctx) {
+    const begehung = await holeBegehung(ctx, pflicht<string>(args, "begehung"));
+    const objekt = await objektLesen(ctx.env.DB, begehung.objekt_id);
+    const e = await begehungAbbrechen(ctx.env.DB, begehung.id);
+    return {
+      abgebrochen: true,
+      geloescht: e.geloescht,
+      erhaltene_pruefungen: e.pruefungen,
+      objekt: objekt?.name,
+      hinweis: e.geloescht
+        ? "Die Begehung war leer und ist weg."
+        : `${e.pruefungen} bereits erfasste ${e.pruefungen === 1 ? "Prüfung bleibt" : "Prüfungen bleiben"} erhalten.`,
+    };
+  },
+};
+
 const berichteErzeugenTool: ToolDef = {
   name: "berichte_erzeugen",
   title: "Berichte erzeugen",
@@ -1314,6 +1346,7 @@ export const TOOLS: ToolDef[] = [
   mangelAendernTool,
   mangelSchliessenTool,
   begehungAbschliessen,
+  begehungAbbrechenTool,
   berichteErzeugenTool,
   sammelberichtErzeugenTool,
   vorgabenSpeichern,
