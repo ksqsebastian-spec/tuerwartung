@@ -12,6 +12,9 @@
  *   node scripts/rundgang-offline.mjs
  *
  *   [URL] [BENUTZER] [PASSWORT]   (Standard: http://127.0.0.1:8787 marc test-test-1234)
+ *
+ * Gedacht für den Entwicklungsserver. Das Verhalten, um das es geht, steckt im Browser und ist
+ * gegen die Live-Instanz dasselbe; deren Serverseite deckt `scripts/e2e.sh` ab.
  */
 import { chromium } from "playwright";
 
