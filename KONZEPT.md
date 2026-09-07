@@ -425,8 +425,17 @@ fällig. Ein Objekt gilt als „fertig für dieses Jahr", wenn kein Bauteil fäl
 - `berichte_erzeugen` erzeugt für jede Prüfung, deren `stand_hash` **nicht** dem Hash der
   neuesten Berichtsversion entspricht, eine **neue Version** `max(version)+1`. Bestehende
   Versionen werden nie angefasst. Ein Bericht, der schon beim Kunden liegt, bleibt genau so.
-- Anzeige: Berichte-Liste zeigt die neueste Version, ein Aufklapper zeigt ältere. ZIP enthält
-  die neuesten Versionen.
+- **Der gespeicherte Hash muss nachgezogen werden, bevor man ihn vergleicht.**
+  `pruefungen.stand_hash` wird nur beim Schreiben einer Prüfung gesetzt. Ändert sich danach
+  etwas, das im Bericht steht — Prüfort, Prüfer, Objektname, die Unterschrift des Betreibers —,
+  bleibt er stehen. `berichte_erzeugen` rechnet ihn ohnehin neu und macht die neue Version; die
+  **Anzeige** verglich aber gegen den alten Wert und meldete „aktuell", während beim Kunden ein
+  PDF lag, das nicht mehr stimmte. Deshalb frischt `berichtsUebersicht` die Hashes zuerst auf
+  (`standHashesAuffrischen`) — das ist der einzige Schreibvorgang auf einem Lesepfad hier, und
+  er passiert nur, wenn sich wirklich etwas geändert hat.
+- Anzeige: Berichte-Liste zeigt die neueste Version, ein Aufklapper zeigt ältere; veraltete
+  tragen „Stand geändert". `lage` meldet sie als eigenen Punkt mit `begehung_abschliessen` als
+  nächstem Schritt. ZIP enthält die neuesten Versionen.
 - R2 bleibt privat; Auslieferung nur über `/datei/…` mit Sitzung (wie v1).
 
 ### 4.2 Betreiber-Unterschrift
@@ -826,7 +835,7 @@ Namen deutsch, `readOnlyHint` gesetzt wie in v1. Alle Argumente optional außer 
 
 | Tool | Argumente | Liefert |
 |---|---|---|
-| `lage` | tage=30 | **Das Lagebild in einem Aufruf**: überfällig, bald fällig, Mängel über der Frist, Termine mit ausstehenden Berichten, dazu `naechste_schritte` mit dem Tool je Punkt. Ersetzt den Rundruf über `faellig`, `maengel_auflisten`, `berichte_auflisten` |
+| `lage` | tage=30 | **Das Lagebild in einem Aufruf**: überfällig, bald fällig, Mängel über der Frist, Termine mit ausstehenden **oder veralteten** Berichten, dazu `naechste_schritte` mit dem Tool je Punkt. Ersetzt den Rundruf über `faellig`, `maengel_auflisten`, `berichte_auflisten` |
 | `objekte_auflisten` | suche, nur_faellige, limit | Objekte mit Fälligkeit, Bauteilzahl, offenen Mängeln |
 | `objekt_lesen` | objekt* | Stammdaten, Geschosse, Bauteile in Laufreihenfolge mit letzter Prüfung/Fälligkeit, offene Mängel, letzte Begehungen |
 | `bauteil_lesen` | objekt*, nr/kennung* | Bauteil, alle Prüfungen (Historie), Mängel, Fotos, Berichte |

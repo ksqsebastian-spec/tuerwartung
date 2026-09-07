@@ -351,6 +351,19 @@ ruf begehung_abschliessen "$(jq -nc --arg b "$LEER" '{begehung:$b}')" \
 LEER_OID=$(ruf objekt_lesen "$(jq -nc --arg o "E2E Leerprobe $STEMPEL" '{objekt:$o}')" | jq -r .objekt.id)
 curl -s -o /dev/null -b $J -X POST "$B/objekt/$LEER_OID/loeschen"
 
+# Ändert sich nach dem Erzeugen etwas, das im Bericht steht, muss das auffallen —
+# sonst liegt beim Kunden ein PDF, das nicht mehr stimmt, und niemand weiß es.
+ruf begehung_aendern "$(jq -nc --arg b "$BEG1" '{begehung:$b,beteiligte:"Herr Ohlsen, Messgeraet 4711"}')" >/dev/null
+ruf berichte_auflisten "$(jq -nc --arg b "$BEG1" '{begehung:$b}')" \
+  | jq -e '[.berichte[].veraltet] | all' >/dev/null \
+  && ok "geänderter Stand macht die Berichte veraltet" || bad "veraltet nicht erkannt"
+ruf lage '{}' | jq -e --arg b "$BEG1" '[.berichte_veraltet[].begehung_id] | index($b)' >/dev/null \
+  && ok "Lagebild meldet die veralteten Berichte" || bad "lage übersieht veraltete Berichte"
+ruf begehung_abschliessen "$(jq -nc --arg b "$BEG1" '{begehung:$b}')" \
+  | jq -e '.berichte.erzeugt >= 1' >/dev/null && ok "Abschluss zieht sie nach" || bad "Nachziehen"
+ruf lage '{}' | jq -e --arg b "$BEG1" '[.berichte_veraltet[].begehung_id] | index($b) | not' >/dev/null \
+  && ok "danach ist nichts mehr veraltet" || bad "bleibt veraltet"
+
 V=$(ruf tour_vorschlagen '{"anzahl":2}')
 echo "$V" | jq -e '.uebernommen == false' >/dev/null && ok "Vorschlag ändert nichts" || bad "tour_vorschlagen: $V"
 echo "$V" | jq -e '.objekte | type == "array"' >/dev/null && ok "Route berechnet" || bad "Route"

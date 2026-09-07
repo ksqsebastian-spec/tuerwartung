@@ -1737,7 +1737,8 @@ const lageTool: ToolDef = {
   title: "Was ist zu tun?",
   description:
     "Das Lagebild in einem Aufruf: überfällige und bald fällige Objekte, Mängel über ihrer " +
-    "Frist, Berichte die noch ausstehen, und Termine die offen hängen. Dazu 'naechste_schritte' " +
+    "Frist, Berichte die noch ausstehen oder nicht mehr dem Stand entsprechen, und Termine die " +
+    "offen hängen. Dazu 'naechste_schritte' " +
     "— konkrete Vorschläge mit dem Tool, das sie erledigt. Das ist die Antwort auf 'was ist " +
     "los?', 'was steht an?' oder 'womit fange ich an?'. Ersetzt den Rundruf über 'faellig', " +
     "'maengel_auflisten' und 'berichte_auflisten'.",
@@ -1796,6 +1797,41 @@ const lageTool: ToolDef = {
       ohne_bericht: number;
     }>();
 
+    /*
+     * Veraltete Berichte: beim Kunden liegt dann ein PDF, das nicht mehr dem Stand entspricht —
+     * der stillste Fehler, den diese Anwendung machen kann. Zweistufig, damit es billig bleibt:
+     * erst per Zeitstempel die Verdächtigen suchen (etwas wurde nach dem letzten Erzeugen
+     * geändert), dann nur bei denen den Stand-Hash rechnen, der es genau weiß.
+     */
+    const { results: verdaechtig } = await ctx.env.DB.prepare(
+      `SELECT b.id, b.objekt_id, b.datum, o.name AS objekt_name
+         FROM begehungen b
+         JOIN objekte o ON o.id = b.objekt_id
+         JOIN pruefungen p ON p.begehung_id = b.id
+         JOIN berichte r ON r.pruefung_id = p.id
+        WHERE b.status != 'abgebrochen'
+        GROUP BY b.id
+       HAVING MAX(MAX(p.geaendert_am), b.geaendert_am) > MAX(r.erzeugt_am)
+        ORDER BY b.datum DESC
+        LIMIT 20`,
+    ).all<{ id: string; objekt_id: string; datum: string; objekt_name: string }>();
+
+    const veraltet: { begehung_id: string; objekt: string; datum: string; berichte: number }[] = [];
+    for (const v of verdaechtig ?? []) {
+      const b = await begehungLesen(ctx.env.DB, v.id);
+      const o = b ? await objektLesen(ctx.env.DB, b.objekt_id) : null;
+      if (!b || !o) continue;
+      const anzahl = (await berichtsUebersicht(ctx.env, b, o)).filter((p) => p.veraltet).length;
+      if (anzahl) {
+        veraltet.push({
+          begehung_id: v.id,
+          objekt: v.objekt_name,
+          datum: v.datum,
+          berichte: anzahl,
+        });
+      }
+    }
+
     /* Termine, an denen etwas erfasst wurde, die aber seit gestern offen hängen. */
     const haengend = (offeneBerichte ?? []).filter(
       (b) => b.status !== "abgeschlossen" && b.datum < heuteIso,
@@ -1807,6 +1843,15 @@ const lageTool: ToolDef = {
         was: `${b.objekt_name} (${b.datum}): ${b.ohne_bericht} von ${b.pruefungen} Prüfungen ohne Bericht`,
         womit: "begehung_abschliessen",
         wo: b.id,
+      });
+    }
+    for (const v of veraltet.slice(0, 10)) {
+      schritte.push({
+        was: `${v.objekt} (${v.datum}): ${v.berichte} ${
+          v.berichte === 1 ? "Bericht ist" : "Berichte sind"
+        } nicht mehr auf dem Stand`,
+        womit: "begehung_abschliessen",
+        wo: v.begehung_id,
       });
     }
     for (const m of ueberFrist.slice(0, 10)) {
@@ -1836,7 +1881,7 @@ const lageTool: ToolDef = {
       zusammenfassung:
         `${kurz} ${ueberfaellig.length} überfällig, ${bald.length} in ${tage} Tagen fällig, ` +
         `${ueberFrist.length} Mängel über der Frist, ${(offeneBerichte ?? []).length} Termine ` +
-        "mit ausstehenden Berichten.",
+        `mit ausstehenden Berichten, ${veraltet.length} mit veralteten.`,
       ueberfaellig: ueberfaellig.map(objektZeile),
       bald_faellig: bald.map(objektZeile),
       maengel_ueber_frist: ueberFrist.slice(0, 30).map((m) => ({
@@ -1847,6 +1892,7 @@ const lageTool: ToolDef = {
         beschreibung: m.beschreibung,
         zustaendig: m.zustaendig,
       })),
+      berichte_veraltet: veraltet,
       berichte_ausstehend: (offeneBerichte ?? []).map((b) => ({
         begehung_id: b.id,
         objekt: b.objekt_name,

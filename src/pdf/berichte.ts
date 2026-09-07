@@ -19,7 +19,13 @@ import { vorlage, vorlagePdf } from "../vorlagen";
 import { monateSpaeter, slug, zugriffPruefen } from "../daten/basis";
 import { objektLesen, rechtsgrundlagen } from "../daten/objekte";
 import type { Objekt } from "../daten/objekte";
-import { begehungLesen, pruefungenLesen, standHash, vorherigePruefung } from "../daten/begehungen";
+import {
+  begehungLesen,
+  pruefungenLesen,
+  standHash,
+  standHashesAuffrischen,
+  vorherigePruefung,
+} from "../daten/begehungen";
 import type { Begehung, Pruefung, PruefungMitBauteil } from "../daten/begehungen";
 import type { Bauteil } from "../daten/bauteile";
 import {
@@ -257,6 +263,16 @@ export async function berichtsUebersicht(
   begehung: Begehung,
   objekt: Objekt,
 ): Promise<BerichtsPosten[]> {
+  /*
+   * Erst den Stand nachziehen, dann vergleichen.
+   *
+   * `pruefungen.stand_hash` wird nur beim Schreiben einer Prüfung gesetzt. Ändert sich danach
+   * etwas, das im Bericht steht — Prüfer, Prüfort, Objektname, die Unterschrift des Betreibers —,
+   * blieb der gespeicherte Hash stehen, und `veraltet` sagte „nein", obwohl beim Kunden ein PDF
+   * liegt, das nicht mehr stimmt. `berichte_erzeugen` rechnet den Hash ohnehin neu und hätte eine
+   * neue Version gemacht; nur wusste niemand, dass er das tun sollte.
+   */
+  await standHashesAuffrischen(env.DB, objekt, begehung);
   const alle = await berichteZuBegehung(env.DB, begehung.id);
   const pruefungen = await pruefungenLesen(env.DB, begehung.id);
   const nachPruefung = new Map<string, typeof alle>();
