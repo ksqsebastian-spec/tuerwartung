@@ -144,7 +144,6 @@ export async function objektAnlegen(
     geaendert_am: t,
   };
   const gebaeudeId = ulid(t);
-  const geschossId = ulid(t);
   await db.batch([
     db
       .prepare(
@@ -161,9 +160,6 @@ export async function objektAnlegen(
     db
       .prepare("INSERT INTO gebaeude (id, objekt_id, name, reihenfolge) VALUES (?,?,?,0)")
       .bind(gebaeudeId, o.id, "Hauptgebäude"),
-    db
-      .prepare("INSERT INTO geschosse (id, gebaeude_id, name, reihenfolge) VALUES (?,?,?,0)")
-      .bind(geschossId, gebaeudeId, "EG"),
   ]);
   return o;
 }
@@ -378,6 +374,77 @@ export async function geschossAnlegen(
     plan_schluessel: null, plan_breite: null, plan_hoehe: null, plan_quelle: null,
     einheiten_je_meter: null, start_x: null, start_y: null,
   };
+}
+
+/**
+ * Aus einer Ortsangabe einen Geschossnamen ableiten — oder nichts.
+ *
+ * Der Monteur diktiert „erstes Obergeschoss", das Formular kennt ETAGE, und in `flur` steht mal
+ * „EG", mal „Flur Nord". Nur was eindeutig wie ein Geschoss aussieht, wird eines: lieber kein
+ * Geschoss als ein falsches, denn ein falsches verstellt die Laufreihenfolge für Jahre.
+ *
+ * Zurück kommt immer die kanonische Schreibweise („UG", „EG", „1. OG", „DG"), damit aus
+ * „1.OG", „1. Obergeschoss" und „Etage 1" nicht drei Geschosse werden.
+ */
+export function geschossName(text: string | null | undefined): string | null {
+  const n = String(text ?? "").trim().toUpperCase().replace(/\s+/g, " ");
+  if (!n || n.length > 30) return null;
+
+  const benannt = (stufe: number) =>
+    stufe < 0 ? (stufe === -1 ? "UG" : `${-stufe}. UG`) : stufe === 0 ? "EG" : `${stufe}. OG`;
+
+  if (/^(EG|ERDGESCHOSS|PARTERRE)$/.test(n)) return "EG";
+  if (/^(UG|KG|KELLER|KELLERGESCHOSS|UNTERGESCHOSS|SOUTERRAIN)$/.test(n)) return "UG";
+  if (/^(DG|DACH|DACHGESCHOSS|SPITZBODEN)$/.test(n)) return "DG";
+
+  /* „1. OG", „2.UG", „3 OG", „1. Obergeschoss" */
+  let t = /^(\d{1,2})\s*\.?\s*(OG|OBERGESCHOSS|STOCK|STOCKWERK)$/.exec(n);
+  if (t) return benannt(Number(t[1]));
+  t = /^(\d{1,2})\s*\.?\s*(UG|UNTERGESCHOSS)$/.exec(n);
+  if (t) return benannt(-Number(t[1]));
+
+  /* „Etage 2", „Geschoss -1", „Ebene 0" */
+  t = /^(ETAGE|GESCHOSS|EBENE|STOCK)\s*\.?\s*(-?\d{1,2})$/.exec(n);
+  if (t) return benannt(Number(t[2]));
+
+  /* Das nackte Formularfeld ETAGE: „2", „-1", „0". */
+  t = /^(-?\d{1,2})$/.exec(n);
+  if (t) return benannt(Number(t[1]));
+
+  return null;
+}
+
+/**
+ * Das Geschoss aus der Raumnummer raten: „1.04" liegt im 1. OG, „0.01" im Erdgeschoss.
+ * Nur bei der Schreibweise Ziffer-Punkt-Ziffer, und nur als letzte Auskunft, wenn weder
+ * ein Geschoss genannt noch ETAGE gefüllt ist.
+ */
+export function geschossAusRaumnummer(raumnummer: string | null | undefined): string | null {
+  const t = /^(-?\d{1,2})[.\-_/]\d/.exec(String(raumnummer ?? "").trim());
+  return t ? geschossName(t[1]) : null;
+}
+
+/**
+ * Die erste Ortsangabe, die wie ein Geschoss aussieht, zum Geschoss dieses Objekts machen —
+ * und es anlegen, wenn es das noch nicht gibt. So entsteht die Etagenordnung beim Diktieren
+ * von selbst; niemand muss je das Wort „Geschoss" lesen.
+ */
+export async function geschossZuordnen(
+  db: D1Database,
+  objektId: string,
+  ...quellen: (string | null | undefined)[]
+): Promise<string | null> {
+  let name: string | null = null;
+  for (const q of quellen) {
+    name = geschossName(q);
+    if (name) break;
+  }
+  if (!name) return null;
+  const vorhanden = (await geschosseListe(db, objektId)).find(
+    (g) => g.name.trim().toUpperCase() === name!.toUpperCase(),
+  );
+  if (vorhanden) return vorhanden.id;
+  return (await geschossAnlegen(db, objektId, name)).id;
 }
 
 /** „UG" = −1, „EG" = 0, „2. OG" = 2 — die Laufreihenfolge folgt dem Treppenhaus. */

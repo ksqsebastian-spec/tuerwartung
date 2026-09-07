@@ -1035,6 +1035,10 @@ const PRUEFUNG_FELDER = {
   raumnummer: str("Raumnummer, z. B. 2.14"),
   raum: str("Raumbezeichnung"),
   flur: str("Flur"),
+  geschoss: str(
+    "Etage, z. B. 'EG', '1. OG', 'UG'. Nur nötig, wenn sie weder in der Raumnummer ('1.04') " +
+    "noch im Feld ETAGE steckt — sonst erkennt der Server sie selbst.",
+  ),
   neu: bool("false verbietet das Anlegen eines unbekannten Bauteils"),
 };
 

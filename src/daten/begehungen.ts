@@ -16,6 +16,7 @@ import { mangelAnlegen, mangelAendern, mangelZuPruefung, maengelZuBauteil } from
 import type { Mangel } from "./maengel";
 import { personLesen } from "./personen";
 import type { Objekt } from "./objekte";
+import { geschossAusRaumnummer, geschossZuordnen } from "./objekte";
 
 export interface Begehung {
   id: string;
@@ -439,6 +440,7 @@ export interface PruefungEingabe {
   raumnummer?: string;
   raum?: string;
   flur?: string;
+  geschoss?: string;
   wie_davor?: boolean;
   neu?: boolean;
   geprueft_am?: number;
@@ -552,6 +554,27 @@ export async function pruefungErfassen(
   }
   if (eingabe.kennung && !bauteil.kennung) patch.kennung = eingabe.kennung;
   if (eingabe.art && eingabe.art !== bauteil.art) patch.art = eingabe.art;
+
+  /*
+   * Das Geschoss entsteht beim Diktieren von selbst: „erstes Obergeschoss", das Feld ETAGE oder
+   * eine Raumnummer wie „1.04" genügen. Ohne das hing jedes diktierte Bauteil an keinem Geschoss
+   * — die Etagenordnung der Laufreihenfolge lief leer und die Planseite blieb leer. Einmal
+   * zugeordnet, wird nicht mehr umgehängt: der Mensch soll die Etage einer Tür bestimmen, nicht
+   * eine spätere Raumnummer-Schreibweise.
+   */
+  if (!bauteil.geschoss_id) {
+    const geschossId = await geschossZuordnen(
+      db,
+      objekt.id,
+      eingabe.geschoss,
+      felderEingabe.ETAGE,
+      felderEingabe.GESCHOSS,
+      (patch.flur as string | undefined) ?? bauteil.flur,
+      geschossAusRaumnummer((patch.raumnummer as string | undefined) ?? bauteil.raumnummer),
+    );
+    if (geschossId) patch.geschoss_id = geschossId;
+  }
+
   bauteil = (await bauteilAendern(db, bauteil.id, patch))!;
 
   /* 3. Prüfung schreiben. Bestehende (begehung, bauteil) wird überschrieben. */
