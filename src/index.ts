@@ -477,7 +477,7 @@ async function tuerRoute(
 
     const form = await request.formData();
     const felder: Record<string, string> = {};
-    for (const feld of v.tuerfelder) {
+    for (const feld of v.bauteilfelder) {
       const wert = String(form.get(`f_${feld}`) ?? "").trim();
       if (wert) felder[feld] = wert;
     }

@@ -125,7 +125,7 @@ const vorlagenAuflisten: ToolDef = {
         id,
         label: VORLAGEN[id].label,
         pruefpunkte: VORLAGEN[id].punkte.length,
-        tuerfelder: VORLAGEN[id].tuerfelder,
+        bauteilfelder: VORLAGEN[id].bauteilfelder,
       })),
     };
   },
@@ -155,7 +155,7 @@ const pruefpunkte: ToolDef = {
       punkte: v.punkte,
       bewertungen: BEWERTUNGEN,
       standard: "Nicht genannte Punkte gelten als 'io' (In Ordnung).",
-      tuerfelder: v.tuerfelder,
+      bauteilfelder: v.bauteilfelder,
       cheatsheet: v.blatt,
     };
   },

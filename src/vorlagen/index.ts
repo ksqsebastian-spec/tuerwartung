@@ -40,6 +40,10 @@ export interface Profil {
   /** Feldname → [x, Abstand-von-oben, Zeichen pro Zeile] für umbrechenden Fließtext. */
   boxes?: Record<string, [number, number, number]>;
   signature?: { x: number; top: number; w: number; h: number };
+  /** Zweite Unterschrift: der Betreiber quittiert die Begehung (Abschnitt 4.2). */
+  signature_betreiber?: { x: number; top: number; w: number; h: number };
+  /** Klarname unter der Betreiber-Unterschrift. */
+  betreiber_name?: { x: number; top: number; size?: number };
   check_columns: Record<string, Partial<Record<Bewertung, number>>>;
   check_rows: Record<string, [string, number]>;
   /** Punkt-Nummer → Zeilenschlüssel in check_rows. */
@@ -61,13 +65,13 @@ export interface Vorlage {
   punkte: Pruefpunkt[];
   /** Das Formular-PDF, base64 einkompiliert. */
   pdfBase64: string;
-  /** Felder, die je Tür abweichen dürfen (alles andere ist Stammdatum der Wartung). */
-  tuerfelder: string[];
+  /** Felder, die je Bauteil abweichen dürfen (alles andere ist Stammdatum). */
+  bauteilfelder: string[];
 }
 
 /**
- * Stammdaten der Wartung — einmal je Termin, nie je Tür. Steht als Spalte in `wartungen`.
- * ERGEBNIS und HINWEISE sind bewusst nicht dabei: die gehören zur einzelnen Tür.
+ * Stammdaten der Begehung und des Objekts — einmal je Termin, nie je Bauteil.
+ * ERGEBNIS und HINWEISE sind bewusst nicht dabei: die gehören zur einzelnen Prüfung.
  */
 export const STAMMFELDER = [
   "IDENT",
@@ -82,6 +86,7 @@ export const STAMMFELDER = [
   "LETZTE_PRUEFUNG",
   "NAECHSTE_PRUEFUNG",
   "BETEILIGTE",
+  "BETREIBER_NAME",
 ] as const;
 
 /**
@@ -117,14 +122,14 @@ function bauen(
     blatt,
     punkte: punkteAusBlatt(blatt),
     pdfBase64,
-    tuerfelder: [
+    bauteilfelder: [
       ...eigene.filter((f) => !stamm.has(f) && f in p.fields),
       ...Object.keys(p.fields).filter((f) => !stamm.has(f) && !eigene.includes(f)),
     ].filter((f) => f !== "ERGEBNIS"),
   };
 }
 
-/* Reihenfolge der Türfelder = Reihenfolge im Formular; was hier nicht steht, hängt hinten dran. */
+/* Reihenfolge der Bauteilfelder = Reihenfolge im Formular; was hier nicht steht, hängt hinten dran. */
 export const VORLAGEN: Record<string, Vorlage> = {
   wartung_drehfluegel: bauen(
     "wartung_drehfluegel",
@@ -175,4 +180,69 @@ export function vorlagePdf(id: string): Uint8Array {
     PDF_CACHE.set(id, bytes);
   }
   return bytes;
+}
+
+/**
+ * Technische Feldnamen aus den Profilen, für Menschen beschriftet. Stand in v1 in `seiten.ts`;
+ * jetzt hier, damit Tools und Seiten dieselbe Beschriftung zeigen (Abschnitt 11).
+ */
+export const FELD_LABELS: Record<string, string> = {
+  ETAGE: "Etage",
+  RAUM: "Raum",
+  FLUR: "Flur",
+  RAUMBEZ: "Raumbezeichnung",
+  TUERTYP: "Türtyp",
+  FENSTERTYP: "Fenstertyp",
+  HERSTELLER: "Hersteller",
+  ABSENKDICHTUNG: "Absenkdichtung",
+  OTS: "Obentürschließer",
+  SPION: "Spion",
+  ZULASSUNG: "Zulassung / Prüfzeugnis",
+  FABRIK_BESCHLAEGE: "Fabrikat Beschläge",
+  BETREIBER_NAME: "Name des Unterzeichnenden",
+};
+
+export function feldLabel(feld: string): string {
+  return FELD_LABELS[feld] ?? feld;
+}
+
+/**
+ * Bewertungen prüfen und Punkt-Nummern gegen die Vorlage abgleichen. Ein diktierter Zahlendreher
+ * („Punkt 99") soll sofort als Fehler zurückkommen und nicht still im Bericht verschwinden.
+ */
+export function pruefeChecks(
+  vorlagenId: string,
+  checks: Record<string, unknown>,
+): Record<string, Bewertung> {
+  const v = vorlage(vorlagenId);
+  const erlaubt = new Set(Object.keys(BEWERTUNGEN));
+  const out: Record<string, Bewertung> = {};
+  for (const [schluessel, wert] of Object.entries(checks ?? {})) {
+    const k = String(schluessel);
+    if (!(k in v.profil.points) && !(k in v.profil.check_rows)) {
+      throw new Error(
+        `Punkt '${k}' gibt es in der Vorlage '${vorlagenId}' nicht. Gültig: ${Object.keys(v.profil.points).join(", ")}.`,
+      );
+    }
+    const w = String(wert);
+    if (!erlaubt.has(w)) {
+      throw new Error(
+        `Bewertung '${w}' für Punkt ${k} ist unbekannt. Gültig: ${[...erlaubt].join(", ")}.`,
+      );
+    }
+    out[k] = w as Bewertung;
+  }
+  return out;
+}
+
+/** „8 Fetten der Beschläge → Nicht in Ordnung" — zum Vorlesen und für die Mangelbeschreibung. */
+export function abweichungenKlartext(
+  vorlagenId: string,
+  checks: Record<string, string>,
+): string[] {
+  const v = VORLAGEN[vorlagenId];
+  return Object.entries(checks ?? {}).map(([nr, b]) => {
+    const punkt = v?.punkte.find((p) => p.nr === String(nr));
+    return `${nr} ${punkt ? punkt.text : ""} → ${BEWERTUNGEN[b as Bewertung] ?? b}`;
+  });
 }

@@ -30,6 +30,8 @@
     "HINWEISE": [400, 720, 32]
   },
   "signature": {"x": 183, "top": 786, "w": 84, "h": 38},
+  "signature_betreiber": {"x": 316, "top": 792, "w": 95, "h": 36},
+  "betreiber_name": {"x": 316, "top": 836, "size": 7},
   "check_columns": {
     "L": {"io": 253, "nio": 269, "nz": 285, "sb": 301},
     "R": {"io": 505, "nio": 521, "nz": 537, "sb": 552}

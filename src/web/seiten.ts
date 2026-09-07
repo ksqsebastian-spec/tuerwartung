@@ -326,7 +326,7 @@ export async function tuerSeite(
 
 <form class="karte" method="post" action="${esc(ziel)}">
 <div class="felder">
-${v.tuerfelder.map((f) => textfeld(`f_${f}`, label(f), felder[f] ?? "")).join("")}
+${v.bauteilfelder.map((f: string) => textfeld(`f_${f}`, label(f), felder[f] ?? "")).join("")}
 <div class="feld"><label for="ergebnis">Ergebnis</label>
 <select class="field" id="ergebnis" name="ergebnis">
 ${["bestanden", "Nachbesserung"]
