@@ -29,7 +29,10 @@ Ausgangspunkt bestehen — was übernommen wird, steht in Abschnitt 13.
    Kita", nicht „ich setze eine Begehung fort". Interne Größen — die Begehung, das Geschoss —
    bleiben im Datenmodell und entstehen aus dem, was ohnehin gesagt wird; sie werden nicht zu
    Knöpfen und Verwaltungsseiten.
-9. **Ein Tool je Absicht, nicht je Datenbankschritt.** Was zusammen gemeint ist, wird zusammen
+9. **Erst die Stammdaten, dann die Arbeit.** Ein Türtyp trägt, was für alle Türen seiner Art
+   gilt, und bringt die Checkliste mit. Eine Tür ist erst prüfbar, wenn steht, was ihr Typ
+   verlangt — was beim Anlegen fehlt, fehlt später im Bericht.
+10. **Ein Tool je Absicht, nicht je Datenbankschritt.** Was zusammen gemeint ist, wird zusammen
    erledigt: „ich bin fertig" heißt abschließen *und* Berichte *und* Sammelbericht. Und was der
    Server ausrechnen kann, fragt er nicht ab — weder den Menschen noch den Agenten (Lagebild,
    Tagesplanung, Etage).
@@ -305,6 +308,31 @@ CREATE TABLE sync_ops (
 
 ---
 
+### 1.2 Türtypen und ihre Checkliste
+
+Über den Bauteilen steht der **Türtyp**: eine benannte Ausprägung einer der drei Vorlagen —
+„T30 Flurtür Hörmann" auf Basis „Drehflügeltüren". Er trägt zweierlei:
+
+1. **Gemeinsame Stammdaten** (`felder_json`) — Hersteller, Zulassung, Türtyp-Bezeichnung. Was für
+   alle Türen dieses Typs gleich ist, steht einmal am Typ statt an jeder Tür.
+2. **Seine Checkliste** (`punkte_json`) — die Prüfpunkte der Vorlage, wie sie hier gelten.
+   Umbenannt, ausgeblendet, um eigene ergänzt.
+
+Dazu `pflicht_json` — was an einer Tür stehen muss, bevor geprüft werden darf (typisch `IDENT`) —
+und `zusatz_json` — was je Tür zusätzlich erfasst wird (Geschoss, Kommentar).
+
+**Der Haken beim Anpassen ist das PDF.** Das Formular hat feste Ankreuzkästchen. Deshalb:
+
+- Punkte aus der Vorlage behalten **ihre Nummer**. Umbenennen ändert nur den Text.
+- Ausblenden löscht nicht, es lässt das Kästchen leer — und die Historie bleibt lesbar.
+- Eigene Punkte zählen ab **900** und stehen im Bericht unter „Hinweise", weil das Formular für
+  sie kein Kästchen hat.
+
+Die Checkliste hängt am Typ, nicht am Termin — sie bleibt gleich. Deshalb steht sie in der
+Oberfläche **oben in der Leiste** neben den Stammdaten und nicht am Objekt (Abschnitt 10).
+
+---
+
 ### 1.1 Stammdaten eines Objekts
 
 Neben Name, Adresse und Betreiber trägt ein Objekt, was einen Monteur sonst einen Anruf oder
@@ -318,8 +346,8 @@ eine vergebliche Anfahrt kostet:
 | `vertrag` | Wartungsvertrag oder Auftragsnummer, gehört auf die Papiere |
 
 `zugang` ist das wichtigste davon und wird deshalb überall mitgeführt, wo jemand gleich losfährt:
-sichtbar auf der Objektseite unter der Adresse, in `objekt_lesen`, `tour_lesen` und
-`tour_vorschlagen`. Gefüllt werden sie am bequemsten über `objekt_einrichten` (Abschnitt 9),
+sichtbar auf der Objektseite unter der Adresse und in `objekt_lesen`. Gefüllt werden sie am
+bequemsten über `objekt_einrichten` (Abschnitt 8),
 das genau eine Frage nach der anderen stellt.
 
 ---
@@ -429,7 +457,7 @@ Keine Tabelle, nur Berechnung (Abschnitt 1, abgeleitete Größen). Oberflächen:
 - **Tool `faellig(tage=30)`**: Objekte mit Fälligkeit ≤ heute + tage, mit Anzahl fälliger
   Bauteile — damit „was ist diese Woche dran?" im Chat funktioniert.
 - **Objektseite**: Bauteile mit letzter Prüfung und Fälligkeit; Filter „nur fällige".
-- **Checkliste `/begehung/:id/checkliste`**: der Blick fürs Diktat, siehe Abschnitt 4.6.
+- **Checkliste `/checkliste/:tuertyp`**: die Prüfpunkte zum Mitlesen, siehe Abschnitt 1.2.
 
 Ein Bauteil, das in einer Begehung geprüft wurde, ist ab dann für `intervall` Monate nicht
 fällig. Ein Objekt gilt als „fertig für dieses Jahr", wenn kein Bauteil fällig ist.
@@ -495,54 +523,40 @@ das der Betreiber bekommt.
 
 ---
 
-### 4.5 Objektseite: vier Reiter, ein Satz, ein Knopf
+### 4.5 Objektseite: zwei Reiter, ein Satz, ein Knopf
 
-Das Objekt ist die eine Arbeitsfläche. Vier Reiter, mehr nicht:
+Das Objekt ist die Arbeitsfläche für das, was an dieser Liegenschaft steht. Zwei Reiter:
 
 | Reiter | Inhalt |
 |---|---|
-| **Bestand** | die Bauteile in Laufreihenfolge, Zustand als Chip, Filter „nur fällige" |
-| **Checkliste** | der Blick fürs Diktat (Abschnitt 4.6) — löst den heutigen Termin selbst auf |
-| **Mängel** | offen und erledigt an diesem Objekt |
-| **Berichte** | je Termin die PDFs mit allen Versionen, Sammelbericht, ZIP, Stammdaten |
+| **Bestand** | die Türen in Laufreihenfolge mit ihrem Ergebnis — bestanden, nicht bestanden, noch nicht geprüft — dazu Fälligkeit; Filter „nur fällige" |
+| **Berichte** | je Termin die PDFs mit allen Versionen, Sammelbericht, ZIP, Stammdaten des Berichts |
 
-Darüber steht ein Satz und genau ein Knopf (Leitsatz 7):
+Checkliste und Stammdaten stehen **nicht** hier, sondern oben in der Leiste: sie hängen am
+Türtyp und gelten über alle Objekte (Abschnitt 1.2). Mängel gibt es nicht als eigene Ebene mehr
+— eine Tür hat bestanden oder nicht, und das steht im Bestand.
+
+Darüber ein Satz und genau ein Knopf (Leitsatz 7):
 
 | Zustand | Satz | Knopf |
 |---|---|---|
 | kein Bestand | „Noch kein Bestand. Die erste erfasste Tür legt ihn an." | Erste Tür erfassen |
-| fällige offen | „5 von 9 Türen sind fällig." / „Heute 4 erfasst — 5 fehlen noch." | Checkliste öffnen |
+| fällige offen | „5 von 9 Türen sind fällig." | Checkliste öffnen |
 | alles erfasst, Berichte offen | „Alles erfasst. 9 Berichte stehen aus." | Berichte erstellen |
 | durch | „Nichts fällig — das Objekt ist bis 07.09.2027 durch." | Berichte ansehen |
 
-**Der Termin kommt in der Oberfläche nicht vor** (Leitsatz 8). Es gibt kein „Begehung starten"
-und kein „fortsetzen": `GET /objekt/:id/checkliste` und `/objekt/:id/erfassen` lösen über
-`begehungFuerTag` den heutigen Termin auf — fortsetzen, wenn einer läuft, sonst anlegen. Der
-Aufruf ist je Tag und Objekt idempotent. Alte Adressen unter `/begehung/:id` leiten aufs Objekt,
-damit Skill, Lesezeichen und ältere Connector-Antworten gültig bleiben.
-
-Leise darunter, immer an derselben Stelle: Tür erfassen · Ohne Netz · Unterschrift · Bauplan
-einlesen. Keine Kennzahlenleiste — was sie sagen würde, sagt der Satz, und darunter steht die
-Liste selbst.
+**Der Termin kommt in der Oberfläche nicht vor** (Leitsatz 8). `GET /objekt/:id/erfassen` löst
+über `begehungFuerTag` den heutigen Termin auf — fortsetzen, wenn einer läuft, sonst anlegen.
+Alte Adressen unter `/begehung/:id` leiten aufs Objekt.
 
 ---
 
-### 4.6 Checkliste fürs Diktat
+### 4.6 Das Ergebnis folgt den Kreuzen
 
-Eine Hand hält das Telefon, die andere die Tür. `/begehung/:id/checkliste` ist ein **Reiter der
-Begehungsseite** und schreibt nichts — sie zeigt, wo man gerade ist, während Claude über den
-Connector mitschreibt:
-
-- Fortschritt „7 von 19 geprüft" mit Balken,
-- **die nächste ungeprüfte Tür groß** („JETZT DRAN — Tür 5, 2.05 · Treppenhaus"),
-- darunter zwei Unterreiter: **Türen** (alle Bauteile in Laufreihenfolge zum Abhaken; Haken =
-  geprüft, rote Zahl = so viele Abweichungen; Antippen öffnet das Prüfraster) und **Punkte**
-  (die Prüfpunkte der vorkommenden Vorlagen groß, zum verbalen Abgehen).
-- Sie frischt sich alle zehn Sekunden über `GET /begehung/:id/stand.json` auf, ohne Neuladen —
-  ein diktiertes „Tür 7 fertig" erscheint von selbst als Haken. Reiter und Scrollstand bleiben.
-
-Abgrenzung zum Rundgang (Abschnitt 5): die Checkliste ist zum **Zuschauen beim Diktieren** da
-und braucht Netz; der Rundgang ist zum **Selbertippen**, auch ohne Netz.
+Der Bestand stellt genau eine Frage, also darf sie nicht doppelt beantwortet werden müssen: eine
+Abweichung (`nio`) macht die Prüfung von selbst zu „Nachbesserung", ohne dass jemand `ergebnis`
+setzt. Kommen Kreuze mit und ist keines „nicht", ist sie „bestanden" — auch als Korrektur, damit
+„Tür 3 doch in Ordnung" zurücknimmt. Ein ausdrücklich gesetztes `ergebnis` sticht beides.
 
 ---
 
@@ -852,22 +866,7 @@ gibt, und ein Objekt bekommt beim Anlegen keins mehr auf Vorrat.
 
 ---
 
-## 8. Tagestour
-
-- Seite `/touren`: **eine Liste, kein Kalender.** Oben die Tage, auf die etwas gelegt wurde
-  („Heute", „Morgen", sonst das Datum) mit den Objekten in Reihenfolge und einem fertigen
-  Maps-Link; darunter „Fällig" — was ansteht und noch auf keinem Tag liegt, sortiert nach
-  Fälligkeit, dann PLZ. Ein Wochenraster mit sechs leeren Karten beantwortet die Frage „was
-  fahre ich als Nächstes?" schlechter als eine Zeile (Leitsatz 7).
-- Geplant wird im Gespräch (`tour_planen(datum, objekte[])`, Reihenfolge inbegriffen) oder mit
-  „für heute" bzw. „absagen" in der Liste. `tour_lesen(datum)` beantwortet „was fahre ich
-  morgen?" samt Maps-Link.
-- **„Route in Google Maps"** je Tag: `https://www.google.com/maps/dir/<adr1>/<adr2>/…`
-  (URL-kodiert, Startpunkt = erste Adresse) — das Handy übernimmt die Navigation.
-
----
-
-## 9. MCP-Tools v2
+## 8. MCP-Tools v2
 
 Namen deutsch, `readOnlyHint` gesetzt wie in v1. Alle Argumente optional außer den mit `*`.
 `objekt` und `bauteil` dürfen als ID, Name/Adresse (LIKE) bzw. `nr`/`kennung` angegeben werden.
@@ -876,18 +875,16 @@ Namen deutsch, `readOnlyHint` gesetzt wie in v1. Alle Argumente optional außer 
 
 | Tool | Argumente | Liefert |
 |---|---|---|
-| `lage` | tage=30 | **Das Lagebild in einem Aufruf**: überfällig, bald fällig, Mängel über der Frist, Termine mit ausstehenden **oder veralteten** Berichten, dazu `naechste_schritte` mit dem Tool je Punkt. Ersetzt den Rundruf über `faellig`, `maengel_auflisten`, `berichte_auflisten` |
+| `lage` | tage=30 | **Das Lagebild in einem Aufruf**: überfällig, bald fällig, Mängel über der Frist, Termine mit ausstehenden **oder veralteten** Berichten, dazu `naechste_schritte` mit dem Tool je Punkt. Ersetzt den Rundruf über `faellig` und `berichte_auflisten` |
 | `objekte_auflisten` | suche, nur_faellige, limit | Objekte mit Fälligkeit, Bauteilzahl, offenen Mängeln |
 | `objekt_lesen` | objekt* | Stammdaten, Geschosse, Bauteile in Laufreihenfolge mit letzter Prüfung/Fälligkeit, offene Mängel, letzte Begehungen |
 | `bauteil_lesen` | objekt*, nr/kennung* | Bauteil, alle Prüfungen (Historie), Mängel, Fotos, Berichte |
 | `faellig` | tage=30 | Objekte mit fälligen Bauteilen (Anzahl, frühestes Datum) |
 | `begehung_lesen` | begehung* | Begehung, Prüfungen mit Klartext-Abweichungen, fehlende fällige Bauteile |
-| `maengel_auflisten` | objekt, status=offen, faellig_bis | Mängel mit Bauteil, Frist, Zuständigkeit |
 | `berichte_auflisten` | begehung* | neueste Versionen + ZIP-Link + Sammelbericht-Link |
 | `pruefpunkte` | vorlage* | wie v1 |
 | `vorlagen_auflisten` | — | wie v1 |
 | `vorgaben_lesen` | — | wie v1 |
-| `tour_lesen` | datum=heute, person=ich | Objekte in Reihenfolge, Adressen, Maps-Link |
 | `import_anleitung` | — | die Anleitung für den Agenten (Abschnitt 7.0) |
 | `importe_auflisten` | objekt* | Pläne und Türlisten dieses Objekts mit Zahlen |
 | `vorschlaege_lesen` | import\|objekt*, status, limit | Kandidaten eines Imports |
@@ -896,6 +893,12 @@ Namen deutsch, `readOnlyHint` gesetzt wie in v1. Alle Argumente optional außer 
 
 | Tool | Argumente | Wirkung |
 |---|---|---|
+| `tuertypen_auflisten` | — | alle Türtypen mit Vorlage, Pflicht- und Zusatzfeldern |
+| `checkliste_lesen` | tuertyp* | die Prüfpunkte dieses Typs, wie sie hier gelten |
+| `tuertyp_anlegen` | name*, vorlage*, beschreibung, felder, pflichtfelder[], zusatzfelder[] | legt den Typ an; die Checkliste entsteht aus der Vorlage |
+| `tuertyp_aendern` | tuertyp*, Felder | Stammdaten, Pflicht- und Zusatzfelder; `aktiv: false` legt still |
+| `checkliste_anpassen` | tuertyp*, punkte[], zuruecksetzen | umbenennen, ausblenden, eigene ergänzen (Abschnitt 1.2) |
+| `tuer_einrichten` | objekt*, tuertyp*, nr, Ortsangaben, felder, ueberspringen[] | **Der geführte Weg zu einer Tür.** Nennt genau EINE nächste Frage, bis `bereit`. Vorher lässt sich nichts prüfen |
 | `objekt_einrichten` | objekt*, alle Stammdatenfelder, ueberspringen[] | **Der geführte Einstieg.** Legt an oder setzt fort, übernimmt Mitgegebenes und nennt `naechste_frage` — genau EINE Frage. Mehrfach aufrufen, bis `fertig`. `weiter_mit` sagt, was danach lohnt |
 | `objekt_anlegen` | name*, adresse, plz, betreiber, betreiber_kontakt, telefon, email, zugang, vertrag, objektart, ident, intervall_monate, rechtsgrundlagen | legt Objekt + Hauptgebäude an |
 | `objekt_aendern` | objekt*, Felder | nur genannte Felder |
@@ -906,15 +909,11 @@ Namen deutsch, `readOnlyHint` gesetzt wie in v1. Alle Argumente optional außer 
 | `begehung_aendern` | begehung*, Felder, status | Stammdaten, Status |
 | `pruefung_erfassen` | begehung*, nr, kennung, art, checks, ergebnis, hinweise, felder, wie_davor, neu | Abschnitt 2.2 |
 | `pruefungen_erfassen` | begehung*, pruefungen[]* | Stapel |
-| `mangel_anlegen` | objekt*, nr*, beschreibung*, punkte, prioritaet, frist, zustaendig | Mangel außerhalb einer Prüfung |
-| `mangel_aendern` | mangel*, Felder | Frist, Zuständigkeit, Priorität, Status |
 | `mangel_schliessen` | objekt+nr oder mangel*, freimeldung | Abschnitt 2.3 |
 | `begehung_abschliessen` | begehung*, berichte=true, alle_neu | Abschnitt 2.4 — abschließen, Rückblick, Berichte und Sammelbericht in einem Zug |
 | `begehung_abbrechen` | begehung* | Abschnitt 2.5 — leer: gelöscht, sonst `abgebrochen` |
 | `berichte_erzeugen` | begehung*, alle_neu | versioniert, stückweise wie v1 (`fertig: false` → erneut) |
 | `sammelbericht_erzeugen` | begehung* | Abschnitt 4.4 |
-| `tour_planen` | datum*, objekte[]*, person | Tagestour setzen |
-| `tour_vorschlagen` | datum=heute, anzahl=4, vorlauf_tage=30, naehe, uebernehmen=false, person | **Rechnet den Fahrtag aus**: dringendstes Objekt zuerst, danach jeweils das nächstgelegene (Nähe über PLZ). Niemand zählt Objekte auf. `uebernehmen=true` setzt den Tag gleich |
 | `geschoss_anlegen` | objekt*, name*, reihenfolge | Geschoss, Reihenfolge aus dem Namen |
 | `bauplan_uebernehmen` | objekt*, tueren[]*, art, geschoss, dateiname, import | **Der Regelweg** (Abschnitt 7.0): Import anlegen und Fundstücke abgeben in einem Aufruf, mit fertigem Bericht und Freigabe-Möglichkeiten |
 | `import_starten` | objekt*, art*, dateiname, geschoss | Abschnitt 7.0 |
@@ -925,7 +924,7 @@ Namen deutsch, `readOnlyHint` gesetzt wie in v1. Alle Argumente optional außer 
 | `import_abschliessen` | import* | Status `bestaetigt` |
 | `vorgaben_speichern` | wie v1 | |
 
-### 9.1 Prompts und Ressourcen
+### 8.1 Prompts und Ressourcen
 
 Der Server meldete beim `initialize` die Fähigkeiten `prompts` und `resources` — und lieferte
 dann leere Listen. Beide sind jetzt gefüllt, weil beide dasselbe tun wie der Rest dieser Stufe:
@@ -937,7 +936,9 @@ dann leere Listen. Beide sind jetzt gefüllt, weil beide dasselbe tun wie der Re
 |---|---|---|
 | `wartung` | objekt* | „Ich stehe an X und fange an" — Prüfpunkte, `begehung_starten`, dann zuhören |
 | `einrichten` | objekt* | führt mit `objekt_einrichten` durch die Stammdaten, eine Frage nach der anderen |
-| `tag` | datum, anzahl | `lage` lesen, zusammenfassen, mit `tour_vorschlagen` einen Fahrtag anbieten |
+| `tuertyp` | name* | Türtyp einrichten und seine Checkliste zurechtlegen |
+| `tuer` | objekt*, tuertyp | eine Tür aufsetzen, eine Frage nach der anderen |
+| `tag` | — | `lage` lesen und zusammenfassen, was liegen geblieben ist |
 | `abschluss` | objekt | Rücklesen und `begehung_abschliessen`, bis `fertig` |
 | `bauplan` | objekt* | `import_anleitung` lesen und danach vorgehen, Freigabe einholen |
 
@@ -948,7 +949,8 @@ im Gespräch auftaucht:
 |---|---|
 | `tuerwerk://anleitung/import` | die Agenten-Anleitung aus Abschnitt 7.0 |
 | `tuerwerk://bestand` | alle Objekte mit Fälligkeit und offenen Mängeln als Tabelle |
-| `tuerwerk://pruefpunkte/<vorlage>` | die nummerierten Prüfpunkte zum Vorlesen |
+| `tuerwerk://checklisten` | die Checkliste jedes Türtyps, wie sie gilt — die Liste zum Vorlesen |
+| `tuerwerk://pruefpunkte/<vorlage>` | die unveränderten Punkte einer Vorlage, als Grundlage |
 
 Kein Sampling und keine Elicitation: der Server ist zustandslos über Streamable HTTP, und beides
 setzt Client-Fähigkeiten voraus, auf die wir uns nicht verlassen können.
@@ -964,7 +966,7 @@ unbekannter Nummer sagt Claude „Tür 12 ist neu — lege ich an" und macht wei
 
 ---
 
-## 10. Web-Routen v2
+## 9. Web-Routen v2
 
 Alle mit Sitzung, außer den in v1 öffentlichen (OAuth, `/tools.json`, `/anmeldung`, Icons).
 
@@ -973,9 +975,7 @@ Alle mit Sitzung, außer den in v1 öffentlichen (OAuth, `/tools.json`, `/anmeld
 | `GET /` → `/objekte` | |
 | `GET /objekte` | Liste nach Fälligkeit, Suche; „Objekt anlegen" zugeklappt (der Regelweg ist der Chat) |
 | `POST /objekte` | anlegen |
-| `GET /objekt/:id` | Reiter **Bestand** — ein Satz, ein Knopf (Abschnitt 4.5), Bauteile in Laufreihenfolge |
-| `GET /objekt/:id/checkliste` | Reiter **Checkliste** (Abschnitt 4.6); löst den heutigen Termin auf |
-| `GET /objekt/:id/maengel` | Reiter **Mängel** — offen und erledigt |
+| `GET /objekt/:id` | Reiter **Bestand** — ein Satz, ein Knopf (Abschnitt 4.5), Türen in Laufreihenfolge mit ihrem Ergebnis: bestanden / nicht bestanden / noch nicht geprüft |
 | `GET /objekt/:id/berichte` | Reiter **Berichte** — je Termin PDFs mit Versionen, Sammelbericht, ZIP, Stammdaten |
 | `GET /objekt/:id/erfassen` | löst den heutigen Termin auf → `/begehung/:id/pruefung/neu` |
 | `POST /objekt/:id` | Stammdaten |
@@ -987,8 +987,7 @@ Alle mit Sitzung, außer den in v1 öffentlichen (OAuth, `/tools.json`, `/anmeld
 | `POST /api/plan`, `POST /api/vorschlag/:id`, `POST /api/geschoss/:id/start` | Planbild, Freigabe, Startpunkt |
 | `POST /objekt/:id/begehung` | Termin für ein Datum anlegen (Tour, Rundgang) — in der Oberfläche kein Knopf |
 | `GET /begehung/:id` | leitet aufs Objekt (bzw. auf dessen Reiter Berichte) — der Termin hat keine eigene Seite mehr |
-| `GET /begehung/:id/checkliste` | leitet auf den Objektreiter, wenn es der heutige Termin ist; sonst die Checkliste dieses Termins |
-| `GET /begehung/:id/stand.json` | Abschnitt 4.6 |
+| `GET /begehung/:id/checkliste`, `/stand.json` | leiten auf `/checkliste` — die Checkliste hängt am Türtyp |
 | `POST /begehung/:id/abschliessen`, `POST /begehung/:id/oeffnen` | Abschnitt 2.4 |
 | `POST /begehung/:id/abbrechen` | Abschnitt 2.5 |
 | `GET/POST /begehung/:id/pruefung/:nr` | Prüfraster wie v1 `tuerSeite` + Fotos |
@@ -996,9 +995,9 @@ Alle mit Sitzung, außer den in v1 öffentlichen (OAuth, `/tools.json`, `/anmeld
 | `POST /begehung/:id/erzeugen`, `/sammelbericht` | JSON, stückweise |
 | `GET /begehung/:id/paket.zip` | neueste Versionen |
 | `GET /rundgang/:begehung`, `GET /api/rundgang/:begehung`, `POST /api/sync`, `POST /api/foto` | Abschnitt 5 und 6 |
-| `GET /maengel` | alle offenen, Filter Objekt/Frist/Zuständigkeit; Zeile → Bauteil |
-| `GET/POST /mangel/:id` | bearbeiten, schließen |
-| `GET/POST /touren` | Abschnitt 8 — Liste, kein Kalender |
+| `GET /stammdaten`, `POST /stammdaten` | Türtypen: Liste und Anlegen |
+| `GET/POST /stammdaten/:id`, `POST /stammdaten/:id/stilllegen` | ein Türtyp: Stammdaten, Pflicht- und Zusatzfelder |
+| `GET /checkliste`, `GET/POST /checkliste/:tuertyp` | die Checkliste eines Türtyps ansehen und anpassen |
 | `GET /einstellungen` | wie v1 (Vorgaben, Unterschrift Prüfer) |
 | `GET /verbinden` | wie v1 |
 | `GET /datei/(berichte\|fotos\|plaene\|unterschriften)/…` | Auslieferung |
@@ -1008,7 +1007,7 @@ die beiden Seiten mit eigenem Skript.
 
 ---
 
-## 11. Vorlagen
+## 10. Vorlagen
 
 - v2: die drei eingebauten Profile bekommen `signature_betreiber` (Abschnitt 4.2). Die
   Feld-Labels (`FELD_LABELS` in `seiten.ts`) wandern in `vorlagen/index.ts`, damit Tools und
@@ -1021,7 +1020,7 @@ die beiden Seiten mit eigenem Skript.
 
 ---
 
-## 12. Sicherheit und Zugriff
+## 11. Sicherheit und Zugriff
 
 - Alle Datenpfade unter `/datei/` weiter nur mit Sitzung. R2 privat.
 - `POST /api/sync` und `POST /api/foto` akzeptieren die Sitzung **oder** ein Bearer-Token des
@@ -1035,7 +1034,7 @@ die beiden Seiten mit eigenem Skript.
 
 ---
 
-## 13. Was aus v1 bleibt, was ersetzt wird
+## 12. Was aus v1 bleibt, was ersetzt wird
 
 **Unverändert:** `src/auth/*` (OAuth, Sitzung, Passwörter), `src/mcp/protokoll.ts`,
 `src/pdf/zip.ts`, `src/shared/*`, `src/web/layout.ts`, `src/vorlagen/*.json|md|pdf`,
@@ -1057,7 +1056,7 @@ oder als Text eingebettet — Entscheidung: **eingebettet** wie v1, kein neues B
 
 ---
 
-## 14. Reihenfolge und Abnahme
+## 13. Reihenfolge und Abnahme
 
 Jede Stufe endet mit grünem `scripts/e2e.sh` gegen den Entwicklungsserver **und** gegen die
 Live-Instanz, danach Commit und Deployment. Stufen sind einzeln auslieferbar.
@@ -1118,7 +1117,7 @@ mit `pruefpunkte` nutzbar.
 
 ---
 
-## 15. Offen — beim Kunden zu klären, blockiert nichts
+## 14. Offen — beim Kunden zu klären, blockiert nichts
 
 1. Typische Türzahl je Objekt (entscheidet, wie viel Stufe 3 wert ist).
 2. Liegen bei Ausschreibungsobjekten Türlisten vor, und in welchem Format?
