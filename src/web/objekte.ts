@@ -31,7 +31,6 @@ import type { BauteilMitStand } from "../daten/bauteile";
 import { begehungenListe, begehungLesen, pruefungenLesen } from "../daten/begehungen";
 import type { Begehung } from "../daten/begehungen";
 import { heute as heuteIso } from "../daten/basis";
-import { maengelListe } from "../daten/maengel";
 import { berichtsUebersicht } from "../pdf/berichte";
 import { sammelberichteLesen } from "../daten/berichte";
 import { zeitpunkt } from "./layout";
@@ -60,7 +59,7 @@ ${faelligChip(o.stand)}</a>`,
     : `<div class="leer">Noch kein Objekt. Sag Claude einfach, wo du bist — daraus entsteht das erste.</div>`;
 
   /*
-   * Angelegt werden Objekte im Regelfall im Gespräch — `begehung_starten` mit einem unbekannten
+   * Angelegt werden Objekte im Regelfall im Gespräch — `wartung_starten` mit einem unbekannten
    * Namen legt es an. Das Formular bleibt als Notweg, aber zugeklappt: sonst nimmt es die halbe
    * Liste weg für etwas, das ein paarmal im Jahr vorkommt.
    */
@@ -158,62 +157,58 @@ async function lageLesen(env: Env, o: Objekt, bestand: number, faellig: number):
 }
 
 /**
- * Ein Satz, ein Knopf — wie auf jeder Seite dieser App (Leitsatz 7). Kein „Begehung starten"
- * und kein „fortsetzen": der Termin entsteht beim Erfassen der ersten Tür von selbst.
+ * Ein Satz, ein Knopf.
  *
- * Darunter die Nebenwege als Knöpfe, nicht als Textlinks: es sind Griffe, keine Fußnoten, und
- * mit einem Daumen trifft man einen Knopf. Ist nichts fällig, gibt es oben keinen Knopf — dann
- * ist nichts zu tun, und ein Knopf, der nur „ansehen" sagt, ist keiner.
+ * Wörtlich: genau einer. Vorher standen hier vier gleichrangige Knöpfe nebeneinander —
+ * „Berichte erstellen", „Tür erfassen", „Unterschrift", „Bauplan einlesen" —, und „Unterschrift"
+ * stand schon da, bevor es etwas zu unterschreiben gab. Wer mit Handschuhen am Treppenhaus
+ * steht, sucht sich daraus nichts aus; er will wissen, was jetzt dran ist.
+ *
+ * Also: der nächste Schritt als Knopf, alles andere gar nicht. Berichte entstehen von selbst
+ * (siehe Berichte-Seite), die Unterschrift erscheint genau dann, wenn erfasst ist und noch
+ * niemand unterschrieben hat — das ist das Ende des Termins, und dafür ist ein Knopf richtig.
  */
 function naechsterSchritt(o: Objekt, lage: Lage, bisWann: string): string {
   const id = esc(o.id);
-  let satz: string;
-  let knopf = "";
-  /* Was oben als Hauptknopf steht, kommt unten nicht noch einmal. */
-  let hauptweg = "";
+  const knopf = (href: string, text: string, leise = false) =>
+    `<a class="btn schmal${leise ? " leise" : ""}" href="${href}">${text}</a>`;
 
   if (lage.bestand === 0) {
-    satz = "Noch kein Bestand. Die erste erfasste Tür legt ihn an — diktiert im Chat oder hier.";
-    knopf = `<a class="btn schmal" href="/objekt/${id}/erfassen">Erste Tür erfassen</a>`;
-    hauptweg = "erfassen";
-  } else if (lage.faellig > 0) {
-    satz = lage.heuteErfasst
+    return `<div class="naechster">
+<p class="satz">Noch kein Bestand. Die erste erfasste Tür legt ihn an — diktiert im Chat oder hier.</p>
+<div class="knopfleiste" style="margin:0">${knopf(`/objekt/${id}/erfassen`, "Erste Tür erfassen")}${knopf(
+      `/objekt/${id}/import`,
+      "Türenliste einlesen",
+      true,
+    )}</div></div>`;
+  }
+
+  if (lage.faellig > 0) {
+    const satz = lage.heuteErfasst
       ? `Heute ${lage.heuteErfasst} erfasst — ${lage.faellig} ${
           lage.faellig === 1 ? "fällige Tür fehlt" : "fällige Türen fehlen"
         } noch.`
       : `${lage.faellig} von ${lage.bestand} ${
           lage.faellig === 1 ? "Tür ist fällig" : "Türen sind fällig"
         }.`;
-    knopf = `<a class="btn schmal" href="/objekt/${id}/erfassen">Tür erfassen</a>`;
-    hauptweg = "erfassen";
-  } else if (lage.offeneBerichte > 0) {
-    satz = `Alles erfasst. ${lage.offeneBerichte} ${
-      lage.offeneBerichte === 1 ? "Bericht steht" : "Berichte stehen"
-    } aus.`;
-    knopf = `<a class="btn schmal" href="/objekt/${id}/berichte">Berichte erstellen</a>`;
-  } else {
-    satz = bisWann
-      ? `Nichts fällig — das Objekt ist bis ${esc(bisWann)} durch.`
-      : "Nichts fällig.";
+    return `<div class="naechster"><p class="satz">${esc(satz)}</p>
+<div class="knopfleiste" style="margin:0">${knopf(`/objekt/${id}/erfassen`, "Tür erfassen")}</div></div>`;
   }
 
-  const weitere: string[] = [];
-  if (hauptweg !== "erfassen") {
-    weitere.push(`<a class="btn schmal leise" href="/objekt/${id}/erfassen">Tür erfassen</a>`);
+  /* Alles erfasst — jetzt fehlt nur noch die Unterschrift des Betreibers. */
+  const termin = lage.laufende ?? lage.letzteMitPruefungen;
+  if (termin && !termin.betreiber_unterschrift) {
+    return `<div class="naechster">
+<p class="satz">Alles erfasst. Die Berichte stehen bereit — es fehlt die Unterschrift des Betreibers.</p>
+<div class="knopfleiste" style="margin:0">${knopf(
+      `/begehung/${esc(termin.id)}/unterschrift`,
+      "Unterschreiben lassen",
+    )}</div></div>`;
   }
-  if (lage.laufende) {
-    weitere.push(
-      `<a class="btn schmal leise" href="/begehung/${esc(
-        lage.laufende.id,
-      )}/unterschrift">Unterschrift</a>`,
-    );
-  }
-  weitere.push(`<a class="btn schmal leise" href="/objekt/${id}/import">Bauplan einlesen</a>`);
 
-  return `<div class="naechster">
-<p class="satz">${esc(satz).replace("&amp;", "&")}</p>
-<div class="knopfleiste" style="margin:0">${knopf}${weitere.join("")}</div>
-</div>`;
+  return `<div class="naechster"><p class="satz">${esc(
+    bisWann ? `Alles durch — das Objekt ist bis ${bisWann} fertig.` : "Nichts fällig.",
+  )}</p></div>`;
 }
 
 export async function objektSeite(
@@ -319,6 +314,7 @@ export async function objektBerichteSeite(
 
   const bloecke: string[] = [];
   let offenGesamt = 0;
+  let laufend = "";
   for (const zeile of termine) {
     const begehung = await begehungLesen(env.DB, zeile.id);
     if (!begehung) continue;
@@ -326,89 +322,90 @@ export async function objektBerichteSeite(
     const sammel = await sammelberichteLesen(env.DB, begehung.id);
     const offen = zeile.pruefungen - posten.length + posten.filter((p) => p.veraltet).length;
     offenGesamt += Math.max(offen, 0);
+    /* Der jüngste Termin, an dem noch etwas zu tun ist — den erledigt die Seite von selbst. */
+    if (!laufend && (offen > 0 || (posten.length && !sammel.length))) laufend = begehung.id;
 
-    const dateien = posten
-      .map(
-        (p) => `<div class="posten">
+    /*
+     * Zwei Ordner, wie im ZIP: was bestanden hat, und was nachgebessert werden muss. Das ist
+     * die einzige Sortierung, nach der hinterher jemand sucht.
+     */
+    const zeileFuer = (p: (typeof posten)[number]) => `<div class="posten">
 <span class="nr">${p.nr}</span>
 <div class="haupt"><div class="name"><a href="/datei/${esc(p.schluessel)}">Tür ${p.nr}${
-          orte.get(p.bauteil_id) ? ` · ${esc(orte.get(p.bauteil_id)!)}` : ""
-        }</a></div>
+      orte.get(p.bauteil_id) ? ` · ${esc(orte.get(p.bauteil_id)!)}` : ""
+    }</a></div>
 <div class="unter">Version ${p.version} · ${esc(zeitpunkt(p.erzeugt_am))}${
-          p.aeltere.length
-            ? ` · ältere: ${p.aeltere
-                .map(
-                  (a) =>
-                    `<a href="/datei/${esc(a.schluessel)}" style="text-decoration:underline">v${a.version}</a>`,
-                )
-                .join(" ")}`
-            : ""
-        }</div></div>
-${p.veraltet ? '<span class="chip mangel">Stand geändert</span>' : '<span class="chip gut">aktuell</span>'}</div>`,
-      )
-      .join("");
+      p.aeltere.length
+        ? ` · ältere: ${p.aeltere
+            .map(
+              (a) =>
+                `<a href="/datei/${esc(a.schluessel)}" style="text-decoration:underline">v${a.version}</a>`,
+            )
+            .join(" ")}`
+        : ""
+    }</div></div>
+${p.veraltet ? '<span class="chip mangel">Stand geändert</span>' : ""}</div>`;
 
-    const werkzeuge: string[] = [];
-    if (offen > 0) {
-      werkzeuge.push(
-        `<button class="btn schmal" data-erzeugen="${esc(begehung.id)}">${offen} ${
-          offen === 1 ? "Bericht" : "Berichte"
-        } erstellen</button>`,
-      );
-    } else if (posten.length && !sammel.length) {
-      werkzeuge.push(
-        `<button class="btn schmal" data-sammel="${esc(begehung.id)}">Sammelbericht erstellen</button>`,
-      );
-    }
-    if (posten.length) {
-      werkzeuge.push(
-        `<a class="btn schmal leise" href="/begehung/${esc(begehung.id)}/paket.zip">Alles als ZIP</a>`,
-      );
-    }
+    const bestanden = posten.filter((p) => p.ergebnis !== "Nachbesserung");
+    const nachbesserung = posten.filter((p) => p.ergebnis === "Nachbesserung");
+    const gruppe = (titel: string, liste: typeof posten) =>
+      liste.length
+        ? `<h3 class="unterabschnitt">${titel} (${liste.length})</h3>
+<div class="liste">${liste.map(zeileFuer).join("")}</div>`
+        : "";
 
     bloecke.push(`<h2 class="abschnitt" style="margin-top:30px">${esc(
       datumAnzeige(begehung.datum),
     )} <span class="meta" style="font-weight:400">· ${zeile.pruefungen} ${
       zeile.pruefungen === 1 ? "Prüfung" : "Prüfungen"
     }${begehung.betreiber_unterschrift ? " · unterschrieben" : ""}</span></h2>
-<div class="knopfleiste" style="margin:0 0 14px">${werkzeuge.join("")}</div>
-${dateien ? `<div class="liste">${dateien}</div>` : '<div class="leer">Noch nichts erzeugt.</div>'}
-${berichtStammdaten(begehung)}
 ${
-  sammel.length
-    ? `<div class="liste">${sammel
-        .map(
-          (sb) => `<a class="posten" href="/datei/${esc(sb.r2_schluessel)}">
-<div class="haupt"><div class="name">Sammelbericht v${sb.version}</div>
-<div class="unter">${esc(zeitpunkt(sb.erzeugt_am))}</div></div>
-<span class="chip">PDF</span></a>`,
-        )
-        .join("")}</div>`
-    : ""
-}`);
+  posten.length
+    ? `${
+        sammel.length
+          ? `<div class="liste"><a class="posten" href="/datei/${esc(sammel[0].r2_schluessel)}">
+<div class="haupt"><div class="name">Sammelbericht v${sammel[0].version}</div>
+<div class="unter">alle Türen in einem PDF · ${esc(zeitpunkt(sammel[0].erzeugt_am))}</div></div>
+<span class="chip voll">PDF</span></a></div>`
+          : ""
+      }
+<div class="knopfleiste" style="margin:12px 0 0"><a class="btn schmal leise" href="/begehung/${esc(
+        begehung.id,
+      )}/paket.zip">Alles als ZIP</a></div>
+${gruppe("Nachbesserung", nachbesserung)}
+${gruppe("Bestanden", bestanden)}`
+    : '<div class="leer">Wird gerade erstellt …</div>'
+}
+${berichtStammdaten(begehung)}`);
   }
 
-  const skript = `
+  /*
+   * Kein Knopf „Berichte erstellen": wer diese Seite öffnet, will die Berichte. Was fehlt,
+   * entsteht beim Öffnen — der Server arbeitet in Stücken, die Seite ruft so lange nach, bis
+   * nichts mehr offen ist, und lädt sich dann einmal neu.
+   */
+  const skript = laufend
+    ? `
 const stand = document.getElementById('stand');
-async function lauf(id, pfad, knopf, name) {
-  knopf.disabled = true;
+async function lauf(id, pfad, name) {
   let gesamt = 0;
   for (let runde = 0; runde < 40; runde++) {
     stand.textContent = name + ' …' + (gesamt ? ' ' + gesamt + ' fertig' : '');
     const r = await fetch('/begehung/' + id + pfad, { method: 'POST' });
     const d = await r.json();
-    if (!r.ok) { stand.textContent = d.fehler || 'Fehlgeschlagen.'; knopf.disabled = false; return; }
+    if (!r.ok) { stand.textContent = d.fehler || 'Fehlgeschlagen.'; return false; }
     gesamt += d.erzeugt || 0;
     if (d.fertig !== false) break;
   }
-  location.reload();
+  return true;
 }
-document.querySelectorAll('[data-erzeugen]').forEach((k) => {
-  k.addEventListener('click', () => lauf(k.dataset.erzeugen, '/erzeugen', k, 'Erstelle Berichte'));
-});
-document.querySelectorAll('[data-sammel]').forEach((k) => {
-  k.addEventListener('click', () => lauf(k.dataset.sammel, '/sammelbericht', k, 'Erstelle Sammelbericht'));
-});`;
+(async () => {
+  if (await lauf(${JSON.stringify(laufend)}, '/erzeugen', 'Berichte entstehen')) {
+    await lauf(${JSON.stringify(laufend)}, '/sammelbericht', 'Sammelbericht entsteht');
+  }
+  location.reload();
+})();`
+    : undefined;
 
   return seite(
     `${objektReiter(o.id, "berichte")}
@@ -417,7 +414,7 @@ ${objektKopf(o)}
       termine.length === 0
         ? "Noch nichts erfasst — Berichte entstehen aus den Prüfungen."
         : offenGesamt > 0
-          ? `${offenGesamt} ${offenGesamt === 1 ? "Bericht steht" : "Berichte stehen"} aus.`
+          ? "Berichte entstehen gerade …"
           : "Alle Berichte sind auf dem aktuellen Stand."
     }</p><span class="stand" id="stand">${meldung ? esc(meldung) : ""}</span></div>
 ${bloecke.join("") || ""}`,

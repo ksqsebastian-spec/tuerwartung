@@ -3,18 +3,18 @@
  *
  * Eine Begehung ist ein Termin an einem Objekt. Sie erzeugt Prüfungen an Bauteilen; jede
  * Prüfung schreibt die Felder auf das Bauteil zurück (Stammdaten bleiben fürs nächste Jahr)
- * und legt einen Schnappschuss für den Bericht ab. Aus einer Prüfung mit Abweichung entsteht
- * ein Mangel, der am Bauteil hängt, bis ihn jemand freimeldet.
+ * und legt einen Schnappschuss für den Bericht ab.
+ *
+ * Eine Abweichung wird nicht zusätzlich als „Mangel" verwahrt: die Prüfung selbst ist der
+ * Befund. Was beim letzten Mal nicht in Ordnung war, steht in der vorigen Prüfung des Bauteils
+ * und wird von dort gelesen (`letztesMal`) — eine Wahrheit statt zweier, die auseinanderlaufen.
  */
 import { jetzt, lies, ulid } from "./basis";
 import type { Bewertung } from "../vorlagen";
 import { pruefeChecks } from "../vorlagen";
-import { tuertypLesen, tuertypSuchen } from "./tuertypen";
+import { tuertypAusVorrat, tuertypLesen, tuertypSuchen } from "./tuertypen";
 import { bauteilAendern, bauteilAnlegen, bauteilPerKennung, bauteilPerNr, naechsteNr } from "./bauteile";
 import type { Bauteil } from "./bauteile";
-import { fotosZuPruefung } from "./fotos";
-import { mangelAnlegen, mangelAendern, mangelZuPruefung, maengelZuBauteil } from "./maengel";
-import type { Mangel } from "./maengel";
 import { personLesen } from "./personen";
 import type { Objekt } from "./objekte";
 import { geschossAusRaumnummer, geschossZuordnen, geschosseListe } from "./objekte";
@@ -131,7 +131,7 @@ export async function begehungAendern(
 /**
  * Die Begehung eines Objekts an einem Tag — vorhandene fortsetzen statt eine zweite anlegen.
  *
- * Dieselbe Frage stellen drei Wege: `begehung_starten` im Diktat, der Knopf auf der
+ * Dieselbe Frage stellen drei Wege: `wartung_starten` im Diktat, der Knopf auf der
  * Objektseite und die Tagestour, wenn der Monteur ein geplantes Objekt im Rundgang öffnet.
  * Eine abgeschlossene oder abgebrochene Begehung zählt nicht als fortsetzbar.
  */
@@ -161,7 +161,7 @@ export async function begehungFuerTag(
  * Zwei Fälle, und der Unterschied ist wichtig: hängt noch keine Prüfung daran, verschwindet die
  * Begehung ganz — sie hat nie stattgefunden, und niemand soll später über eine leere Zeile
  * stolpern. Hängen Prüfungen daran, bleiben sie: geprüft ist geprüft. Die Begehung geht dann
- * auf `abgebrochen` und zählt nicht mehr als laufend; über `begehung_aendern` mit
+ * auf `abgebrochen` und zählt nicht mehr als laufend; über `aendern` mit
  * `status=laufend` ist das jederzeit zurückzunehmen.
  */
 export async function begehungAbbrechen(
@@ -210,9 +210,19 @@ export interface BegehungMitZahlen extends Begehung {
 
 export async function begehungenListe(
   db: D1Database,
-  filter: { objekt_id?: string; limit?: number } = {},
+  filter: { objekt_id?: string; status?: string; limit?: number } = {},
 ): Promise<BegehungMitZahlen[]> {
   const limit = Math.min(Math.max(filter.limit ?? 50, 1), 200);
+  const wo: string[] = [];
+  const werte: unknown[] = [];
+  if (filter.objekt_id) {
+    wo.push("b.objekt_id = ?");
+    werte.push(filter.objekt_id);
+  }
+  if (filter.status) {
+    wo.push("b.status = ?");
+    werte.push(filter.status);
+  }
   const { results } = await db
     .prepare(
       `SELECT b.*, o.name AS objekt_name,
@@ -220,10 +230,10 @@ export async function begehungenListe(
               (SELECT COUNT(*) FROM pruefungen p WHERE p.begehung_id = b.id
                  AND p.checks_json <> '{}') AS mit_abweichung
          FROM begehungen b JOIN objekte o ON o.id = b.objekt_id
-        ${filter.objekt_id ? "WHERE b.objekt_id = ?" : ""}
+        ${wo.length ? `WHERE ${wo.join(" AND ")}` : ""}
         ORDER BY b.datum DESC, b.angelegt_am DESC LIMIT ?`,
     )
-    .bind(...(filter.objekt_id ? [filter.objekt_id] : []), limit)
+    .bind(...werte, limit)
     .all();
   return (results ?? []) as unknown as BegehungMitZahlen[];
 }
@@ -357,7 +367,7 @@ async function sha256(text: string): Promise<string> {
 
 /**
  * Der Stand, aus dem ein Bericht entsteht (Abschnitt 4.1). Ändert er sich, entsteht beim
- * nächsten `berichte_erzeugen` eine neue Version — und nur dann. Keine Zeitstempel außer
+ * nächsten `wartung_fertig` eine neue Version — und nur dann. Keine Zeitstempel außer
  * `unterschrieben_am`, sonst wäre jeder Lauf eine neue Version.
  */
 export async function standHash(
@@ -367,7 +377,6 @@ export async function standHash(
   bauteil: Bauteil,
   pruefung: Pruefung,
 ): Promise<string> {
-  const fotos = (await fotosZuPruefung(db, pruefung.id)).map((f) => f.id).sort();
   const person = begehung.angelegt_von ? await personLesen(db, begehung.angelegt_von) : null;
   return sha256(
     kanonisch({
@@ -401,7 +410,6 @@ export async function standHash(
         ergebnis: pruefung.ergebnis,
         hinweise: pruefung.hinweise,
       },
-      fotos,
       unterschrift_pruefer: person?.unterschrift ?? null,
     }),
   );
@@ -443,11 +451,16 @@ export interface PruefungEingabe {
   flur?: string;
   geschoss?: string;
   tuertyp?: string;
-  prioritaet?: string;
-  zustaendig?: string;
   wie_davor?: boolean;
   neu?: boolean;
   geprueft_am?: number;
+}
+
+/** Ein Befund aus einer früheren Begehung, den es diesmal nachzusehen gilt. */
+export interface OffenerBefund {
+  datum: string;
+  punkte: string[];
+  hinweise: string;
 }
 
 export interface Erfassung {
@@ -458,8 +471,8 @@ export interface Erfassung {
   /** Die Etage, an der das Bauteil hängt — erkannt oder schon vorhanden. */
   geschoss: { id: string; name: string } | null;
   neu_angelegt: boolean;
-  offene_maengel_vorjahr: Mangel[];
-  mangel: Mangel | null;
+  /** Was beim letzten Mal an dieser Tür nicht in Ordnung war — null, wenn sie bestanden hat. */
+  letztes_mal: OffenerBefund | null;
   naechste_nr: number;
 }
 
@@ -511,11 +524,19 @@ export async function pruefungErfassen(
 ): Promise<Erfassung> {
   const vorige = eingabe.wie_davor ? await zuletztErfasst(db, begehung.id) : null;
   /* Der Türtyp bestimmt Vorlage und Checkliste — genannt wird er beim Einrichten der Tür. */
+  /*
+   * Ein Name aus dem Vorrat genügt: „Stahlblechtür" muss niemand vorher einrichten, er entsteht
+   * beim ersten Gebrauch. Sonst stünde der Monteur mitten im Diktat vor einem Türtyp, den es
+   * erst anzulegen gilt — genau die Unterbrechung, die es nicht geben soll.
+   */
   const typWunsch = eingabe.tuertyp
-    ? await tuertypSuchen(db, String(eingabe.tuertyp))
+    ? ((await tuertypSuchen(db, String(eingabe.tuertyp))) ??
+      (await tuertypAusVorrat(db, String(eingabe.tuertyp), nutzer)))
     : null;
   if (eingabe.tuertyp && !typWunsch) {
-    throw new Error(`Türtyp '${eingabe.tuertyp}' gibt es nicht.`);
+    throw new Error(
+      `Türtyp '${eingabe.tuertyp}' gibt es nicht — mit 'stand' die vorhandenen und den Vorrat ansehen.`,
+    );
   }
 
   /* 1. Bauteil finden oder anlegen. */
@@ -669,16 +690,8 @@ export async function pruefungErfassen(
     begehung.status = "laufend";
   }
 
-  /* 4. Mangel automatisch (Abschnitt 2.2). */
-  const mangel = await mangelPflegen(db, objekt, begehung, bauteil, pruefung, {
-    prioritaet: eingabe.prioritaet,
-    zustaendig: eingabe.zustaendig,
-  });
-
-  /* 5. Was am Bauteil aus früheren Begehungen offen ist — Claude soll danach fragen. */
-  const alle = await maengelZuBauteil(db, bauteil.id, true);
-  const eigeneIds = new Set([pruefung.id]);
-  const vorjahr = alle.filter((m) => !m.pruefung_id || !eigeneIds.has(m.pruefung_id));
+  /* 4. Was beim letzten Mal offen war — Claude soll danach fragen. */
+  const letztesMalBefund = await letztesMal(db, bauteil.id, begehung.id);
 
   const geschoss = bauteil.geschoss_id
     ? (await geschosseListe(db, objekt.id)).find((g) => g.id === bauteil!.geschoss_id) ?? null
@@ -696,8 +709,7 @@ export async function pruefungErfassen(
       : null,
     geschoss: geschoss ? { id: geschoss.id, name: geschoss.name } : null,
     neu_angelegt: neuAngelegt,
-    offene_maengel_vorjahr: vorjahr,
-    mangel,
+    letztes_mal: letztesMalBefund,
     naechste_nr: await naechsteNr(db, objekt.id),
   };
 }
@@ -714,79 +726,36 @@ async function haeufigsteArt(db: D1Database, objektId: string): Promise<string> 
 }
 
 /**
- * Mangel aus einer Prüfung: einer je Prüfung, mit allen `nio`- und `sb`-Punkten. Bei bloßer
- * Bemerkung ohne `nio` und ohne Nachbesserung entsteht keiner. Existiert schon einer aus
- * derselben Prüfung, wird er aktualisiert statt verdoppelt.
+ * Was beim letzten Mal an dieser Tür nicht in Ordnung war.
+ *
+ * Nicht gespeichert, sondern gelesen: die jüngste frühere Prüfung des Bauteils, sofern sie
+ * „Nachbesserung" ergab. Damit fragt Claude beim nächsten Termin von selbst danach („an der
+ * Tür war 2025 Punkt 10 offen — erledigt?"), ohne dass irgendwo ein zweiter Zustand gepflegt
+ * werden muss, der irgendwann nicht mehr zur Prüfung passt.
  */
-/**
- * Wie dringend ist es, und bis wann? Die Frist folgt der Einstufung, statt für alles 28 Tage zu
- * setzen: was hoch eingestuft ist, gehört in einer Woche erledigt, Kleinkram darf ein Quartal
- * warten. Wer die Einstufung nicht mitgibt, bekommt „mittel" — dann bleibt es wie bisher.
- */
-const FRIST_TAGE: Record<string, number> = { hoch: 7, mittel: 28, niedrig: 90 };
-
-function einstufung(wunsch: string | undefined): "hoch" | "mittel" | "niedrig" {
-  const w = String(wunsch ?? "").trim().toLowerCase();
-  return w === "hoch" || w === "niedrig" ? w : "mittel";
-}
-
-async function mangelPflegen(
+export async function letztesMal(
   db: D1Database,
-  objekt: Objekt,
-  begehung: Begehung,
-  bauteil: Bauteil,
-  pruefung: Pruefung,
-  urteil: { prioritaet?: string; zustaendig?: string } = {},
-): Promise<Mangel | null> {
-  const nio = Object.entries(pruefung.checks).filter(([, b]) => b === "nio").map(([nr]) => nr);
-  const sb = Object.entries(pruefung.checks).filter(([, b]) => b === "sb").map(([nr]) => nr);
-  const noetig = pruefung.ergebnis === "Nachbesserung" || nio.length > 0;
-  const vorhanden = await mangelZuPruefung(db, pruefung.id);
-
-  if (!noetig) return vorhanden;
-
-  const punkte = [...nio, ...sb].sort((a, b) => Number(a) - Number(b));
-  const beschreibung = pruefung.hinweise || beschreibungAusPunkten(punkte);
-  const prioritaet = einstufung(urteil.prioritaet);
-  const frist = tageSpaeter(begehung.datum, FRIST_TAGE[prioritaet]) || null;
-  const zustaendig = String(urteil.zustaendig ?? "").trim() || "Seehafer";
-
-  if (vorhanden) {
-    /*
-     * Eine Korrektur darf nachschärfen, aber nichts zurücknehmen, was ein Mensch am Mangel
-     * gesetzt hat: Einstufung und Frist wandern nur mit, wenn sie diesmal ausdrücklich
-     * mitkommen.
-     */
-    const patch: Record<string, unknown> = { punkte, beschreibung };
-    if (urteil.prioritaet !== undefined) {
-      patch.prioritaet = prioritaet;
-      patch.frist = frist;
-    }
-    if (urteil.zustaendig !== undefined) patch.zustaendig = zustaendig;
-    return (await mangelAendern(db, vorhanden.id, patch)) ?? vorhanden;
-  }
-  return mangelAnlegen(db, {
-    objekt_id: objekt.id,
-    bauteil_id: bauteil.id,
-    pruefung_id: pruefung.id,
-    punkte,
-    beschreibung,
-    prioritaet,
-    frist,
-    zustaendig,
-  });
+  bauteilId: string,
+  ausserBegehung: string,
+): Promise<OffenerBefund | null> {
+  const z = await db
+    .prepare(
+      `SELECT p.checks_json, p.ergebnis, p.hinweise, b.datum
+         FROM pruefungen p JOIN begehungen b ON b.id = p.begehung_id
+        WHERE p.bauteil_id = ? AND p.begehung_id <> ? AND b.status <> 'abgebrochen'
+        ORDER BY b.datum DESC, p.geprueft_am DESC LIMIT 1`,
+    )
+    .bind(bauteilId, ausserBegehung)
+    .first<{ checks_json: string; ergebnis: string; hinweise: string; datum: string }>();
+  if (!z || z.ergebnis !== "Nachbesserung") return null;
+  const checks = lies<Record<string, Bewertung>>(z.checks_json, {});
+  return {
+    datum: z.datum,
+    punkte: Object.entries(checks)
+      .filter(([, b]) => b === "nio" || b === "sb")
+      .map(([nr]) => nr)
+      .sort((a, b) => Number(a) - Number(b)),
+    hinweise: z.hinweise ?? "",
+  };
 }
 
-function tageSpaeter(datum: string, tage: number): string {
-  const d = new Date(`${datum}T12:00:00Z`);
-  if (Number.isNaN(d.getTime())) return "";
-  d.setUTCDate(d.getUTCDate() + tage);
-  return d.toISOString().slice(0, 10);
-}
-
-function beschreibungAusPunkten(punkte: string[]): string {
-  if (!punkte.length) return "Nachbesserung erforderlich";
-  return `Punkt ${punkte.join(", ")} nicht in Ordnung`;
-}
-
-export { alsPruefung, tageSpaeter };

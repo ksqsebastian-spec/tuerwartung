@@ -2,8 +2,7 @@
 --
 -- Das Bauteil ist die feste Größe, nicht der Termin: eine Tür existiert einmal und trägt ihre
 -- Geschichte. Eine Begehung ist ein Ereignis, das Prüfungen an Bauteilen erzeugt. Daraus folgt
--- der Aufbau: objekte → gebaeude → geschosse → bauteile; begehungen → pruefungen → maengel,
--- fotos, berichte.
+-- der Aufbau: objekte → gebaeude → geschosse → bauteile; begehungen → pruefungen → berichte.
 --
 -- v2 ersetzt v1 vollständig — die Produktivdatenbank war leer, es gibt keine Migration.
 -- `personen` bleibt (die vier Konten mit ihren Passwörtern) und bekommt die Spalte `rolle`;
@@ -190,45 +189,7 @@ CREATE TABLE pruefungen (
 );
 CREATE INDEX idx_pruefungen_bauteil ON pruefungen (bauteil_id, geprueft_am DESC);
 
--- Mangel: lebt am Bauteil, entsteht aus einer Prüfung, endet durch Freimeldung.
-CREATE TABLE maengel (
-  id            TEXT PRIMARY KEY,
-  objekt_id     TEXT NOT NULL REFERENCES objekte(id),
-  bauteil_id    TEXT NOT NULL REFERENCES bauteile(id),
-  pruefung_id   TEXT REFERENCES pruefungen(id),  -- Ursprung
-  punkte_json   TEXT NOT NULL DEFAULT '[]',      -- ["8","10"] — betroffene Prüfpunkte
-  beschreibung  TEXT NOT NULL DEFAULT '',
-  prioritaet    TEXT NOT NULL DEFAULT 'mittel',  -- hoch | mittel | niedrig
-  frist         TEXT,                            -- YYYY-MM-DD
-  zustaendig    TEXT NOT NULL DEFAULT '',        -- „Seehafer" | „Betreiber" | Freitext
-  status        TEXT NOT NULL DEFAULT 'offen',   -- offen | in_arbeit | behoben | verworfen
-  behoben_am    INTEGER,
-  behoben_von   TEXT NOT NULL DEFAULT '',
-  freimeldung   TEXT NOT NULL DEFAULT '',        -- Text der Freimeldung
-  hero_angebot_id TEXT,                          -- v3
-  angelegt_am   INTEGER NOT NULL,
-  geaendert_am  INTEGER NOT NULL
-);
-CREATE INDEX idx_maengel_offen ON maengel (status, frist);
-CREATE INDEX idx_maengel_bauteil ON maengel (bauteil_id, status);
 
--- Foto: hängt am Bauteil, optional an Prüfung und/oder Mangel. (Bedient ab Stufe 2.)
-CREATE TABLE fotos (
-  id             TEXT PRIMARY KEY,
-  objekt_id      TEXT NOT NULL,
-  bauteil_id     TEXT NOT NULL REFERENCES bauteile(id),
-  pruefung_id    TEXT REFERENCES pruefungen(id),
-  mangel_id      TEXT REFERENCES maengel(id),
-  r2_schluessel  TEXT NOT NULL,                  -- fotos/<objekt>/<bauteil>/<id>.jpg
-  breite         INTEGER NOT NULL,
-  hoehe          INTEGER NOT NULL,
-  notiz          TEXT NOT NULL DEFAULT '',
-  aufgenommen_am INTEGER NOT NULL,
-  von            TEXT NOT NULL DEFAULT '',
-  aktiv          INTEGER NOT NULL DEFAULT 1
-);
-CREATE INDEX idx_fotos_pruefung ON fotos (pruefung_id);
-CREATE INDEX idx_fotos_bauteil ON fotos (bauteil_id, aufgenommen_am DESC);
 
 -- Bericht: eine erzeugte PDF-Version. Wird nie gelöscht, nie überschrieben.
 CREATE TABLE berichte (
@@ -293,10 +254,3 @@ CREATE TABLE vorschlaege (
 );
 CREATE INDEX idx_vorschlaege_import ON vorschlaege (import_id, status);
 
--- Offline-Abgleich: jede Operation vom Handy trägt eine Client-ID; Doppelte werden verworfen.
--- (Bedient ab Stufe 2.)
-CREATE TABLE sync_ops (
-  op_id        TEXT PRIMARY KEY,                -- vom Client erzeugte UUID
-  person       TEXT NOT NULL,
-  eingegangen_am INTEGER NOT NULL
-);

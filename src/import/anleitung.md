@@ -12,7 +12,7 @@ ein Mensch geben). Alles andere macht der Server — Türtypen, Geschosse, Numme
 **Liegen Liste und Plan vor, nimm die Liste zuerst.** Sie trägt Türtypen und Stammdaten; der Plan
 trägt nur Positionen und wird danach an den vorhandenen Bestand gehängt.
 
-1. **Datei lesen und `bauplan_uebernehmen`.** Objekt, die gefundenen Türen, bei Plänen das
+1. **Datei lesen und `einrichten` mit `tueren`.** Objekt, die gefundenen Türen, bei Plänen das
    Geschoss („EG", „1. OG", „UG" — unbekannte Namen werden angelegt). Ob Plan oder Türliste
    erkennt der Server an den Positionen; der Import wird nebenbei angelegt. Mehr als ~100 Türen:
    mehrfach aufrufen und ab dem zweiten Mal die zurückgegebene `import`-Kennung mitgeben.
@@ -20,13 +20,13 @@ trägt nur Positionen und wird danach an den vorhandenen Bestand gehängt.
    Die Antwort enthält einen fertigen **`bericht`** — den vorlesen, nicht die ganze Liste — und
    **`freigabe_moeglichkeiten`**: die üblichen Auswahlen samt Aufruf.
 
-2. **Freigabe einholen und `vorschlaege_annehmen`.** Der Mensch entscheidet („nimm alle mit
+2. **Freigabe einholen und `einrichten` mit `freigeben`.** Der Mensch entscheidet („nimm alle mit
    T30", „alle ab 0.85") — im Gespräch oder auf der Planseite im Browser. Bleibt danach nichts
    offen, schließt sich der Import selbst.
 
 Bleibt etwas Unklares übrig, kannst du es mit `vorschlaege_verwerfen` wegräumen oder mit
-`vorschlaege_lesen` einzeln zeigen. Und wenn Plan **und** Türliste vorliegen, siehe unten:
-beides einzeln übernehmen, dann `import_zusammenfuehren`.
+`stand` einzeln zeigen. Und wenn Plan **und** Türliste vorliegen, siehe unten:
+beides einzeln übernehmen, dann ein zweiter `einrichten`-Aufruf.
 
 ## Was in einer echten Türen- oder Fensterliste steht
 
@@ -166,15 +166,15 @@ entstehen keine Dubletten. Der Bericht sagt dir, wie viele verortet wurden.
   siehst, gibt es nicht. Lieber zwanzig sichere Kandidaten als vierzig geratene.
 - **Keine Möbel, keine Fenster** (außer die Vorlage ist ausdrücklich `wartung_fenster`), keine
   Sanitärobjekte, keine Aufzugstüren.
-- **Keine Bauteile anlegen.** Das macht die Freigabe. `bauteil_anlegen` ist für den Einzelfall
+- **Keine Bauteile anlegen.** Das macht die Freigabe. `einrichten` ist für den Einzelfall
   von Hand da, nicht für den Import.
-- **Nicht zweimal dieselbe Datei.** Vor einem neuen Import mit `vorschlaege_lesen` nachsehen,
+- **Nicht zweimal dieselbe Datei.** Vor einem neuen Import mit `stand` nachsehen,
   ob für dieses Geschoss schon etwas offen ist.
 
 ## Türliste und Plan zusammen
 
-Liegt beides vor, wird beides einzeln übernommen (zwei `bauplan_uebernehmen`) und danach einmal
-**`import_zusammenfuehren`** aufgerufen. Türwerk paart, was sicher zusammengehört: gleiche
+Liegt beides vor, wird beides einzeln übernommen (zwei `einrichten` mit `tueren`) und danach einmal
+**ein zweiter `einrichten`-Aufruf** aufgerufen. Türwerk paart, was sicher zusammengehört: gleiche
 Kennung, sonst gleiche Raumnummer, wenn dort auf beiden Seiten genau eine Tür steht. Der Rest
 bleibt getrennt stehen. Position kommt vom Plan, Felder von der Liste.
 

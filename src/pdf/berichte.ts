@@ -12,7 +12,7 @@
  */
 import type { Env } from "../env";
 import { Fueller, deckblatt } from "./fuellen";
-import type { BerichtFoto, DeckblattZeile } from "./fuellen";
+import type { DeckblattZeile } from "./fuellen";
 import { PDFDocument } from "pdf-lib";
 import { zipBauen } from "./zip";
 import { vorlage, vorlagePdf } from "../vorlagen";
@@ -36,7 +36,6 @@ import {
   sammelberichteLesen,
 } from "../daten/berichte";
 import type { Bericht } from "../daten/berichte";
-import { fotosZuPruefung } from "../daten/fotos";
 import { personLesen } from "../daten/personen";
 
 export interface Lauf {
@@ -124,23 +123,6 @@ async function ausR2(env: Env, schluessel: string | null): Promise<Uint8Array | 
   return obj ? new Uint8Array(await obj.arrayBuffer()) : null;
 }
 
-/** Die Fotos einer Prüfung als Bilddaten, bereit fürs Einbetten (Abschnitt 4.3). */
-async function fotosLaden(env: Env, pruefungId: string): Promise<BerichtFoto[]> {
-  const zeilen = await fotosZuPruefung(env.DB, pruefungId);
-  const out: BerichtFoto[] = [];
-  for (const f of zeilen) {
-    const obj = await env.R2.get(f.r2_schluessel);
-    if (!obj) continue;
-    out.push({
-      daten: new Uint8Array(await obj.arrayBuffer()),
-      typ: obj.httpMetadata?.contentType ?? "image/jpeg",
-      notiz: f.notiz,
-      aufgenommen_am: f.aufgenommen_am,
-    });
-  }
-  return out;
-}
-
 /**
  * Erzeugt die Berichte einer Begehung, deren Stand sich seit der letzten Version geändert hat.
  * `alle` erzwingt eine neue Version für jede Prüfung.
@@ -206,12 +188,9 @@ export async function berichteErzeugen(
         );
       }
       const vorher = await vorherigePruefung(env.DB, p.bauteil_id, p.geprueft_am);
-      const fotos = await fotosLaden(env, p.id);
       const { bytes, seiten } = await fueller.get(art)!.erzeugen({
         felder: datensatz(objekt, begehung, p.bauteil, p, vorher?.datum ?? ""),
         checks: p.checks,
-        fotos,
-        anhang_titel: `Tür ${p.bauteil.nr}, ${objekt.name}, ${begehung.datum}`,
       });
 
       const version = (letzte?.version ?? 0) + 1;
@@ -255,6 +234,10 @@ export interface BerichtsPosten {
   aeltere: { version: number; schluessel: string; erzeugt_am: number }[];
   /** true, wenn sich der Stand seit dieser Version geändert hat. */
   veraltet: boolean;
+  /** „bestanden" oder „Nachbesserung" — danach liegen die Berichte in zwei Ordnern. */
+  ergebnis: string;
+  /** Ort der Tür, für die Zeile in der Liste. */
+  ort: string;
 }
 
 /** Die Berichtsliste einer Begehung: je Prüfung die neueste Version, ältere im Aufklapper. */
@@ -302,6 +285,11 @@ export async function berichtsUebersicht(
         erzeugt_am: v.erzeugt_am,
       })),
       veraltet: neueste.stand_hash !== p.stand_hash,
+      ergebnis: p.ergebnis,
+      ort:
+        [p.bauteil.raumnummer, p.bauteil.raum || p.bauteil.bezeichnung, p.bauteil.flur]
+          .filter(Boolean)
+          .join(" · "),
     });
   }
   out.sort((a, b) => a.nr - b.nr);
@@ -321,10 +309,16 @@ export async function berichtePaket(
   const posten = await berichtsUebersicht(env, begehung, objekt);
   if (!posten.length) throw new Error("Für diese Begehung gibt es noch keine Berichte.");
 
+  /*
+   * Zwei Ordner im Paket, sonst nichts: was bestanden hat, und was nachgebessert werden muss.
+   * Das ist die Trennung, nach der die Berichte am Ende ohnehin sortiert werden — dann soll sie
+   * schon im ZIP stehen und nicht von Hand nachgezogen werden müssen.
+   */
   const eintraege = [];
   for (const p of posten) {
     const daten = await ausR2(env, p.schluessel);
-    if (daten) eintraege.push({ name: p.name, daten });
+    const ordner = p.ergebnis === "Nachbesserung" ? "nachbesserung" : "bestanden";
+    if (daten) eintraege.push({ name: `${ordner}/${p.name}`, daten });
   }
   /* Der Sammelbericht gehört mit ins Paket, wenn es einen gibt. */
   const sammel = (await sammelberichteLesen(env.DB, begehungId))[0];
@@ -378,13 +372,6 @@ export async function sammelberichtErzeugen(
     };
   });
 
-  const offeneMaengel = await env.DB.prepare(
-    `SELECT COUNT(*) AS n FROM maengel m JOIN pruefungen p ON p.id = m.pruefung_id
-      WHERE p.begehung_id = ? AND m.status IN ('offen','in_arbeit')`,
-  )
-    .bind(begehung.id)
-    .first<{ n: number }>();
-
   const unterschriftBetreiber = await ausR2(env, begehung.betreiber_unterschrift);
   const deckblattBytes = await deckblatt(
     {
@@ -398,7 +385,6 @@ export async function sammelberichtErzeugen(
       ort: begehung.ort,
       betreiber_name: begehung.betreiber_name,
       zeilen,
-      offene_maengel: Number(offeneMaengel?.n ?? 0),
     },
     unterschriftBetreiber,
   );

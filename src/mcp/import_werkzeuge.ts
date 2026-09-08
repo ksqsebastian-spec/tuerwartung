@@ -9,7 +9,7 @@ import type { Kontext, ToolDef } from "./protokoll";
 import { VORLAGEN_IDS, vorlage } from "../vorlagen";
 import { zugriffPruefen } from "../daten/basis";
 import { geschossAnlegen, geschosseListe, geschossZuordnen, objektAufloesen } from "../daten/objekte";
-import { tuertypAnlegen, tuertypPerName } from "../daten/tuertypen";
+import { tuertypAnlegen, tuertypAusVorrat, tuertypPerName } from "../daten/tuertypen";
 import { bauteilAendern, bauteilPerKennung } from "../daten/bauteile";
 import type { Objekt } from "../daten/objekte";
 import {
@@ -100,71 +100,7 @@ function vorschlagAnsicht(v: Vorschlag) {
 
 /* ── Anleitung ─────────────────────────────────────────────────────────────── */
 
-const importAnleitung: ToolDef = {
-  name: "import_anleitung",
-  title: "Anleitung für den Bauplan-Import",
-  description:
-    "Wie ein Bauplan oder eine Türliste nach Türwerk kommt: der Ablauf, das Format eines " +
-    "Kandidaten und was nicht geraten werden darf. VOR dem ersten Import lesen — Türwerk liest " +
-    "keine Pläne, das tust du, und diese Anleitung sagt, was Türwerk davon erwartet.",
-  inputSchema: { type: "object", properties: {}, additionalProperties: false },
-  annotations: NUR_LESEN,
-  async handler(_args, ctx) {
-    return {
-      anleitung,
-      vorlagen: VORLAGEN_IDS,
-      zum_nachlesen: `${ctx.origin}/anleitung/import`,
-    };
-  },
-};
-
 /* ── Import ────────────────────────────────────────────────────────────────── */
-
-const importStarten: ToolDef = {
-  name: "import_starten",
-  title: "Import starten",
-  description:
-    "Legt einen Import an — einen Plan oder eine Türliste. Liegt beides vor, wird beides " +
-    "einzeln importiert und danach 'import_zusammenfuehren' aufgerufen. Bei Plänen das Geschoss " +
-    "angeben; ein unbekannter Name legt es an.",
-  inputSchema: {
-    type: "object",
-    properties: {
-      objekt: str("ID, Name oder Adresse des Objekts"),
-      art: str("plan | tuerliste"),
-      dateiname: str("Name der Datei, die du gelesen hast — steht später in der Herkunft"),
-      geschoss: str("Bei Plänen: Name oder ID des Geschosses, z. B. 'EG' oder '1. OG'"),
-    },
-    required: ["objekt", "art"],
-    additionalProperties: false,
-  },
-  annotations: SCHREIBT,
-  async handler(args, ctx) {
-    const objekt = await holeObjekt(ctx, pflicht<string>(args, "objekt"));
-    const art = String(pflicht<string>(args, "art")).toLowerCase();
-    if (!["plan", "tuerliste"].includes(art)) {
-      throw new Error(`Art '${art}' gibt es nicht. Möglich: plan, tuerliste.`);
-    }
-    const geschossId = art === "plan" ? await holeGeschoss(ctx, objekt, args.geschoss) : null;
-    const i = await importAnlegen(ctx.env.DB, {
-      objekt_id: objekt.id,
-      art,
-      dateiname: String(args.dateiname ?? "").trim() || "ohne Dateinamen",
-      geschoss_id: geschossId,
-      angelegt_von: ctx.nutzer.benutzer,
-    });
-    return {
-      import: i.id,
-      objekt: objekt.name,
-      art: i.art,
-      geschoss: geschossId,
-      link: `${ctx.origin}/objekt/${objekt.id}/import`,
-      weiter:
-        "Jetzt die Datei lesen und die Kandidaten mit 'vorschlaege_anlegen' melden — " +
-        "in Stapeln von höchstens 100.",
-    };
-  },
-};
 
 const KANDIDAT = {
   type: "object",
@@ -194,59 +130,6 @@ const KANDIDAT = {
   additionalProperties: false,
 };
 
-const vorschlaegeAnlegenTool: ToolDef = {
-  name: "vorschlaege_anlegen",
-  title: "Gefundene Türen melden",
-  description:
-    "Meldet, was du im Plan oder in der Liste gefunden hast. Daraus werden noch keine Bauteile " +
-    "— erst die Freigabe durch einen Menschen macht welche daraus. Nichts erfinden: eine Zelle, " +
-    "die du nicht liest, bleibt leer; eine Tür, die du nicht siehst, gibt es nicht.",
-  inputSchema: {
-    type: "object",
-    properties: {
-      import: str("Kennung aus 'import_starten'"),
-      kandidaten: {
-        type: "array",
-        description: "Die gefundenen Türen, höchstens ~100 je Aufruf.",
-        items: KANDIDAT,
-      },
-    },
-    required: ["import", "kandidaten"],
-    additionalProperties: false,
-  },
-  annotations: SCHREIBT,
-  async handler(args, ctx) {
-    const imp = await holeImport(ctx, pflicht<string>(args, "import"));
-    const kandidaten = pflicht<Record<string, any>[]>(args, "kandidaten");
-    if (!Array.isArray(kandidaten) || !kandidaten.length) {
-      throw new Error("Keine Kandidaten dabei.");
-    }
-    if (kandidaten.length > 200) {
-      throw new Error(
-        `${kandidaten.length} Kandidaten auf einmal sind zu viele. In Stapeln von höchstens 100 melden.`,
-      );
-    }
-    for (const k of kandidaten) {
-      if (k.art) vorlage(String(k.art));
-    }
-    const angelegt = await vorschlaegeAnlegen(ctx.env.DB, imp, kandidaten);
-    const alle = await vorschlaegeLesen(ctx.env.DB, { import_id: imp.id });
-    await importAendern(ctx.env.DB, imp.id, {
-      status: "ausgewertet",
-      ergebnis: { gefunden: alle.length, gemeldet_am: Date.now() },
-    });
-    return {
-      angelegt: angelegt.length,
-      im_import: alle.length,
-      zahlen: zaehlen(alle),
-      link: `${ctx.origin}/objekt/${imp.objekt_id}/import/${imp.id}`,
-      weiter:
-        "Kurz berichten, was gefunden wurde, und die Freigabe einholen. Dann " +
-        "'vorschlaege_annehmen' — im Gespräch oder über die Planseite.",
-    };
-  },
-};
-
 /**
  * Der Bauplan-Import in einem Aufruf bis zur Freigabe.
  *
@@ -256,7 +139,7 @@ const vorschlaegeAnlegenTool: ToolDef = {
  *
  * Also: dieses Tool nimmt die gefundenen Türen entgegen, legt den Import nebenbei an und
  * antwortet mit dem, was man vorlesen kann — samt fertiger Vorschläge, wie freigegeben werden
- * kann. Danach nur noch 'vorschlaege_annehmen'; das schließt den Import selbst ab.
+ * kann. Danach nur noch 'einrichten' mit freigeben; das schließt den Import selbst ab.
  */
 const bauplanUebernehmenTool: ToolDef = {
   name: "bauplan_uebernehmen",
@@ -266,7 +149,7 @@ const bauplanUebernehmenTool: ToolDef = {
     "die gefundenen Türen ab. Der Import wird nebenbei angelegt. Daraus werden noch KEINE " +
     "Bauteile — die Antwort sagt dir, was du berichten und wie du die Freigabe einholen sollst " +
     "(Leitsatz: kein Import legt Bauteile ohne Menschen an). Danach nur noch " +
-    "'vorschlaege_annehmen'. Bei mehr als ~100 Türen mehrfach aufrufen und ab dem zweiten Mal " +
+    "'einrichten' mit freigeben. Bei mehr als ~100 Türen mehrfach aufrufen und ab dem zweiten Mal " +
     "die zurückgegebene 'import'-Kennung mitgeben. Nichts erfinden: eine Zelle, die du nicht " +
     "liest, bleibt leer; eine Tür, die du nicht siehst, gibt es nicht.",
   inputSchema: {
@@ -326,9 +209,17 @@ const bauplanUebernehmenTool: ToolDef = {
     for (const t of tueren) {
       const name = String(t.tuertyp ?? "").trim();
       if (name && !typen.has(name.toLowerCase())) {
-        const vorhanden = await tuertypPerName(ctx.env.DB, name);
+        /*
+         * Steht der Name im Vorrat, gilt der Vorrat: „Kunststofffenster DK" verlangt keine
+         * Ident-Nummer, eine T30 schon. Sonst entstünde beim Import ein gleichnamiger Typ mit
+         * pauschalen Pflichtangaben, und jedes Fenster meldete danach eine fehlende Ident-Nummer.
+         */
+        const bekannt = await tuertypPerName(ctx.env.DB, name);
+        const vorhanden =
+          bekannt ?? (await tuertypAusVorrat(ctx.env.DB, name, ctx.nutzer.benutzer));
         if (vorhanden) {
           typen.set(name.toLowerCase(), vorhanden.id);
+          if (!bekannt) typenNeu.push(name);
         } else {
           const neuerTyp = await tuertypAnlegen(ctx.env.DB, {
             name,
@@ -415,7 +306,7 @@ const bauplanUebernehmenTool: ToolDef = {
           `Diese Datei liegt schon offen im Objekt — alle ${doppelt.length} Kennungen sind ` +
           "bereits als Vorschlag da. Nichts doppelt angelegt.",
         weiter:
-          "Nicht noch einmal einlesen. Mit 'importe_auflisten' den offenen Import suchen und " +
+          "Nicht noch einmal einlesen. Mit 'stand' den offenen Import suchen und " +
           "ihn freigeben.",
       };
     }
@@ -494,7 +385,7 @@ const bauplanUebernehmenTool: ToolDef = {
       link: `${ctx.origin}/objekt/${objekt.id}/import/${imp.id}`,
       weiter: offene.length
         ? "Den Bericht vorlesen und fragen, was übernommen werden soll. Dann " +
-          "'vorschlaege_annehmen' mit dieser Import-Kennung — mehr ist nicht nötig, der Import " +
+          "'einrichten' mit freigeben mit dieser Import-Kennung — mehr ist nicht nötig, der Import " +
           "schließt sich danach selbst."
         : "Fertig, nichts freizugeben. Kurz berichten, was verortet wurde.",
     };
@@ -652,155 +543,12 @@ const vorschlaegeVerwerfenTool: ToolDef = {
   },
 };
 
-const importZusammenfuehrenTool: ToolDef = {
-  name: "import_zusammenfuehren",
-  title: "Türliste und Plan zusammenführen",
-  description:
-    "Paart die Vorschläge einer Türliste mit denen eines Plans: gleiche Kennung, sonst gleiche " +
-    "Raumnummer, wenn dort auf beiden Seiten genau eine Tür steht. Position kommt vom Plan, " +
-    "Felder von der Liste. Was nicht sicher zusammenpasst, bleibt getrennt stehen.",
-  inputSchema: {
-    type: "object",
-    properties: {
-      tuerliste: str("Kennung des Türlisten-Imports"),
-      plan: str("Kennung des Plan-Imports"),
-    },
-    required: ["tuerliste", "plan"],
-    additionalProperties: false,
-  },
-  annotations: SCHREIBT,
-  async handler(args, ctx) {
-    const listenImport = await holeImport(ctx, pflicht<string>(args, "tuerliste"));
-    const planImport = await holeImport(ctx, pflicht<string>(args, "plan"));
-    if (listenImport.objekt_id !== planImport.objekt_id) {
-      throw new Error("Die beiden Importe gehören zu verschiedenen Objekten.");
-    }
-    const liste = await vorschlaegeLesen(ctx.env.DB, {
-      import_id: listenImport.id,
-      status: "offen",
-    });
-    const plan = await vorschlaegeLesen(ctx.env.DB, { import_id: planImport.id, status: "offen" });
-    const ergebnis = zusammenfuehren(liste, plan);
-
-    for (const paar of ergebnis.paare) {
-      await vorschlagAendern(ctx.env.DB, paar.plan.id, verschmelzen(paar));
-      /* Die Listenzeile ist in den Plankandidaten aufgegangen — sie steht nicht mehr für sich. */
-      await ctx.env.DB.prepare("DELETE FROM vorschlaege WHERE id = ?").bind(paar.liste.id).run();
-    }
-    return {
-      zusammengefuehrt: ergebnis.paare.length,
-      ueber_kennung: ergebnis.paare.filter((p) => p.grund === "kennung").length,
-      ueber_raumnummer: ergebnis.paare.filter((p) => p.grund === "raumnummer").length,
-      nur_in_der_liste: ergebnis.nur_liste.length,
-      nur_im_plan: ergebnis.nur_plan.length,
-      hinweis:
-        "Was getrennt blieb, ist nicht falsch — es fehlt nur die Entsprechung. " +
-        "Listenzeilen ohne Plan werden Bauteile ohne Position.",
-    };
-  },
+/** Die Handgriffe des Imports — benutzt von `einrichten`, nicht mehr einzeln im Werkzeugkasten. */
+export const IMPORT = {
+  uebernehmen: bauplanUebernehmenTool.handler,
+  freigeben: vorschlaegeAnnehmenTool.handler,
+  verwerfen: vorschlaegeVerwerfenTool.handler,
+  offene: vorschlaegeLesenTool.handler,
 };
-
-const importAbschliessenTool: ToolDef = {
-  name: "import_abschliessen",
-  title: "Import abschließen",
-  description:
-    "Setzt den Import auf 'bestaetigt'. Was dann noch offen war, gilt als verworfen; die " +
-    "angelegten Bauteile bleiben natürlich.",
-  inputSchema: {
-    type: "object",
-    properties: { import: str("Kennung des Imports") },
-    required: ["import"],
-    additionalProperties: false,
-  },
-  annotations: SCHREIBT,
-  async handler(args, ctx) {
-    const imp = await holeImport(ctx, pflicht<string>(args, "import"));
-    const alle = await vorschlaegeLesen(ctx.env.DB, { import_id: imp.id, status: "alle" });
-    const zahl = zaehlen(alle);
-    await importAendern(ctx.env.DB, imp.id, {
-      status: "bestaetigt",
-      ergebnis: { ...zahl, abgeschlossen_am: Date.now() },
-    });
-    return {
-      import: imp.id,
-      status: "bestaetigt",
-      zahlen: zahl,
-      link: `${ctx.origin}/objekt/${imp.objekt_id}`,
-    };
-  },
-};
-
-const importeAuflistenTool: ToolDef = {
-  name: "importe_auflisten",
-  title: "Importe eines Objekts auflisten",
-  description: "Welche Pläne und Türlisten für dieses Objekt schon eingelesen wurden.",
-  inputSchema: {
-    type: "object",
-    properties: { objekt: str("ID, Name oder Adresse") },
-    required: ["objekt"],
-    additionalProperties: false,
-  },
-  annotations: NUR_LESEN,
-  async handler(args, ctx) {
-    const objekt = await holeObjekt(ctx, pflicht<string>(args, "objekt"));
-    const liste = await importeListe(ctx.env.DB, objekt.id);
-    const out = [];
-    for (const i of liste) {
-      const v = await vorschlaegeLesen(ctx.env.DB, { import_id: i.id, status: "alle" });
-      out.push({
-        id: i.id,
-        art: i.art,
-        dateiname: i.dateiname,
-        status: i.status,
-        angelegt_am: i.angelegt_am,
-        zahlen: zaehlen(v),
-      });
-    }
-    return { objekt: objekt.name, importe: out };
-  },
-};
-
-const geschossAnlegenTool: ToolDef = {
-  name: "geschoss_anlegen",
-  title: "Geschoss anlegen",
-  description:
-    "Legt ein Geschoss an. Die Reihenfolge kommt aus dem Namen (UG −1, EG 0, '2. OG' 2) und " +
-    "bestimmt, wie das Haus abgegangen wird.",
-  inputSchema: {
-    type: "object",
-    properties: {
-      objekt: str("ID, Name oder Adresse"),
-      name: str("Name des Geschosses, z. B. '1. OG'"),
-      reihenfolge: int("Eigene Reihenfolge, sonst aus dem Namen"),
-    },
-    required: ["objekt", "name"],
-    additionalProperties: false,
-  },
-  annotations: SCHREIBT,
-  async handler(args, ctx) {
-    const objekt = await holeObjekt(ctx, pflicht<string>(args, "objekt"));
-    const g = await geschossAnlegen(
-      ctx.env.DB,
-      objekt.id,
-      pflicht<string>(args, "name"),
-      args.reihenfolge,
-    );
-    return { geschoss: { id: g.id, name: g.name, reihenfolge: g.reihenfolge } };
-  },
-};
-
-export const IMPORT_TOOLS: ToolDef[] = [
-  bauplanUebernehmenTool,
-  importAnleitung,
-  importeAuflistenTool,
-  vorschlaegeLesenTool,
-  geschossAnlegenTool,
-  importStarten,
-  vorschlaegeAnlegenTool,
-  vorschlaegeAnnehmenTool,
-  vorschlaegeVerwerfenTool,
-  importZusammenfuehrenTool,
-  importAbschliessenTool,
-];
 
 export { anleitung };

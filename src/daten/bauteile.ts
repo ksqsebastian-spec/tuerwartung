@@ -39,7 +39,6 @@ export interface BauteilMitStand extends Bauteil {
   /** Prüfdatum der letzten Prüfung, leer wenn nie geprüft. */
   letzte_pruefung: string;
   letztes_ergebnis: string;
-  offene_maengel: number;
   stand: Faelligkeit;
 }
 
@@ -197,9 +196,9 @@ export async function bauteilAendern(
 }
 
 /**
- * Alle Bauteile eines Objekts mit ihrem Stand: letzte Prüfung, Ergebnis, offene Mängel,
- * Fälligkeit. Eine Abfrage — die Unterabfragen laufen je Zeile, aber ein Objekt hat Dutzende
- * Bauteile, keine Millionen.
+ * Alle Bauteile eines Objekts mit ihrem Stand: letzte Prüfung, Ergebnis, Fälligkeit. Eine
+ * Abfrage — die Unterabfragen laufen je Zeile, aber ein Objekt hat Dutzende Bauteile, keine
+ * Millionen.
  */
 export async function bauteileMitStand(
   db: D1Database,
@@ -212,9 +211,7 @@ export async function bauteileMitStand(
               (SELECT g.datum FROM pruefungen p JOIN begehungen g ON g.id = p.begehung_id
                  WHERE p.bauteil_id = b.id ORDER BY p.geprueft_am DESC LIMIT 1) AS letztes_datum,
               (SELECT p.ergebnis FROM pruefungen p
-                 WHERE p.bauteil_id = b.id ORDER BY p.geprueft_am DESC LIMIT 1) AS letztes_ergebnis,
-              (SELECT COUNT(*) FROM maengel m
-                 WHERE m.bauteil_id = b.id AND m.status IN ('offen','in_arbeit')) AS offene_maengel
+                 WHERE p.bauteil_id = b.id ORDER BY p.geprueft_am DESC LIMIT 1) AS letztes_ergebnis
          FROM bauteile b
         WHERE b.objekt_id = ? ${optionen.auch_stillgelegte ? "" : "AND b.aktiv = 1"}
         ORDER BY b.nr`,
@@ -230,7 +227,6 @@ export async function bauteileMitStand(
       ...b,
       letzte_pruefung: letztes,
       letztes_ergebnis: (zeile.letztes_ergebnis as string) ?? "",
-      offene_maengel: Number(zeile.offene_maengel ?? 0),
       stand: faelligkeit(letztes || null, b.intervall_monate ?? objekt.intervall_monate),
     };
   });

@@ -35,8 +35,6 @@ import type { Begehung } from "../daten/begehungen";
 import { tuertypenListe, typOderVorrat } from "../daten/tuertypen";
 import { TYPEN_VORRAT } from "../vorlagen/typenvorrat";
 import { berichtsUebersicht } from "../pdf/berichte";
-import { FOTO_SKRIPT, fotoBereich } from "./fotos";
-import { fotosZuPruefung } from "../daten/fotos";
 import { sammelberichteLesen } from "../daten/berichte";
 
 /**
@@ -128,7 +126,6 @@ export async function pruefungSeite(
   );
 
   const ziel = `/begehung/${encodeURIComponent(begehung.id)}/pruefung/${bauteil ? bauteil.nr : "neu"}`;
-  const fotos = pruefung ? await fotosZuPruefung(env.DB, pruefung.id) : [];
   const ort =
     bauteil && [bauteil.raumnummer, bauteil.raum, bauteil.flur].filter(Boolean).join(" · ");
 
@@ -194,16 +191,8 @@ automatisch „nicht bestanden".</p>
 <button class="btn schmal" type="submit">Prüfung speichern</button>
 <a class="btn schmal leise" href="${zurueck}">Zurück</a>
 ${bauteil ? `<a class="btn schmal leise" href="/objekt/${esc(objekt.id)}/bauteil/${bauteil.nr}">Bauteil</a>` : ""}
-</div></form>
-
-${
-  bauteil
-    ? `<h2 class="abschnitt">Fotos</h2>
-<p class="meta">Landen im Bericht als Anhangseite, zwei Fotos je Seite.</p>
-${fotoBereich(fotos, { begehung_id: begehung.id, bauteil_id: bauteil.id, bauteil_nr: bauteil.nr })}`
-    : ""
-}`,
-    { titel: `Tür ${nummer}`, nutzer, aktiv: "objekte", skript: bauteil ? FOTO_SKRIPT : undefined },
+</div></form>`,
+    { titel: `Tür ${nummer}`, nutzer, aktiv: "objekte" },
   );
 }
 

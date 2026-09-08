@@ -7,7 +7,7 @@
  * das dort funktioniert hat, funktioniert hier.
  *
  * v2 kann drei Dinge mehr: die zweite Unterschrift (der Betreiber quittiert die Begehung),
- * einen Fotoanhang hinter der Formularseite (Abschnitt 4.3) und das gezeichnete Deckblatt
+ * und das gezeichnete Deckblatt
  * des Sammelberichts (Abschnitt 4.4).
  */
 import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
@@ -62,23 +62,12 @@ function umbrechen(text: string, zeichenProZeile: number): string[] {
   return zeilen;
 }
 
-/** Ein Foto für den Anhang. `daten` ist das Bild, wie es in R2 liegt. */
-export interface BerichtFoto {
-  daten: Uint8Array;
-  typ: string;
-  notiz: string;
-  aufgenommen_am: number;
-}
-
 export interface Bericht {
   /** Flache Feldwerte, Schlüssel wie im Profil (IDENT, OBJEKT, ERGEBNIS …). */
   felder: Record<string, string>;
   /** Punkt-Nummer oder Zeilenschlüssel → Bewertung. Leer = alles In Ordnung. */
   checks: Record<string, Bewertung | Bewertung[]>;
-  /** Fotos, die als Anhangseiten hinter das Formular kommen (Abschnitt 4.3). */
-  fotos?: BerichtFoto[];
   /** Kopfzeile der Anhangseiten: „Tür 12 · Kita Heselstücken · 07.09.2026". */
-  anhang_titel?: string;
 }
 
 const A4: [number, number] = [595.28, 841.89];
@@ -86,7 +75,7 @@ const A4: [number, number] = [595.28, 841.89];
 /**
  * Hält die geladene Vorlage und die Unterschriften, damit eine Serie von Bauteilen die Vorlage
  * nur einmal parst. `erzeugen` liefert je Aufruf ein fertiges PDF: die Formularseite, dahinter
- * bei Bedarf der Fotoanhang.
+ * die Kreuze.
  */
 export class Fueller {
   private constructor(
@@ -192,15 +181,7 @@ export class Fueller {
       );
     }
 
-    /* Fotoanhang: eine Anhangseite je zwei Fotos (Abschnitt 4.3). */
-    let seiten = 1;
-    const fotos = bericht.fotos ?? [];
-    for (let i = 0; i < fotos.length; i += 2) {
-      await this.anhangseite(doc, fotos.slice(i, i + 2), bericht.anhang_titel ?? "", normal, fett);
-      seiten++;
-    }
-
-    return { bytes: await doc.save(), seiten };
+    return { bytes: await doc.save(), seiten: 1 };
   }
 
   private async unterschriftZeichnen(
@@ -224,65 +205,6 @@ export class Fueller {
     }
   }
 
-  /** Eine Anhangseite mit bis zu zwei Fotos, je mit Notiz und Zeitstempel darunter. */
-  private async anhangseite(
-    doc: PDFDocument,
-    fotos: BerichtFoto[],
-    titel: string,
-    normal: PDFFont,
-    fett: PDFFont,
-  ): Promise<void> {
-    const [B, H] = A4;
-    const seite = doc.addPage(A4);
-    const rand = 48;
-    seite.drawText(winAnsiSicher(`Fotoanhang - ${titel}`), {
-      x: rand,
-      y: H - rand,
-      size: 11,
-      font: fett,
-      color: rgb(0, 0, 0),
-    });
-
-    /* Zwei Plätze übereinander, je höchstens 160 × 120 mm (1 mm = 2.8346 pt). */
-    const maxB = Math.min(160 * 2.8346, B - 2 * rand);
-    const maxH = 120 * 2.8346;
-    let oben = H - rand - 26;
-
-    for (const f of fotos) {
-      let bild;
-      try {
-        bild = /png/i.test(f.typ) ? await doc.embedPng(f.daten) : await doc.embedJpg(f.daten);
-      } catch {
-        continue; /* ein unlesbares Foto kostet nicht den ganzen Bericht */
-      }
-      const faktor = Math.min(maxB / bild.width, maxH / bild.height, 1);
-      const breite = bild.width * faktor;
-      const hoehe = bild.height * faktor;
-      seite.drawImage(bild, { x: rand, y: oben - hoehe, width: breite, height: hoehe });
-      const unter = [f.notiz, zeitstempel(f.aufgenommen_am)].filter(Boolean).join(" · ");
-      if (unter) {
-        seite.drawText(winAnsiSicher(unter), {
-          x: rand,
-          y: oben - hoehe - 14,
-          size: 8,
-          font: normal,
-          color: rgb(0.25, 0.25, 0.3),
-        });
-      }
-      oben -= hoehe + 34;
-    }
-  }
-}
-
-function zeitstempel(ms: number): string {
-  if (!ms) return "";
-  return new Date(ms).toLocaleString("de-DE", {
-    day: "2-digit",
-    month: "2-digit",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
 }
 
 
@@ -306,7 +228,6 @@ export interface DeckblattDaten {
   ort: string;
   betreiber_name: string;
   zeilen: DeckblattZeile[];
-  offene_maengel: number;
 }
 
 /**
@@ -405,9 +326,14 @@ export async function deckblatt(
   platzPruefen(40);
   y -= 8;
   const nachbesserung = daten.zeilen.filter((z) => z.ergebnis === "Nachbesserung").length;
+  /*
+   * Der Satz, der unter der Tabelle steht — und zugleich die Ordnung, in der die Berichte
+   * abgelegt werden: bestanden und Nachbesserung.
+   */
   text(
-    `${daten.zeilen.length} Bauteile geprüft - ${nachbesserung} mit Nachbesserung - ` +
-      `${daten.offene_maengel} offene Mängel`,
+    `${daten.zeilen.length} Bauteile geprüft - ${
+      daten.zeilen.length - nachbesserung
+    } bestanden - ${nachbesserung} mit Nachbesserung`,
     rand,
     10,
     fett,

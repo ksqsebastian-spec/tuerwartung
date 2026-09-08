@@ -344,22 +344,26 @@ export interface SeitenOptionen {
   /** Zusätzliches Skript am Seitenende. */
   skript?: string;
   status?: number;
-  /** Attribute am `body` — der Rundgang hängt dort seine Begehungskennung hin. */
+  /** Attribute am `body` — die Planseite hängt dort ihre Geschosskennung hin. */
   koerper?: string;
-  /** Ohne Kopfzeile: der Rundgang ist eine Arbeitsfläche, keine Website. */
-  ohneKopf?: boolean;
+  /** Zusätzliches Stylesheet dieser Seite. */
+  stil?: string;
 }
 
 export function seite(inhalt: string, opt: SeitenOptionen): Response {
   const logo = `data:image/svg+xml;base64,${btoa(MARKE)}`;
   const nav = opt.nutzer
-    ? `<nav>
+    ? /*
+       * Zwei Ziele, mehr nicht: die Objekte, an denen gearbeitet wird, und die Stammdaten, die
+       * über allen gelten. „Checkliste" stand hier einmal eigens — sie gehört zu einem Türtyp
+       * und damit unter die Stammdaten. Verbinden und Einstellungen sind Einmaliges; sie
+       * stehen leise beim Namen, nicht als Hauptweg.
+       */
+      `<nav>
 <a href="/objekte"${opt.aktiv === "objekte" ? ' aria-current="page"' : ""}>Objekte</a>
 <a href="/stammdaten"${opt.aktiv === "stammdaten" ? ' aria-current="page"' : ""}>Stammdaten</a>
-<a href="/checkliste"${opt.aktiv === "checkliste" ? ' aria-current="page"' : ""}>Checkliste</a>
-<a href="/verbinden"${opt.aktiv === "verbinden" ? ' aria-current="page"' : ""}>Claude</a>
-<a href="/einstellungen"${opt.aktiv === "einstellungen" ? ' aria-current="page"' : ""}>Einstellungen</a>
 <span class="wer">${esc(opt.nutzer.name)}</span>
+<a href="/einstellungen" class="wer"${opt.aktiv === "einstellungen" ? ' aria-current="page"' : ""}>Einstellungen</a>
 <a href="/abmelden" class="wer">Abmelden</a></nav>`
     : "";
 
@@ -368,15 +372,11 @@ export function seite(inhalt: string, opt: SeitenOptionen): Response {
 <title>${esc(opt.titel)} · Türwerk</title>
 <link rel="icon" href="${logo}">
 <meta name="theme-color" content="#ffffff">
-<style>${BASE_CSS}${APP_CSS}</style></head><body${opt.koerper ? ` ${opt.koerper}` : ""}>
-${
-  opt.ohneKopf
-    ? ""
-    : `<header class="kopf"><div class="innen">
+<style>${BASE_CSS}${APP_CSS}${opt.stil ?? ""}</style></head><body${opt.koerper ? ` ${opt.koerper}` : ""}>
+<header class="kopf"><div class="innen">
 <img class="logo" src="${logo}" alt="" width="30" height="30">
 <a href="/" class="titel">Türwerk</a>${nav}
-</div></header>`
-}
+</div></header>
 <main class="wrap rise">${inhalt}</main>
 ${opt.skript ? `<script>${opt.skript}</script>` : ""}
 </body></html>`;

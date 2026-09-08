@@ -2,7 +2,7 @@
  * Die Bauteilseite: ein Bauteil mit allem, was über die Jahre daran hängt.
  *
  * Das ist die Seite, die es in v1 nicht gab und die v2 ausmacht — Stammdaten oben,
- * darunter die Prüfungen aller Begehungen, die Mängel, die Fotos und jede Berichtsversion.
+ * darunter die Prüfungen aller Begehungen und jede Berichtsversion.
  */
 import type { Env } from "../env";
 import type { Nutzer } from "../auth/sitzung";
@@ -20,9 +20,6 @@ import { VORLAGEN, VORLAGEN_IDS, abweichungenKlartext, feldLabel, vorlage } from
 import { geschosseListe, objektLesen } from "../daten/objekte";
 import { bauteileMitStand } from "../daten/bauteile";
 import { pruefungenHistorie } from "../daten/begehungen";
-import { maengelZuBauteil } from "../daten/maengel";
-import { fotosZuBauteil } from "../daten/fotos";
-import { fotoBereich } from "./fotos";
 import { berichteZuPruefung } from "../daten/berichte";
 import { tuertypenListe, typOderVorrat } from "../daten/tuertypen";
 import { TYPEN_VORRAT } from "../vorlagen/typenvorrat";
@@ -140,8 +137,6 @@ ${stammdaten}`,
   }
 
   const historie = await pruefungenHistorie(env.DB, b.id);
-  const maengel = await maengelZuBauteil(env.DB, b.id);
-  const fotos = await fotosZuBauteil(env.DB, b.id);
 
   const berichteJePruefung = new Map<string, { version: number; r2_schluessel: string }[]>();
   for (const p of historie) {
@@ -180,30 +175,6 @@ ${
         .join("")}</div>`
     : `<div class="leer">Noch nie geprüft.</div>`;
 
-  /*
-   * Kein eigener Mängelbereich mehr: was nicht in Ordnung war, steht in der Historie an seiner
-   * Prüfung. Hier bleibt nur, was aus früheren Jahren noch offen ist — das ist die Information,
-   * nach der beim nächsten Mal gefragt wird.
-   */
-  const offen = maengel.filter((m) => m.status === "offen" || m.status === "in_arbeit");
-  const mangelListe = offen.length
-    ? `<h2 class="abschnitt">Aus früheren Prüfungen offen</h2><div class="liste">${offen
-        .map(
-          (m) => `<div class="posten">
-<div class="haupt"><div class="name">${esc(m.beschreibung || "ohne Beschreibung")}</div>
-<div class="unter">seit ${esc(datumAnzeige(new Date(m.angelegt_am).toISOString().slice(0, 10)))}${
-            m.punkte.length ? ` · Punkt ${esc(m.punkte.join(", "))}` : ""
-          }</div></div></div>`,
-        )
-        .join("")}</div>`
-    : "";
-
-  const fotoListe = fotos.length
-    ? `<h2 class="abschnitt">Fotos</h2>
-<p class="meta">Alle Jahre, jüngste zuerst.</p>
-${fotoBereich(fotos, null)}`
-    : "";
-
   const ort =
     [b.raumnummer, b.raum || b.bezeichnung, b.flur].filter(Boolean).join(" · ") || "ohne Ortsangabe";
 
@@ -232,8 +203,6 @@ ${meldung ? `<div class="note" style="margin-bottom:22px">${esc(meldung)}</div>`
 
 <h2 class="abschnitt">Historie</h2>
 ${pruefungListe}
-${mangelListe}
-${fotoListe}
 
 <details class="klapp">
 <summary>Stammdaten <span class="meta">${esc(

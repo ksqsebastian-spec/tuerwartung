@@ -246,13 +246,14 @@ export async function objektAendern(
 export interface ObjektMitStand extends Objekt {
   bauteile: number;
   faellige_bauteile: number;
-  offene_maengel: number;
+  /** Türen, deren letzte Prüfung „Nachbesserung" ergab — der Befund, nicht ein zweiter Zustand. */
+  nicht_bestanden: number;
   letzte_begehung: string | null;
   stand: Faelligkeit;
 }
 
 /**
- * Die Startseite: Objekte mit Fälligkeit, Bauteilzahl und offenen Mängeln, sortiert nach
+ * Die Startseite: Objekte mit Fälligkeit, Bauteilzahl und nicht bestandenen Türen, sortiert nach
  * Dringlichkeit. Drei Abfragen statt korrelierter Unterabfragen je Objekt — bei einigen
  * Dutzend Objekten und ein paar tausend Bauteilen ist das der ruhigere Weg.
  */
@@ -281,15 +282,10 @@ export async function objekteListe(
     .prepare(
       `SELECT b.objekt_id, b.id, b.intervall_monate, b.wartungspflichtig,
               (SELECT g.datum FROM pruefungen p JOIN begehungen g ON g.id = p.begehung_id
-                 WHERE p.bauteil_id = b.id ORDER BY p.geprueft_am DESC LIMIT 1) AS letztes_datum
+                 WHERE p.bauteil_id = b.id ORDER BY p.geprueft_am DESC LIMIT 1) AS letztes_datum,
+              (SELECT p.ergebnis FROM pruefungen p
+                 WHERE p.bauteil_id = b.id ORDER BY p.geprueft_am DESC LIMIT 1) AS letztes_ergebnis
          FROM bauteile b WHERE b.aktiv = 1`,
-    )
-    .all();
-
-  const { results: maengel } = await db
-    .prepare(
-      `SELECT objekt_id, COUNT(*) AS n FROM maengel
-        WHERE status IN ('offen','in_arbeit') GROUP BY objekt_id`,
     )
     .all();
 
@@ -297,8 +293,6 @@ export async function objekteListe(
     .prepare("SELECT objekt_id, MAX(datum) AS letzte FROM begehungen GROUP BY objekt_id")
     .all();
 
-  const mangelZahl = new Map<string, number>();
-  for (const z of maengel ?? []) mangelZahl.set(String((z as any).objekt_id), Number((z as any).n));
   const letzteBegehung = new Map<string, string>();
   for (const z of begehungen ?? []) letzteBegehung.set(String((z as any).objekt_id), String((z as any).letzte));
 
@@ -315,7 +309,7 @@ export async function objekteListe(
       ...o,
       bauteile: eigene.length,
       faellige_bauteile: stufen.filter((f) => f.nie_geprueft || (f.tage ?? 0) <= 0).length,
-      offene_maengel: mangelZahl.get(o.id) ?? 0,
+      nicht_bestanden: eigene.filter((z) => (z as any).letztes_ergebnis === "Nachbesserung").length,
       letzte_begehung: letzteBegehung.get(o.id) ?? null,
       stand: frueheste(stufen),
     };
@@ -575,7 +569,6 @@ export async function objektLoeschen(db: D1Database, objektId: string): Promise<
       )
       .bind(objektId),
     db.prepare("DELETE FROM fotos WHERE objekt_id = ?").bind(objektId),
-    db.prepare("DELETE FROM maengel WHERE objekt_id = ?").bind(objektId),
     db
       .prepare(
         "DELETE FROM pruefungen WHERE begehung_id IN (SELECT id FROM begehungen WHERE objekt_id = ?)",

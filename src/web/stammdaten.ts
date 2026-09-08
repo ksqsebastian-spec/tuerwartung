@@ -81,7 +81,7 @@ einer Tür stehen sie ohnehin zur Auswahl — übernehmen musst du hier nichts.<
 }
 
 <details class="klapp" style="margin-top:30px">
-<summary>Eigenen Türtyp anlegen <span class="meta">oder im Chat mit tuertyp_anlegen</span></summary>
+<summary>Eigenen Türtyp anlegen <span class="meta">oder im Chat mit einrichten</span></summary>
 <form class="karte" method="post" action="/stammdaten" style="margin-top:8px">
 <div class="felder">
 ${textfeld("name", "Name", "", 'required placeholder="T30 Flurtür Hörmann"')}

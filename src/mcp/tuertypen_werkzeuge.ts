@@ -54,7 +54,7 @@ async function holeTyp(ctx: Kontext, text: string): Promise<Tuertyp> {
         (alle.length ? ` Vorhanden: ${alle.map((x) => x.name).join(", ")}.` : "") +
         (nah.length ? ` Im Vorrat liegt: ${nah.join(", ")}.` : "") +
         (!alle.length && !nah.length
-          ? " 'tuertypen_auflisten' zeigt den Vorrat der gängigen Typen."
+          ? " 'stand' zeigt den Vorrat der gängigen Typen."
           : ""),
     );
   }
@@ -80,7 +80,7 @@ async function holeObjekt(ctx: Kontext, text: string): Promise<Objekt> {
   const o = await objektSuchen(ctx.env.DB, text);
   if (!o) {
     throw new Error(
-      `Objekt '${text}' gibt es nicht. Erst 'objekt_einrichten' — danach die Türen.`,
+      `Objekt '${text}' gibt es nicht. Erst 'einrichten' — danach die Türen.`,
     );
   }
   zugriffPruefen(ctx.nutzer.benutzer, o.id);
@@ -151,7 +151,7 @@ const tuertypenAuflisten: ToolDef = {
       hinweis: liste.length
         ? undefined
         : "Noch kein eigener Türtyp — nötig ist das auch nicht: nimm einen Namen aus 'vorrat', " +
-          "er entsteht beim ersten Gebrauch. Nur wenn keiner passt, 'tuertyp_anlegen'.",
+          "er entsteht beim ersten Gebrauch. Nur wenn keiner passt, 'einrichten' mit tuertypen.",
       vorlagen: VORLAGEN_IDS.map((id) => ({ id, label: VORLAGEN[id].label })),
     };
   },
@@ -198,10 +198,10 @@ const checklisteLesen: ToolDef = {
 /* ── Schreiben ─────────────────────────────────────────────────────────────── */
 
 const tuertypAnlegenTool: ToolDef = {
-  name: "tuertyp_anlegen",
+  name: "einrichten",
   title: "Türtyp einrichten",
   description:
-    "Legt einen **eigenen** Türtyp an. Vorher in 'tuertypen_auflisten' den 'vorrat' ansehen: " +
+    "Legt einen **eigenen** Türtyp an. Vorher in 'stand' den 'vorrat' ansehen: " +
     "passt einer davon, nenn einfach seinen Namen, wo ein Türtyp verlangt wird — dann braucht " +
     "es dieses Werkzeug nicht. Sonst: Name, Vorlage (bestimmt Formular und Grund-Prüfpunkte) und die " +
     "Stammdaten, die für alle Türen dieses Typs gleich sind. Die Checkliste entsteht dabei aus " +
@@ -420,165 +420,8 @@ const checklisteAnpassenTool: ToolDef = {
   },
 };
 
-/* ── Eine Tür einrichten ───────────────────────────────────────────────────── */
-
-/**
- * Der geführte Einstieg für eine einzelne Tür — das Gegenstück zu `objekt_einrichten`.
- *
- * Er verlangt einen Türtyp und danach die Felder, die dieser Typ als Pflicht führt. Erst wenn
- * alles steht, ist die Tür bereit: vorher gibt es nichts zu prüfen. Fehlt etwas, kommt genau
- * eine nächste Frage zurück — nicht die ganze Liste.
- */
-const tuerEinrichtenTool: ToolDef = {
-  name: "tuer_einrichten",
-  title: "Tür einrichten (geführt)",
-  description:
-    "Richtet eine Tür an einem Objekt ein. Türtyp nennen — ein eigener oder einer aus dem " +
-    "Vorrat ('tuertypen_auflisten'), der dann von selbst entsteht. Dann fragt das Tool nach dem, was " +
-    "dieser Typ verlangt — eine Frage je Aufruf, Antwort im nächsten Aufruf mitgeben, bis " +
-    "'bereit: true' kommt. Erst dann kann geprüft werden. Steht eine Ident-Nummer oder ein " +
-    "Typenschild nur auf einem Foto: das Bild selbst lesen und den Wert hier mitgeben — " +
-    "abtippen muss das niemand. Ohne 'nr' bekommt die Tür die nächste freie Nummer.",
-  inputSchema: {
-    type: "object",
-    properties: {
-      objekt: str("ID, Name oder Adresse des Objekts"),
-      tuertyp: str("Name oder ID des Türtyps — ohne ihn geht nichts"),
-      nr: int("Türnummer; ohne Angabe die nächste freie"),
-      kennung: str("Türnummer aus Plan oder Liste, z. B. T-2.14"),
-      raumnummer: str("Raumnummer, z. B. 2.14"),
-      raum: str("Raumbezeichnung"),
-      flur: str("Flur"),
-      geschoss: str("Etage, falls sie nicht in Raumnummer oder Feld ETAGE steckt"),
-      felder: {
-        type: "object",
-        description:
-          "Stammdaten dieser Tür — IDENT, HERSTELLER, ZULASSUNG … Was am Türtyp steht, muss " +
-          "hier nicht wiederholt werden.",
-        additionalProperties: { type: "string" },
-      },
-      ueberspringen: {
-        type: "array",
-        description: "Freiwillige Felder, nach denen nicht mehr gefragt werden soll",
-        items: { type: "string" },
-      },
-    },
-    required: ["objekt", "tuertyp"],
-    additionalProperties: false,
-  },
-  annotations: SCHREIBT,
-  async handler(args, ctx) {
-    const objekt = await holeObjekt(ctx, pflicht<string>(args, "objekt"));
-    const typ = await holeTypOderVorrat(ctx, pflicht<string>(args, "tuertyp"));
-
-    const felder = { ...((args.felder ?? {}) as Record<string, string>) };
-    for (const [k, v] of Object.entries(felder)) {
-      if (!String(v ?? "").trim()) delete felder[k];
-    }
-
-    let bauteil =
-      args.nr !== undefined && args.nr !== null
-        ? await bauteilPerNr(ctx.env.DB, objekt.id, Number(args.nr))
-        : null;
-    let neu = false;
-    if (!bauteil) {
-      bauteil = await bauteilAnlegen(ctx.env.DB, {
-        objekt_id: objekt.id,
-        art: typ.art,
-        tuertyp_id: typ.id,
-        nr: args.nr !== undefined && args.nr !== null ? Number(args.nr) : undefined,
-        kennung: String(args.kennung ?? ""),
-        raumnummer: String(args.raumnummer ?? ""),
-        raum: String(args.raum ?? ""),
-        flur: String(args.flur ?? ""),
-        felder,
-        quelle: "manuell",
-      });
-      neu = true;
-    } else {
-      const patch: Record<string, unknown> = {
-        tuertyp_id: typ.id,
-        art: typ.art,
-        felder: { ...bauteil.felder, ...felder },
-      };
-      for (const f of ["kennung", "raumnummer", "raum", "flur"] as const) {
-        if (args[f] !== undefined) patch[f] = String(args[f]);
-      }
-      bauteil = (await bauteilAendern(ctx.env.DB, bauteil.id, patch))!;
-    }
-
-    /* Etage aus dem ableiten, was ohnehin gesagt wurde. */
-    if (!bauteil.geschoss_id) {
-      const { geschossAusRaumnummer, geschossZuordnen } = await import("../daten/objekte");
-      const gid = await geschossZuordnen(
-        ctx.env.DB,
-        objekt.id,
-        args.geschoss,
-        bauteil.felder.ETAGE,
-        bauteil.flur,
-        geschossAusRaumnummer(bauteil.raumnummer),
-      );
-      if (gid) bauteil = (await bauteilAendern(ctx.env.DB, bauteil.id, { geschoss_id: gid }))!;
-    }
-
-    /* Was am Typ steht, gilt auch hier — gefragt wird nur nach dem, was wirklich fehlt. */
-    const vorhanden = (schluessel: string) =>
-      Boolean(String(bauteil!.felder[schluessel] ?? typ.felder[schluessel] ?? "").trim());
-    const uebersprungen = new Set(
-      (Array.isArray(args.ueberspringen) ? args.ueberspringen : []).map((f: unknown) =>
-        String(f).trim().toUpperCase(),
-      ),
-    );
-
-    const fehlt: { feld: string; frage: string; pflicht: boolean }[] = [];
-    for (const f of typ.pflicht) {
-      if (!vorhanden(f)) {
-        fehlt.push({
-          feld: f,
-          frage: `Wie lautet ${beschriftung(f)} dieser Tür?`,
-          pflicht: true,
-        });
-      }
-    }
-    for (const z of typ.zusatz) {
-      if (!vorhanden(z.schluessel) && !uebersprungen.has(z.schluessel)) {
-        fehlt.push({
-          feld: z.schluessel,
-          frage: `${z.label || beschriftung(z.schluessel)}?`,
-          pflicht: z.pflicht,
-        });
-      }
-    }
-    const offenePflicht = fehlt.filter((f) => f.pflicht);
-    const bereit = offenePflicht.length === 0;
-
-    return {
-      tuer: {
-        nr: bauteil.nr,
-        tuertyp: typ.name,
-        vorlage: typ.art,
-        kennung: bauteil.kennung || undefined,
-        ort:
-          [bauteil.raumnummer, bauteil.raum, bauteil.flur].filter(Boolean).join(" · ") || undefined,
-        felder: { ...typ.felder, ...bauteil.felder },
-      },
-      neu_angelegt: neu,
-      bereit,
-      naechste_frage: fehlt[0] ?? null,
-      noch_offen: fehlt.map((f) => f.feld),
-      pflicht_offen: offenePflicht.map((f) => f.feld),
-      pruefpunkte: typ.punkte.filter((p) => p.aktiv).length,
-      weiter: bereit
-        ? "Die Tür steht. 'pruefung_erfassen' kann jetzt laufen."
-        : `Fehlt noch: ${offenePflicht.map((f) => f.feld).join(", ")}. ` +
-          "Steht der Wert auf einem Typenschild, lies ihn vom Foto ab.",
-      link: `${ctx.origin}/objekt/${objekt.id}/bauteil/${bauteil.nr}`,
-    };
-  },
-};
-
-/** Aus einem Feldschlüssel eine Frage bauen, die sich vorlesen lässt. */
-function beschriftung(schluessel: string): string {
+/** Aus einem Feldschlüssel eine Benennung bauen, die sich vorlesen lässt. */
+export function beschriftung(schluessel: string): string {
   const bekannt: Record<string, string> = {
     IDENT: "die Ident-Nummer",
     HERSTELLER: "der Hersteller",
@@ -595,12 +438,16 @@ function beschriftung(schluessel: string): string {
   return bekannt[schluessel] ?? schluessel.toLowerCase();
 }
 
-export const TUERTYP_TOOLS: ToolDef[] = [
-  tuertypenAuflisten,
-  checklisteLesen,
-  tuertypAnlegenTool,
-  tuertypAendernTool,
-  tuertypLoeschenTool,
-  checklisteAnpassenTool,
-  tuerEinrichtenTool,
-];
+/**
+ * Nach außen sind das keine eigenen Werkzeuge mehr, sondern die Handgriffe, die `stand`,
+ * `einrichten` und `aendern` benutzen. Die Logik bleibt, die 44 Namen im Werkzeugkasten
+ * verschwinden — für ein kleines Modell am Telefon war jeder davon eine Abzweigung.
+ */
+export const TUERTYPEN = {
+  auflisten: tuertypenAuflisten.handler,
+  checkliste: checklisteLesen.handler,
+  anlegen: tuertypAnlegenTool.handler,
+  aendern: tuertypAendernTool.handler,
+  loeschen: tuertypLoeschenTool.handler,
+  checklisteAnpassen: checklisteAnpassenTool.handler,
+};

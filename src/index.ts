@@ -40,12 +40,12 @@ import {
   objektSeite,
   objekteSeite,
 } from "./web/objekte";
+import { einrichtenSeite, lauflisteSeite } from "./web/einrichten";
 import { bauteilSeite } from "./web/bauteile";
 import {
   pruefungSeite,
   unterschriftSeite,
 } from "./web/begehungen";
-import { rundgangDaten, rundgangSeite, serviceWorkerText } from "./web/rundgang";
 import {
   checklisteSeite as checklistenSeite,
   stammdatenSeite,
@@ -100,10 +100,7 @@ import {
   betreiberUnterschrift,
   pruefungErfassen,
 } from "./daten/begehungen";
-import { mangelSchliessen } from "./daten/maengel";
 import { bauteilLesen, bauteilPerNr } from "./daten/bauteile";
-import { fotoAnlegen, fotoEntfernen, fotoLesen, darfFotoLoeschen } from "./daten/fotos";
-import { fotoOpGesehen, opsAnwenden } from "./daten/sync";
 import { pruefungZuBauteil } from "./daten/begehungen";
 import { ulid } from "./daten/basis";
 import { feldLabel, vorlage } from "./vorlagen";
@@ -249,19 +246,6 @@ export default {
         return json(antwort);
       }
 
-      /**
-       * Der Service Worker des Rundgangs. Ohne Sitzung, weil er selbst keine Daten trägt und
-       * der Browser ihn auch dann laden können muss, wenn das Cookie gerade abgelaufen ist.
-       */
-      case "GET /sw.js":
-        return new Response(serviceWorkerText(SERVER_INFO.version), {
-          headers: {
-            "content-type": "text/javascript; charset=utf-8",
-            "cache-control": "no-cache",
-            "service-worker-allowed": "/",
-          },
-        });
-
       case "GET /anmeldung":
         return anmeldeSeite(origin, await konten(env), {
           weiter: url.searchParams.get("weiter") ?? undefined,
@@ -275,9 +259,9 @@ export default {
     }
 
     /*
-     * Die Schnittstellen des Rundgangs nehmen die Sitzung **oder** ein Bearer-Token (Abschnitt 12):
-     * der Client am Handy hat die Sitzung, ein Agent hätte das Token — beide sollen schreiben
-     * dürfen, ohne sich zweimal anzumelden.
+     * Die kleinen JSON-Wege der Planseite nehmen die Sitzung **oder** ein Bearer-Token: der
+     * Browser hat die Sitzung, ein Agent hätte das Token — beide sollen schreiben dürfen, ohne
+     * sich zweimal anzumelden.
      */
     if (pfad.startsWith("/api/")) {
       const wer =
@@ -322,7 +306,8 @@ export default {
           intervall_monate: Number(form.get("intervall_monate") ?? 12) || 12,
           angelegt_von: nutzer.benutzer,
         });
-        return umleitung(`/objekt/${o.id}`);
+        /* Ein frisches Objekt hat nichts zu zeigen — es hat etwas einzurichten. */
+        return umleitung(`/objekt/${o.id}/einrichten`);
       }
 
       case "GET /stammdaten":
@@ -415,10 +400,6 @@ export default {
 
     if (teile[0] === "begehung" && teile[1]) {
       return begehungRoute(request, env, nutzer, decodeURIComponent(teile[1]), teile, url);
-    }
-
-    if (teile[0] === "rundgang" && teile[1] && request.method === "GET") {
-      return rundgangSeite(env, nutzer, decodeURIComponent(teile[1]));
     }
 
     if (teile[0] === "stammdaten" && teile[1]) {
@@ -618,7 +599,10 @@ async function objektRoute(
       const intervall = Number(form.get("intervall_monate"));
       if (Number.isFinite(intervall) && intervall > 0) patch.intervall_monate = intervall;
       await objektAendern(env.DB, objekt.id, patch);
-      return umleitung(`/objekt/${objekt.id}?meldung=Stammdaten+gespeichert.`);
+      const zurueck = String(form.get("zurueck") ?? "");
+      return umleitung(
+        `/objekt/${objekt.id}${zurueck === "einrichten" ? "/einrichten" : ""}?meldung=Gespeichert.`,
+      );
     }
   }
 
@@ -636,6 +620,14 @@ async function objektRoute(
    */
   if (teile.length === 3 && teile[2] === "berichte" && request.method === "GET") {
     return objektBerichteSeite(env, nutzer, objekt.id, meldung);
+  }
+
+  if (teile.length === 3 && teile[2] === "einrichten" && request.method === "GET") {
+    return einrichtenSeite(env, nutzer, objekt.id, meldung);
+  }
+
+  if (teile.length === 3 && teile[2] === "liste" && request.method === "GET") {
+    return lauflisteSeite(env, nutzer, objekt.id);
   }
 
   if (teile.length === 3 && teile[2] === "erfassen") {
@@ -663,7 +655,7 @@ async function objektRoute(
     );
     const ziel = String(form.get("ziel") ?? "");
     return umleitung(
-      ziel === "rundgang" ? `/rundgang/${begehung.id}` : `/begehung/${begehung.id}`,
+      `/begehung/${begehung.id}`,
     );
   }
 
@@ -796,15 +788,6 @@ async function begehungRoute(
 
   /* Alte Adresse: die Checkliste ist jetzt die des Türtyps, oben in der Leiste. */
   if (teile.length === 3 && teile[2] === "checkliste") return umleitung("/checkliste");
-
-  /*
-   * 'stand.json' gab es einmal als eigene Auskunft; heute steht dasselbe in '/api/rundgang'.
-   * Als Umleitung auf eine HTML-Seite war sie eine Falle: wer sie abfragte, bekam Markup
-   * zurück und einen Fehler beim Auswerten.
-   */
-  if (teile.length === 3 && teile[2] === "stand.json") {
-    return umleitung(`/api/rundgang/${begehung.id}`);
-  }
 
   if (teile.length === 3 && teile[2] === "abschliessen" && request.method === "POST") {
     await begehungAendern(env.DB, begehung.id, { status: "abgeschlossen" });
@@ -1084,12 +1067,11 @@ async function checklistenRoute(
   return umleitung(`/checkliste/${typ.id}?meldung=Checkliste+gespeichert.`);
 }
 
-/* ── Schnittstellen des Rundgangs ──────────────────────────────────────────── */
+/* ── Kleine JSON-Wege ──────────────────────────────────────────────────────── */
 
 /**
- * Drei Wege, mehr braucht der Rundgang nicht: die Daten holen, die Warteschlange abliefern,
- * ein Foto nachschieben. Alle drei vertragen Wiederholung — der Client sendet, so oft das
- * Netz es zulässt, und doppelt Eingegangenes wird verworfen (Abschnitt 5.3).
+ * Was die Planseite im Browser braucht: das Rasterbild ablegen, einen Vorschlag verschieben,
+ * den Startpunkt des Rundwegs setzen.
  */
 async function apiRoute(
   request: Request,
@@ -1098,38 +1080,6 @@ async function apiRoute(
   nutzer: Nutzer,
 ): Promise<Response> {
   const teile = pfad.split("/").filter(Boolean); // ["api", …]
-
-  if (request.method === "GET" && teile[1] === "rundgang" && teile[2]) {
-    try {
-      const begehung = await begehungLesen(env.DB, decodeURIComponent(teile[2]));
-      if (!begehung) return json({ fehler: "Diese Begehung gibt es nicht." }, 404);
-      zugriffPruefen(nutzer.benutzer, begehung.objekt_id);
-      return json(await rundgangDaten(env, begehung.id));
-    } catch (e) {
-      return json({ fehler: (e as Error).message }, 400);
-    }
-  }
-
-  if (request.method === "POST" && teile[1] === "sync") {
-    try {
-      const body = (await request.json()) as { begehung?: string; ops?: unknown[] };
-      const begehung = await begehungLesen(env.DB, String(body?.begehung ?? ""));
-      if (!begehung) return json({ fehler: "Diese Begehung gibt es nicht." }, 404);
-      zugriffPruefen(nutzer.benutzer, begehung.objekt_id);
-      const objekt = await objektLesen(env.DB, begehung.objekt_id);
-      if (!objekt) return json({ fehler: "Objekt fehlt." }, 404);
-      const ergebnisse = await opsAnwenden(
-        env.DB,
-        objekt,
-        begehung,
-        (body?.ops ?? []) as never[],
-        nutzer.benutzer,
-      );
-      return json({ ergebnisse, stand: Date.now() });
-    } catch (e) {
-      return json({ fehler: (e as Error).message }, 400);
-    }
-  }
 
   if (request.method === "POST" && teile[1] === "plan") {
     try {
@@ -1160,85 +1110,7 @@ async function apiRoute(
     return json({ ok: true });
   }
 
-  if (request.method === "POST" && teile[1] === "foto") {
-    try {
-      return await fotoRoute(request, env, nutzer);
-    } catch (e) {
-      return json({ fehler: (e as Error).message }, 400);
-    }
-  }
-
-  if (request.method === "POST" && teile[1] === "foto-loeschen" && teile[2]) {
-    const foto = await fotoLesen(env.DB, decodeURIComponent(teile[2]));
-    if (!foto) return json({ fehler: "Dieses Foto gibt es nicht." }, 404);
-    zugriffPruefen(nutzer.benutzer, foto.objekt_id);
-    const person = await personLesen(env.DB, nutzer.benutzer);
-    if (!darfFotoLoeschen(foto, nutzer.benutzer, person?.rolle ?? "monteur")) {
-      return json({ fehler: "Löschen darf, wer es aufgenommen hat, und das Büro." }, 403);
-    }
-    const e = await fotoEntfernen(env.DB, foto);
-    if (!e.ausgeblendet) await env.R2.delete(e.r2_schluessel);
-    return json({ geloescht: !e.ausgeblendet, ausgeblendet: e.ausgeblendet });
-  }
-
   return json({ fehler: `${request.method} ${pfad} gibt es hier nicht.` }, 404);
-}
-
-/** Ein Foto entgegennehmen: Bild in R2, Zeile in die Datenbank, idempotent über `op_id`. */
-async function fotoRoute(request: Request, env: Env, nutzer: Nutzer): Promise<Response> {
-  const form = await formDaten(request);
-  const opId = String(form.get("op_id") ?? "").trim();
-  if (!opId) return json({ fehler: "op_id fehlt." }, 400);
-
-  const begehung = await begehungLesen(env.DB, String(form.get("begehung_id") ?? ""));
-  if (!begehung) return json({ fehler: "Diese Begehung gibt es nicht." }, 404);
-  zugriffPruefen(nutzer.benutzer, begehung.objekt_id);
-
-  const bauteilId = String(form.get("bauteil_id") ?? "");
-  const nr = Number(form.get("bauteil_nr"));
-  const bauteil = bauteilId
-    ? await bauteilLesen(env.DB, bauteilId)
-    : Number.isFinite(nr)
-      ? await bauteilPerNr(env.DB, begehung.objekt_id, nr)
-      : null;
-  if (!bauteil) return json({ fehler: "Bauteil nicht gefunden." }, 404);
-
-  /* Doppelt gesendet ist kein Fehler — der Client darf wiederholen, bis er eine Antwort sieht. */
-  if (await fotoOpGesehen(env.DB, opId, nutzer.benutzer)) {
-    return json({ ok: true, doppelt: true });
-  }
-
-  const datei = form.get("bild") as unknown as
-    | { size: number; type: string; arrayBuffer(): Promise<ArrayBuffer> }
-    | null;
-  if (!datei || typeof datei.arrayBuffer !== "function" || !datei.size) {
-    return json({ fehler: "Kein Bild dabei." }, 400);
-  }
-  if (datei.size > 8 * 1024 * 1024) {
-    return json({ fehler: "Das Foto darf höchstens 8 MB haben." }, 413);
-  }
-  const typ = String(datei.type || "image/jpeg");
-  if (!/^image\/(jpeg|png|webp)$/.test(typ)) {
-    return json({ fehler: `Bildformat '${typ}' geht nicht.` }, 415);
-  }
-
-  const pruefung = await pruefungZuBauteil(env.DB, begehung.id, bauteil.id);
-  const id = ulid();
-  const endung = typ === "image/png" ? "png" : typ === "image/webp" ? "webp" : "jpg";
-  const schluessel = `fotos/${begehung.objekt_id}/${bauteil.id}/${id}.${endung}`;
-  await env.R2.put(schluessel, await datei.arrayBuffer(), { httpMetadata: { contentType: typ } });
-
-  const foto = await fotoAnlegen(env.DB, {
-    objekt_id: begehung.objekt_id,
-    bauteil_id: bauteil.id,
-    pruefung_id: pruefung?.id ?? null,
-    r2_schluessel: schluessel,
-    breite: Number(form.get("breite") ?? 0) || 0,
-    hoehe: Number(form.get("hoehe") ?? 0) || 0,
-    notiz: String(form.get("notiz") ?? "").trim(),
-    von: nutzer.benutzer,
-  });
-  return json({ ok: true, foto: foto.id, bauteil_nr: bauteil.nr, link: `/datei/${schluessel}` });
 }
 
 /* ── Freigabe der Import-Vorschläge ────────────────────────────────────────── */
