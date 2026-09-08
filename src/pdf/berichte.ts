@@ -345,6 +345,7 @@ export async function sammelberichtErzeugen(
   env: Env,
   begehungId: string,
   nutzer = "",
+  optionen: { nurWennNoetig?: boolean } = {},
 ): Promise<{ version: number; schluessel: string; seiten: number; berichte: number }> {
   const begehung = await begehungLesen(env.DB, begehungId);
   if (!begehung) throw new Error(`Begehung '${begehungId}' gibt es nicht.`);
@@ -356,6 +357,25 @@ export async function sammelberichtErzeugen(
   if (!posten.length) {
     throw new Error("Erst die Einzelberichte erzeugen, dann den Sammelbericht.");
   }
+
+  /*
+   * Zweimal abschließen soll keine zweite Fassung machen — sonst zählt der Sammelbericht hoch,
+   * während sich am Inhalt nichts ändert, und der Kunde bekommt eine v4, die einer v1 gleicht.
+   * Neu ist er, wenn es noch keinen gibt oder seit dem letzten ein Einzelbericht dazukam.
+   */
+  const vorhanden = await sammelberichteLesen(env.DB, begehung.id);
+  if (optionen.nurWennNoetig && vorhanden.length) {
+    const juengster = Math.max(...posten.map((p) => p.erzeugt_am));
+    if (juengster <= vorhanden[0].erzeugt_am) {
+      return {
+        version: vorhanden[0].version,
+        schluessel: vorhanden[0].r2_schluessel,
+        seiten: 0,
+        berichte: posten.length,
+      };
+    }
+  }
+
   const pruefungen = await pruefungenLesen(env.DB, begehung.id);
   const nachId = new Map(pruefungen.map((p) => [p.id, p]));
 
@@ -399,8 +419,7 @@ export async function sammelberichtErzeugen(
   }
   const bytes = await doc.save();
 
-  const bisher = await sammelberichteLesen(env.DB, begehung.id);
-  const version = (bisher[0]?.version ?? 0) + 1;
+  const version = (vorhanden[0]?.version ?? 0) + 1;
   const schluessel = sammelSchluessel(objekt.id, begehung.id, version);
   await env.R2.put(schluessel, bytes, { httpMetadata: { contentType: "application/pdf" } });
   await sammelberichtAnlegen(env.DB, begehung.id, version, schluessel);

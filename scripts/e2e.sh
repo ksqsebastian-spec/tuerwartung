@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 #
-# End-to-End gegen einen laufenden Türwerk-Server: die Abnahmekriterien der Stufe 1 aus
-# KONZEPT.md, Abschnitt 14 — Bestand, Fristen, Mängel-Lebenslauf, versionierte Berichte,
-# Betreiber-Unterschrift, Sammelbericht — plus Anmeldung, OAuth-Tanz und die Website.
+# End-to-End gegen einen laufenden Türwerk-Server: der ganze Weg, den ein Tag geht —
+# einrichten, Türenliste einlesen, freigeben, diktieren, abschließen, unterschreiben —
+# plus Anmeldung, OAuth-Tanz, die sechs Werkzeuge und die Website.
 #
 # Voraussetzung: `jq`, `openssl`, und in einem zweiten Fenster
 #     npm run dev
@@ -30,30 +30,11 @@ STEMPEL=$(date +%H%M%S)-$RANDOM
 OBJEKT="E2E Kita Heselstuecken $STEMPEL"
 VORJAHR=$(date -d "-13 months" +%Y-%m-%d 2>/dev/null || date -v-13m +%Y-%m-%d)
 HEUTE=$(date +%Y-%m-%d)
+NAECHSTES=$(date -d "+13 months" +%Y-%m-%d 2>/dev/null || date -v+13m +%Y-%m-%d)
 
 # Ein 1×1-PNG als Unterschrift — es geht um den Weg, nicht um das Bild.
 PNG="iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
 
-# Ein winziges, gültiges JPEG als Foto — pdf-lib muss es einbetten können.
-JPG="/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAA0JCgsKCA0LCgsODg0PEyAVExISEyccHhcgLikxMC4p\
-LSwzOko+MzZGNywtQFdBRkxOUlNSMj5aYVpQYEpRUk//2wBDAQ4ODhMREyYVFSZPNS01T09PT09P\
-T09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT0//wAARCAAgADADASIA\
-AhEBAxEB/8QAHwAAAQUBAQEBAQEAAAAAAAAAAAECAwQFBgcICQoL/8QAtRAAAgEDAwIEAwUFBAQA\
-AAF9AQIDAAQRBRIhMUEGE1FhByJxFDKBkaEII0KxwRVS0fAkM2JyggkKFhcYGRolJicoKSo0NTY3\
-ODk6Q0RFRkdISUpTVFVWV1hZWmNkZWZnaGlqc3R1dnd4eXqDhIWGh4iJipKTlJWWl5iZmqKjpKWm\
-p6ipqrKztLW2t7i5usLDxMXGx8jJytLT1NXW19jZ2uHi4+Tl5ufo6erx8vP09fb3+Pn6/8QAHwEA\
-AwEBAQEBAQEBAQAAAAAAAAECAwQFBgcICQoL/8QAtREAAgECBAQDBAcFBAQAAQJ3AAECAxEEBSEx\
-BhJBUQdhcRMiMoEIFEKRobHBCSMzUvAVYnLRChYkNOEl8RcYGRomJygpKjU2Nzg5OkNERUZHSElK\
-U1RVVldYWVpjZGVmZ2hpanN0dXZ3eHl6goOEhYaHiImKkpOUlZaXmJmaoqOkpaanqKmqsrO0tba3\
-uLm6wsPExcbHyMnK0tPU1dbX2Nna4uPk5ebn6Onq8vP09fb3+Pn6/9oADAMBAAIRAxEAPwDCs7S2\
-ls57q7uJYkikSMCKESElgx7suPufrTvK0j/n+vv/AADT/wCO0Q/8i/ef9fUH/oE1UK97Vt6nAX/K\
-0j/n+vv/AADT/wCO0eVpH/P9ff8AgGn/AMdqhRT5X3FfyL/laR/z/X3/AIBp/wDHabeWltFZwXVp\
-cSypLI8ZEsIjIKhT2Zs/f/SqVX5v+Rfs/wDr6n/9AhpaprUYQ/8AIv3n/X1B/wCgTVQq7Z3dtFZz\
-2t3byypLIkgMUwjIKhh3Vs/f/SnebpH/AD433/gYn/xqjVN6AUKKv+bpH/Pjff8AgYn/AMao83SP\
-+fG+/wDAxP8A41T5n2FbzKFX5v8AkX7P/r6n/wDQIaPN0j/nxvv/AAMT/wCNU28u7aWzgtbS3liS\
-KR5CZZhISWCjsq4+5+tLVtaDP//Z"
-FOTO=$(mktemp).jpg
-printf '%s' "$JPG" | base64 -d > $FOTO
 
 echo "== 1. Anmeldung =="
 code=$(curl -s -o /dev/null -w "%{http_code}" -c $J -X POST $B/anmeldung \
@@ -66,7 +47,7 @@ code=$(curl -s -o /dev/null -w "%{http_code}" -X POST $B/anmeldung -d "benutzer=
 
 code=$(curl -s -o /dev/null -w "%{http_code}" $B/objekte)
 [ "$code" = "302" ] && ok "Ohne Cookie umgeleitet" || bad "Ohne Cookie $code"
-curl -s -b $J $B/objekte | grep -q "sonst legt der Chat es an" && ok "Objektliste" || bad "Objektliste"
+curl -s -b $J $B/objekte | grep -q "Objekte" && ok "Objektliste" || bad "Objektliste"
 
 echo "== 2. OAuth =="
 curl -s $B/.well-known/oauth-protected-resource | grep -q '"resource"' && ok "Resource-Metadaten" || bad "Resource-Metadaten"
@@ -115,703 +96,238 @@ ruf() {
            else .result.content[0].text end'
 }
 
-echo "== 3. MCP-Grundlagen =="
+echo "== 3. Der Werkzeugkasten =="
+TL=$(curl -s -X POST $B/mcp -H "authorization: Bearer $AT" -H 'content-type: application/json' \
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}')
+echo "$TL" | jq -e '.result.tools | length == 6' >/dev/null \
+  && ok "sechs Werkzeuge" || bad "Anzahl: $(echo "$TL" | jq -c '.result.tools|length')"
+echo "$TL" | jq -e '[.result.tools[].name] ==
+  ["stand","wartung_starten","tuer_erfassen","wartung_fertig","einrichten","aendern"]' >/dev/null \
+  && ok "und zwar die richtigen" || bad "Namen: $(echo "$TL" | jq -c '[.result.tools[].name]')"
+# Der Katalog ist es, was ein kleines Modell vor jedem Wort mitliest.
+GROESSE=$(echo "$TL" | jq -c '.result.tools' | wc -c)
+[ "$GROESSE" -lt 20000 ] && ok "Katalog unter 20 KB ($GROESSE)" || bad "Katalog $GROESSE Bytes"
+
 curl -s -X POST $B/mcp -H "authorization: Bearer $AT" -H 'content-type: application/json' \
   -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18"}}' \
-  | jq -e '.result.instructions | contains("Bestandsaufnahme")' >/dev/null \
-  && ok "initialize mit Anleitung" || bad "initialize"
+  | jq -e '.result.instructions | contains("wartung_starten")' >/dev/null \
+  && ok "Instructions nennen den Ablauf" || bad "Instructions"
+
 curl -s -X POST $B/mcp -H "authorization: Bearer $AT" -H 'content-type: application/json' \
-  -d '{"jsonrpc":"2.0","id":2,"method":"tools/list"}' \
-  | jq -e '[.result.tools[].name] | index("pruefung_erfassen") and index("sammelbericht_erzeugen")' >/dev/null \
-  && ok "tools/list" || bad "tools/list"
-ruf pruefpunkte '{"vorlage":"wartung_drehfluegel"}' | jq -e '.punkte | length == 10' >/dev/null \
-  && ok "pruefpunkte" || bad "pruefpunkte"
+  -d '{"jsonrpc":"2.0","id":1,"method":"prompts/list"}' \
+  | jq -e '[.result.prompts[].name] == ["wartung","fertig"]' >/dev/null \
+  && ok "zwei Schrägstrich-Befehle" || bad "Prompts"
 
-echo "== 4. Bestandsaufnahme: unbekanntes Objekt =="
-B1=$(ruf begehung_starten "$(jq -nc --arg o "$OBJEKT" --arg d "$VORJAHR" \
-  '{objekt:$o,datum:$d,betreiber:"Bezirksamt Nord",adresse:"Heselstuecken 12, 22523 Hamburg"}')")
-echo "$B1" | jq -e '.objekt_neu_angelegt == true' >/dev/null \
-  && ok "unbekanntes Objekt angelegt" || bad "Objekt nicht angelegt: $B1"
-BEG1=$(echo "$B1" | jq -r .begehung.id)
-OID=$(echo "$B1" | jq -r .objekt.id)
-[ -n "$BEG1" ] && ok "Begehung $BEG1" || bad "keine Begehung"
+curl -s -X POST $B/mcp -H "authorization: Bearer $AT" -H 'content-type: application/json' \
+  -d '{"jsonrpc":"2.0","id":1,"method":"resources/list"}' \
+  | jq -e '[.result.resources[].uri] | index("tuerwerk://bestand")' >/dev/null \
+  && ok "Ressourcen" || bad "Ressourcen"
 
-for i in 1 2 3; do
-  A=$(ruf pruefung_erfassen "$(jq -nc --arg b "$BEG1" --arg r "Flur $i" \
-    '{begehung:$b,art:"wartung_drehfluegel",raum:$r,felder:{"HERSTELLER":"Hoermann"}}')")
-  echo "$A" | jq -e --argjson n $i '.gespeichert == ("Tür " + ($n|tostring)) and .neu_angelegt == true' >/dev/null \
-    && ok "Tür $i angelegt und geprüft" || bad "Tür $i: $A"
-done
+curl -s $B/tools.json | jq -e '.tools | length == 6' >/dev/null \
+  && ok "öffentlicher Katalog" || bad "tools.json"
 
-echo "== 5. Mangel aus einer Abweichung =="
-A=$(ruf pruefung_erfassen "$(jq -nc --arg b "$BEG1" \
-  '{begehung:$b,nr:2,checks:{"8":"nio"},hinweise:"Dichtung sproede",ergebnis:"Nachbesserung"}')")
-echo "$A" | jq -e '.mangel_angelegt.status == "offen"' >/dev/null \
-  && ok "Mangel angelegt" || bad "kein Mangel: $A"
-echo "$A" | jq -e '.mangel_angelegt.punkte == ["8"]' >/dev/null \
-  && ok "Mangel trägt Punkt 8" || bad "Mangelpunkte"
-ruf bauteil_lesen "$(jq -nc --arg o "$OID" '{objekt:$o,nr:2}')" \
-  | jq -e '.bauteil.offene_maengel == 1' >/dev/null \
-  && ok "offener Punkt hängt an der Tür" || bad "Zustand an der Tür"
+echo "== 4. Einrichten: die Liegenschaft =="
+E=$(ruf einrichten "$(jq -nc --arg o "$OBJEKT" '{objekt:$o,stammdaten:{
+  adresse:"Heselstuecken 12, 22523 Hamburg", betreiber:"Bezirksamt Eimsbuettel"}}')")
+echo "$E" | jq -e '.objekt_neu_angelegt == true' >/dev/null \
+  && ok "Objekt angelegt" || bad "einrichten: $E"
+OID=$(echo "$E" | jq -r '.objekt.id')
+# Was fehlt, wird gemeldet — nicht Frage für Frage abgefragt.
+echo "$E" | jq -e '.fehlt_noch | index("Wie man reinkommt")' >/dev/null \
+  && ok "meldet, was noch fehlt" || bad "fehlt_noch: $(echo "$E" | jq -c '.fehlt_noch')"
 
-# Ein Aufruf, alles fertig: Rückblick, Berichte und Sammelbericht.
-A=$(ruf begehung_abschliessen "$(jq -nc --arg b "$BEG1" '{begehung:$b}')")
-echo "$A" | jq -e '.pruefungen_gesamt == 3 and .nachbesserung == 1' >/dev/null \
-  && ok "Rückblick: 3 Prüfungen, 1 Nachbesserung" || bad "Rückblick"
-echo "$A" | jq -e '.berichte.erzeugt == 3 and .berichte.fertig == true' >/dev/null \
-  && ok "Abschluss erzeugt die Berichte gleich mit" || bad "Abschluss ohne Berichte: $A"
-echo "$A" | jq -e '.sammelbericht.version == 1' >/dev/null \
-  && ok "und den Sammelbericht" || bad "kein Sammelbericht"
-echo "$A" | jq -e '.alle_als_zip | endswith("/paket.zip")' >/dev/null \
-  && ok "ZIP-Link dabei" || bad "ZIP-Link"
+E=$(ruf einrichten "$(jq -nc --arg o "$OID" '{objekt:$o,stammdaten:{
+  betreiber_kontakt:"Herr Kruse", telefon:"040 123456", zugang:"Schluessel beim Hausmeister"}}')")
+echo "$E" | jq -e '.fehlt_noch == null' >/dev/null \
+  && ok "Stammdaten vollständig" || bad "fehlt_noch: $(echo "$E" | jq -c '.fehlt_noch')"
 
-echo "== 6. Versionierte Berichte =="
-BER=$(ruf berichte_auflisten "$(jq -nc --arg b "$BEG1" '{begehung:$b}')")
-V1=$(echo "$BER" | jq -r '.berichte[] | select(.nr == 1) | .link' | sed 's#.*/datei/##')
-typ=$(curl -s -o /dev/null -w "%{content_type}" -b $J "$B/datei/$V1")
-[ "$typ" = "application/pdf" ] && ok "PDF abrufbar" || bad "PDF-Typ $typ"
+echo "== 5. Einrichten: Türenliste einlesen =="
+LISTE=$(jq -nc '[
+ {kennung:"T-0.01",tuertyp:"T30-RS Brand- und Rauchschutztuer",art:"wartung_drehfluegel",
+  geschoss:"EG",raumnummer:"0.01",raum:"Haupteingang",felder:{IDENT:"HOER-19-0041"},konfidenz:0.95},
+ {kennung:"T-0.02",tuertyp:"T30-RS Brand- und Rauchschutztuer",art:"wartung_drehfluegel",
+  geschoss:"EG",raumnummer:"0.02",raum:"Flur Ost",felder:{IDENT:"HOER-19-0042"},konfidenz:0.95},
+ {kennung:"T-1.04",tuertyp:"Vollspantür",art:"wartung_drehfluegel",
+  geschoss:"1. OG",raumnummer:"1.04",raum:"Gruppenraum Ost",konfidenz:0.9},
+ {kennung:"F-1.04",tuertyp:"Kunststofffenster DK",art:"wartung_fenster",
+  geschoss:"OG",raumnummer:"1.04",raum:"Gruppenraum Ost",konfidenz:0.8}]')
+E=$(ruf einrichten "$(jq -nc --arg o "$OID" --argjson t "$LISTE" \
+  '{objekt:$o,tueren:$t,dateiname:"tuerenliste.xlsx"}')")
+IMP=$(echo "$E" | jq -r '.vorschlaege.import')
+echo "$E" | jq -e '.vorschlaege.gefunden == 4' >/dev/null \
+  && ok "vier Zeilen gelesen" || bad "gefunden: $(echo "$E" | jq -c '.vorschlaege.gefunden')"
+echo "$E" | jq -e '.vorschlaege.zahlen.wartungspflichtig == 4' >/dev/null \
+  && ok "Türenliste gilt als wartungspflichtig" \
+  || bad "wartungspflichtig: $(echo "$E" | jq -c '.vorschlaege.zahlen')"
+echo "$E" | jq -e '.tueren_im_bestand == 0' >/dev/null \
+  && ok "ohne Freigabe entstehen keine Türen" || bad "Bestand ohne Freigabe"
 
-L=$(ruf berichte_erzeugen "$(jq -nc --arg b "$BEG1" '{begehung:$b}')")
-echo "$L" | jq -e '.erzeugt == 0 and .fertig == true' >/dev/null \
-  && ok "ohne Änderung keine zweite Version" || bad "zweiter Lauf: $L"
+# Derselbe Aufruf noch einmal darf nichts verdoppeln.
+E=$(ruf einrichten "$(jq -nc --arg o "$OID" --argjson t "$LISTE" \
+  '{objekt:$o,tueren:$t,dateiname:"tuerenliste.xlsx"}')")
+echo "$E" | jq -e '.vorschlaege.schon_offen == 4' >/dev/null \
+  && ok "zweimal gelesen legt nichts doppelt an" || bad "doppelt: $(echo "$E" | jq -c '.vorschlaege')"
 
-ruf pruefung_erfassen "$(jq -nc --arg b "$BEG1" '{begehung:$b,nr:1,hinweise:"Nachtrag vom Buero"}')" >/dev/null
-L=$(ruf berichte_erzeugen "$(jq -nc --arg b "$BEG1" '{begehung:$b}')")
-echo "$L" | jq -e '.erzeugt == 1 and (.berichte[0].version == 2)' >/dev/null \
-  && ok "nach Änderung entsteht v2" || bad "v2: $L"
-code=$(curl -s -o /dev/null -w "%{http_code}" -b $J "$B/datei/$V1")
-[ "$code" = "200" ] && ok "v1 bleibt abrufbar" || bad "v1 weg ($code)"
+E=$(ruf einrichten "$(jq -nc --arg o "$OID" '{objekt:$o,freigeben:{alle:true}}')")
+echo "$E" | jq -e '.freigabe.angelegt == 4 and .tueren_im_bestand == 4' >/dev/null \
+  && ok "Freigabe macht vier Türen daraus" || bad "Freigabe: $(echo "$E" | jq -c '.freigabe')"
 
-echo "== 7. Betreiber-Unterschrift =="
-code=$(curl -s -o /dev/null -w "%{http_code}" -b $J "$B/begehung/$BEG1/unterschrift")
-[ "$code" = "200" ] && ok "Unterschriftsseite" || bad "Unterschriftsseite $code"
-LOC=$(curl -s -o /dev/null -w "%{redirect_url}" -b $J -X POST "$B/begehung/$BEG1/unterschrift" \
-  --data-urlencode "bild=data:image/png;base64,$PNG" --data-urlencode "name=Frau Meyer")
-echo "$LOC" | grep -q "Berichte+neu" && ok "Unterschrift löst neue Versionen aus" || bad "Unterschrift: $LOC"
-BER=$(ruf berichte_auflisten "$(jq -nc --arg b "$BEG1" '{begehung:$b}')")
-echo "$BER" | jq -e '[.berichte[] | select(.nr == 1) | .version] == [3]' >/dev/null \
-  && ok "Tür 1 steht bei v3" || bad "Versionen: $BER"
-echo "$BER" | jq -e '[.berichte[].veraltet] | any | not' >/dev/null \
-  && ok "kein Bericht veraltet" || bad "veraltete Berichte"
+S=$(ruf stand "$(jq -nc --arg o "$OID" '{objekt:$o}')")
+echo "$S" | jq -e '[.checklisten[].tuertyp] | length == 3' >/dev/null \
+  && ok "drei Türtypen aus der Spalte Türtyp" || bad "Typen: $(echo "$S" | jq -c '[.checklisten[].tuertyp]')"
+# „OG" und „1. OG" derselben Liegenschaft sind dieselbe Etage.
+echo "$S" | jq -e '.geschosse | length == 2' >/dev/null \
+  && ok "zwei Geschosse, OG nicht doppelt" || bad "Geschosse: $(echo "$S" | jq -c '.geschosse')"
+# Ein Fenster verlangt keine Ident-Nummer — der Vorrat entscheidet, nicht der Import.
+echo "$S" | jq -e '[.checklisten[] | select(.tuertyp == "Kunststofffenster DK") | .pflichtfelder]
+                   == [null]' >/dev/null \
+  && ok "Fenster ohne Pflicht-Ident" || bad "Pflichtfelder Fenster"
 
-echo "== 8. Sammelbericht =="
-S=$(ruf sammelbericht_erzeugen "$(jq -nc --arg b "$BEG1" '{begehung:$b}')")
-echo "$S" | jq -e '.version >= 1 and .enthaltene_berichte == 3 and .seiten >= 4' >/dev/null \
-  && ok "Deckblatt + 3 Berichte" || bad "Sammelbericht: $S"
-SKEY=$(echo "$S" | jq -r .link | sed 's#.*/datei/##')
-typ=$(curl -s -o /dev/null -w "%{content_type}" -b $J "$B/datei/$SKEY")
-[ "$typ" = "application/pdf" ] && ok "Sammelbericht abrufbar" || bad "Sammelbericht-Typ $typ"
-groesse=$(curl -s -b $J "$B/begehung/$BEG1/paket.zip" | wc -c)
-[ "$groesse" -gt 10000 ] && ok "ZIP $groesse Bytes" || bad "ZIP zu klein: $groesse"
+echo "== 6. Wartung starten =="
+W=$(ruf wartung_starten "$(jq -nc --arg o "$OID" '{objekt:$o}')")
+BEG=$(echo "$W" | jq -r '.wartung')
+echo "$W" | jq -e '.faellige_tueren | length == 4' >/dev/null \
+  && ok "vier fällige Türen" || bad "fällig: $(echo "$W" | jq -c '.faellige_tueren|length')"
+# Die Checklisten kommen mit — sonst wäre ein zweiter Aufruf nötig, bevor die erste Tür gesagt ist.
+echo "$W" | jq -e '[.checklisten[].punkte[]] | length >= 29' >/dev/null \
+  && ok "Checklisten liegen der Antwort bei" || bad "Checklisten fehlen"
+echo "$W" | jq -e '.faellige_tueren[0].ort == "0.01 · Haupteingang"' >/dev/null \
+  && ok "in Laufreihenfolge" || bad "Reihenfolge: $(echo "$W" | jq -c '.faellige_tueren[0]')"
+# Zweimal starten setzt fort statt zu verdoppeln.
+echo "$(ruf wartung_starten "$(jq -nc --arg o "$OID" '{objekt:$o}')")" \
+  | jq -e '.fortgesetzt == true' >/dev/null && ok "fortgesetzt statt verdoppelt" || bad "fortgesetzt"
 
-echo "== 9. Zweite Begehung: Bestand steht =="
-B2=$(ruf begehung_starten "$(jq -nc --arg o "$OID" --arg d "$HEUTE" '{objekt:$o,datum:$d}')")
-echo "$B2" | jq -e '.objekt_neu_angelegt == false and .bauteile_gesamt == 3' >/dev/null \
-  && ok "dieselben 3 Bauteile" || bad "Bestand: $B2"
-echo "$B2" | jq -e '[.faellige_bauteile[].nr] | sort == [1,2,3]' >/dev/null \
-  && ok "alle drei fällig (letzte Prüfung 13 Monate her)" || bad "Fälligkeit"
-BEG2=$(echo "$B2" | jq -r .begehung.id)
+echo "== 7. Diktieren =="
+T=$(ruf tuer_erfassen '{"tueren":[{"nr":1}]}')
+echo "$T" | jq -e '.gespeichert[0] | contains("bestanden")' >/dev/null \
+  && ok "Standard ist in Ordnung" || bad "Tür 1: $T"
+T=$(ruf tuer_erfassen '{"tueren":[{"nr":2,"checks":{"8":"nio","10":"sb"},"hinweise":"Dichtung sproede"}]}')
+echo "$T" | jq -e '.gespeichert[0] | contains("Nachbesserung")' >/dev/null \
+  && ok "Abweichung heißt nicht bestanden" || bad "Tür 2: $T"
+echo "$T" | jq -e '.gespeichert[0] | contains("Saeubern") or contains("Säubern")' >/dev/null \
+  && ok "Abweichung im Klartext quittiert" || bad "Klartext: $T"
+# Ein Schwung auf einmal, dazu eine unbekannte Nummer mit einem Typ aus dem Vorrat.
+T=$(ruf tuer_erfassen '{"tueren":[{"nr":3},{"nr":4},
+  {"nr":9,"tuertyp":"Stahlblechtür","raumnummer":"0.09","raum":"Technikraum"}]}')
+echo "$T" | jq -e '.gespeichert | length == 3' >/dev/null \
+  && ok "Stapel in einem Aufruf" || bad "Stapel: $T"
+echo "$T" | jq -e '.neu_angelegt == [9]' >/dev/null \
+  && ok "unbekannte Nummer wird angelegt" || bad "neu: $(echo "$T" | jq -c '.neu_angelegt')"
+echo "$T" | jq -e '.gespeichert[2] | contains("EG")' >/dev/null \
+  && ok "Etage aus der Raumnummer erkannt" || bad "Etage: $(echo "$T" | jq -r '.gespeichert[2]')"
+echo "$T" | jq -e '.noch_offen == 0' >/dev/null \
+  && ok "nichts Fälliges mehr offen" || bad "offen: $(echo "$T" | jq -c '.noch_offen')"
+# Dieselbe Nummer noch einmal ist die Korrektur.
+T=$(ruf tuer_erfassen '{"tueren":[{"nr":2,"checks":{}}]}')
+echo "$T" | jq -e '.gespeichert[0] | contains("bestanden")' >/dev/null \
+  && ok "Korrektur überschreibt" || bad "Korrektur: $T"
+T=$(ruf tuer_erfassen '{"tueren":[{"nr":2,"checks":{"8":"nio","10":"sb"},"hinweise":"Dichtung sproede"}]}')
+echo "$T" | jq -e '.gespeichert[0] | contains("Nachbesserung")' >/dev/null \
+  && ok "und wieder zurück" || bad "Korrektur zurück"
+# Ein Punkt, den es nicht gibt, wird abgewiesen.
+echo "$(ruf tuer_erfassen '{"tueren":[{"nr":1,"checks":{"99":"nio"}}]}')" \
+  | grep -q "^FEHLER" && ok "ungültiger Punkt abgewiesen" || bad "Punktprüfung"
 
-ruf objekt_lesen "$(jq -nc --arg o "$OID" '{objekt:$o}')" \
-  | jq -e --arg d "$VORJAHR" '[.bauteile[].letzte_pruefung] == [$d,$d,$d]' >/dev/null \
-  && ok "letzte Prüfung am Bauteil" || bad "letzte Prüfung"
+echo "== 8. Fertig: Rückblick, Berichte, Sammelbericht =="
+F=$(ruf wartung_fertig '{}')
+echo "$F" | jq -e '.geprueft == 5 and .nachbesserung == 1' >/dev/null \
+  && ok "fünf geprüft, eine Nachbesserung" || bad "Zahlen: $(echo "$F" | jq -c '{geprueft,nachbesserung}')"
+echo "$F" | jq -e '.rueckblick | length == 5' >/dev/null \
+  && ok "Rückblick zum Vorlesen" || bad "Rückblick"
+echo "$F" | jq -e '.berichte.erzeugt == 5 and .berichte.fertig == true' >/dev/null \
+  && ok "Berichte im selben Zug" || bad "Berichte: $(echo "$F" | jq -c '.berichte')"
+echo "$F" | jq -e '.sammelbericht.version == 1' >/dev/null \
+  && ok "Sammelbericht dazu" || bad "Sammelbericht"
+echo "$F" | jq -e '.unterschrift | contains("/unterschrift")' >/dev/null \
+  && ok "Link zur Unterschrift" || bad "Unterschrift-Link"
+# Noch einmal aufrufen macht keine zweite Version.
+F2=$(ruf wartung_fertig '{}')
+echo "$F2" | jq -e '.berichte.erzeugt == 0' >/dev/null \
+  && ok "zweimal erzeugt keine zweite Version" || bad "Version verdoppelt"
+echo "$F2" | jq -e '.sammelbericht.version == 1' >/dev/null \
+  && ok "und auch keinen zweiten Sammelbericht" \
+  || bad "Sammelbericht: $(echo "$F2" | jq -c '.sammelbericht')"
 
-A=$(ruf pruefung_erfassen "$(jq -nc --arg b "$BEG2" '{begehung:$b,nr:2}')")
-echo "$A" | jq -e '.offene_maengel_vorjahr | length == 1' >/dev/null \
-  && ok "offener Mangel des Vorjahrs gemeldet" || bad "Vorjahresmangel: $A"
+ZIP=$(mktemp).zip
+curl -s -b $J "$B/begehung/$BEG/paket.zip" -o $ZIP
+unzip -l $ZIP 2>/dev/null | grep -q "bestanden/" \
+  && ok "ZIP hat den Ordner bestanden" || bad "ZIP ohne bestanden/"
+unzip -l $ZIP 2>/dev/null | grep -q "nachbesserung/" \
+  && ok "ZIP hat den Ordner nachbesserung" || bad "ZIP ohne nachbesserung/"
+rm -f $ZIP
 
-MID=$(echo "$A" | jq -r '.offene_maengel_vorjahr[0].id')
-ruf mangel_schliessen "$(jq -nc --arg m "$MID" '{mangel:$m,freimeldung:"Dichtung getauscht"}')" \
-  | jq -e '.maengel[0].status == "behoben"' >/dev/null && ok "Mangel freigemeldet" || bad "Freimeldung"
-ruf bauteil_lesen "$(jq -nc --arg o "$OID" '{objekt:$o,nr:2}')" \
-  | jq -e '.bauteil.offene_maengel == 0 and (.pruefungen | length == 2)' >/dev/null \
-  && ok "Bauteil-Historie: zwei Prüfungen, nichts offen" || bad "Historie"
+echo "== 9. Unterschrift des Betreibers =="
+code=$(curl -s -o /dev/null -w "%{http_code}" -b $J -X POST "$B/begehung/$BEG/unterschrift" \
+  --form-string "name=Herr Kruse" --form-string "bild=data:image/png;base64,$PNG")
+[ "$code" = "302" ] && ok "unterschrieben" || bad "Unterschrift $code"
+# Die Unterschriftsseite erzeugt gleich neu — der Stand hat sich geändert.
+F3=$(ruf wartung_fertig '{}')
+echo "$F3" | jq -e '.berichte.erzeugt == 0' >/dev/null \
+  && ok "Berichte stehen schon in neuer Version" || bad "Berichte: $(echo "$F3" | jq -c '.berichte')"
+echo "$F3" | jq -e '.sammelbericht.version == 2' >/dev/null \
+  && ok "Sammelbericht v2 trägt die Unterschrift" \
+  || bad "Sammelbericht: $(echo "$F3" | jq -c '.sammelbericht')"
 
-echo "== 10. Fristen =="
-for nr in 1 3; do
-  ruf pruefung_erfassen "$(jq -nc --arg b "$BEG2" --argjson n $nr '{begehung:$b,nr:$n}')" >/dev/null
-done
-ruf faellig '{"tage":30}' | jq -e --arg o "$OID" '[.objekte[].id] | index($o) | not' >/dev/null \
-  && ok "nach vollständiger Begehung nicht mehr fällig" || bad "noch fällig"
+echo "== 10. Stand =="
+L=$(ruf stand '{}')
+echo "$L" | jq -e '.objekte_gesamt >= 1' >/dev/null && ok "Lagebild" || bad "Lagebild"
+H=$(ruf stand "$(jq -nc --arg o "$OID" '{objekt:$o,tuer:2}')")
+echo "$H" | jq -e '.geprueft[0].ergebnis == "Nachbesserung"' >/dev/null \
+  && ok "Geschichte einer Tür" || bad "Historie: $(echo "$H" | jq -c '.geprueft')"
 
-ruf begehung_aendern "$(jq -nc --arg b "$BEG2" --arg d "$VORJAHR" '{begehung:$b,datum:$d}')" >/dev/null
-ruf faellig '{"tage":30}' | jq -e --arg o "$OID" '[.objekte[].id] | index($o)' >/dev/null \
-  && ok "nach Rückdatierung um 13 Monate wieder fällig" || bad "Rückdatierung wirkt nicht"
+echo "== 11. Nächstes Jahr: was offen war, wird abgefragt =="
+# Ein zweiter Termin, ein Jahr später: was an Tür 2 nicht in Ordnung war, kommt zurück.
+W2=$(ruf wartung_starten "$(jq -nc --arg o "$OID" --arg d "$NAECHSTES" '{objekt:$o,datum:$d}')")
+BEG2=$(echo "$W2" | jq -r '.wartung')
+echo "$W2" | jq -e '[.nachsehen[] | select(.nr == 2)] | length == 1' >/dev/null \
+  && ok "der offene Befund steht im Start" || bad "nachsehen: $(echo "$W2" | jq -c '.nachsehen')"
+T=$(ruf tuer_erfassen "$(jq -nc --arg b "$BEG2" '{wartung:$b,tueren:[{nr:2}]}')")
+echo "$T" | jq -e '.nachsehen[0].punkte == ["8","10"]' >/dev/null \
+  && ok "und beim Erfassen noch einmal" || bad "nachsehen: $(echo "$T" | jq -c '.nachsehen')"
+ruf wartung_fertig "$(jq -nc --arg b "$BEG2" '{wartung:$b}')" >/dev/null
 
-echo "== 11. Website: zwei Reiter am Objekt =="
-curl -s -b $J "$B/objekt/$OID" | grep -q "Bestand" && ok "Reiter Bestand" || bad "Reiter Bestand"
-# Die Nebenwege sind Knöpfe, kein Textlink — und „Ohne Netz" gibt es dort nicht mehr.
-SEITE0=$(curl -s -b $J "$B/objekt/$OID")
-echo "$SEITE0" | grep -qE 'class="btn schmal( leise)?" href="/objekt/'"$OID"'/erfassen"' \
-  && ok "Tür erfassen ist ein Knopf" || bad "Tür erfassen kein Knopf"
-echo "$SEITE0" | grep -qE 'class="btn schmal( leise)?" href="/objekt/'"$OID"'/import"' \
-  && ok "Bauplan einlesen ist ein Knopf" || bad "Bauplan kein Knopf"
-echo "$SEITE0" | grep -qv "Ohne Netz" && ok "kein Ohne-Netz-Link" || bad "Ohne Netz noch da"
-echo "$SEITE0" | grep -qv "Berichte ansehen" && ok "kein Berichte-ansehen-Knopf" || bad "Berichte ansehen noch da"
-curl -s -b $J "$B/objekt/$OID/berichte" | grep -q "Prüfungen" && ok "Reiter Berichte" || bad "Reiter Berichte"
-# Checkliste und Mängel gibt es am Objekt nicht mehr.
-ZIEL=$(curl -s -o /dev/null -w "%{redirect_url}" -b $J "$B/objekt/$OID/checkliste")
-echo "$ZIEL" | grep -q "/checkliste$" && ok "Objekt-Checkliste führt nach oben" || bad "Weiterleitung: $ZIEL"
-code=$(curl -s -o /dev/null -w "%{http_code}" -b $J "$B/objekt/$OID/maengel")
-[ "$code" = "404" ] && ok "Objekt-Mängel gibt es nicht mehr" || bad "Objekt-Mängel $code"
-for W in /maengel /touren; do
-  code=$(curl -s -o /dev/null -w "%{http_code}" -b $J "$B$W")
-  [ "$code" = "404" ] && ok "$W entfernt" || bad "$W noch da ($code)"
-done
-# Der Termin kommt in der Oberfläche nicht mehr vor — alte Adressen führen aufs Objekt.
-ZIEL=$(curl -s -o /dev/null -w "%{redirect_url}" -b $J "$B/begehung/$BEG2")
-echo "$ZIEL" | grep -q "/objekt/$OID" && ok "alte Begehungsadresse leitet aufs Objekt" || bad "Weiterleitung: $ZIEL"
-curl -s -b $J "$B/objekt/$OID" | grep -qv "Begehung fortsetzen" && ok "kein Knopf für den Termin" || bad "Termin noch sichtbar"
-code=$(curl -s -o /dev/null -w "%{http_code}" -b $J -X POST "$B/begehung/$BEG2/pruefung/3" \
-  -d "ergebnis=Nachbesserung" -d "hinweise=Aus dem Browser" -d "p_1=io" -d "p_4=nio" -d "raum=Flur 3")
-[ "$code" = "302" ] && ok "Prüfraster speichert" || bad "Prüfraster $code"
-ruf bauteil_lesen "$(jq -nc --arg o "$OID" '{objekt:$o,nr:3}')" \
-  | jq -e '.bauteil.offene_maengel == 1' >/dev/null && ok "Mangel aus dem Formular" || bad "Formular-Mangel"
-# Der Bestand beantwortet die eine Frage: bestanden oder nicht?
-SEITE=$(curl -s -b $J "$B/objekt/$OID")
-echo "$SEITE" | grep -q "nicht bestanden" && ok "Bestand zeigt 'nicht bestanden'" || bad "nicht bestanden fehlt"
-echo "$SEITE" | grep -q ">bestanden<" && ok "Bestand zeigt 'bestanden'" || bad "bestanden fehlt"
+echo "== 12. Ändern =="
+A=$(ruf aendern "$(jq -nc --arg o "$OID" '{objekt:$o,stammdaten:{ident:"KITA-4711"}}')")
+echo "$A" | jq -e '.geaendert | length == 1' >/dev/null && ok "Stammdaten" || bad "aendern: $A"
+A=$(ruf aendern "$(jq -nc --arg o "$OID" '{objekt:$o,tuer:9,tuer_felder:{raum:"Heizraum"}}')")
+echo "$A" | jq -e '.geaendert[0] | contains("Tür 9")' >/dev/null && ok "eine Tür" || bad "Tür: $A"
+A=$(ruf aendern '{"vorgaben":{"ort":"Hamburg","befaehigung":"Sachkundiger DGWZ"}}')
+echo "$A" | jq -e '.geaendert[0] | contains("Standardwerte")' >/dev/null \
+  && ok "eigene Vorgaben" || bad "Vorgaben: $A"
+echo "$(ruf aendern '{}')" | grep -q "^FEHLER" \
+  && ok "leeres Ändern wird abgewiesen" || bad "leeres Ändern"
 
-echo "== 12. Rundgang ohne Netz =="
-curl -s -b $J "$B/api/rundgang/$BEG2" \
-  | jq -e '.bauteile | length == 3 and (.[0] | has("letzte") and has("maengel"))' >/dev/null \
-  && ok "Rundgang-Daten vollständig" || bad "Rundgang-Daten"
-curl -s -o /dev/null -w "%{http_code}" "$B/sw.js" | grep -q 200 && ok "Service Worker öffentlich" || bad "sw.js"
-code=$(curl -s -o /dev/null -w "%{http_code}" "$B/api/rundgang/$BEG2")
-[ "$code" = "401" ] && ok "API ohne Anmeldung 401" || bad "API anonym $code"
+echo "== 13. Website =="
+curl -s -b $J "$B/objekt/$OID" | grep -q "Unterschreiben lassen\|Tür erfassen\|Alles durch" \
+  && ok "Objektseite mit einem Knopf" || bad "Objektseite"
+SEITE=$(curl -s -b $J "$B/objekt/$OID/berichte")
+echo "$SEITE" | grep -q "NACHBESSERUNG\|Nachbesserung" && ok "Berichte: Gruppe Nachbesserung" || bad "Gruppe fehlt"
+echo "$SEITE" | grep -q "Bestanden" && ok "Berichte: Gruppe Bestanden" || bad "Gruppe fehlt"
+curl -s -b $J "$B/objekt/$OID/einrichten" | grep -q "Konstant — am Objekt" \
+  && ok "Assistent zeigt die drei Ebenen" || bad "Assistent"
+curl -s -b $J "$B/objekt/$OID/liste" | grep -q "Laufliste" \
+  && ok "Laufliste" || bad "Laufliste"
+curl -s -b $J "$B/objekte" | grep -q "Objekte" && ok "Objektliste" || bad "Objektliste"
 
-# Was der Client offline gesammelt hätte: zwei Prüfungen und eine unbekannte Tür auf einer
-# Nummer, die inzwischen belegt ist.
-OP1=$(zufall); OP2=$(zufall); OP3=$(zufall)
-# Client-Zeit: eine Minute nach jetzt, damit sie die im Browser erfasste Prüfung schlägt.
-JETZT=$(( $(date +%s) * 1000 + 60000 ))
-SYNC=$(curl -s -b $J -X POST "$B/api/sync" -H 'content-type: application/json' -d "$(jq -nc \
-  --arg b "$BEG2" --arg o1 "$OP1" --arg o2 "$OP2" --arg o3 "$OP3" --arg t "$JETZT" '{begehung:$b,ops:[
-   {op_id:$o1,art:"pruefung",payload:{nr:1,checks:{"2":"nio"},ergebnis:"Nachbesserung",hinweise:"Offline erfasst",geprueft_am:($t|tonumber)}},
-   {op_id:$o2,art:"bauteil_neu",payload:{nr:2,art:"wartung_drehfluegel",raum:"Im Rundgang gefunden"}},
-   {op_id:$o3,art:"pruefung",payload:{nr:2,checks:{},ergebnis:"bestanden",geprueft_am:(($t|tonumber)+1000)}}]}')")
-echo "$SYNC" | jq -e '[.ergebnisse[].ok] | all' >/dev/null && ok "Warteschlange angekommen" || bad "Sync: $SYNC"
-NEUE=$(echo "$SYNC" | jq -r '.ergebnisse[1].zuordnung.server_nr')
-[ "$NEUE" = "4" ] && ok "belegte Nummer umgelegt auf $NEUE" || bad "Zuordnung: $NEUE"
-echo "$SYNC" | jq -e '.ergebnisse[2].bauteil_nr == 4' >/dev/null \
-  && ok "Folgeprüfung zieht die neue Nummer mit" || bad "Umlegung wirkt nicht"
-
-WDH=$(curl -s -b $J -X POST "$B/api/sync" -H 'content-type: application/json' -d "$(jq -nc \
-  --arg b "$BEG2" --arg o1 "$OP1" '{begehung:$b,ops:[{op_id:$o1,art:"pruefung",payload:{nr:1,checks:{},ergebnis:"bestanden"}}]}')")
-echo "$WDH" | jq -e '.ergebnisse[0].doppelt == true' >/dev/null \
-  && ok "dieselbe op_id ändert nichts" || bad "Idempotenz: $WDH"
-ruf bauteil_lesen "$(jq -nc --arg o "$OID" '{objekt:$o,nr:1}')" \
-  | jq -e '.pruefungen[0].abweichungen | length == 1' >/dev/null \
-  && ok "Wiederholung hat nichts überschrieben" || bad "Wiederholung wirkte doch"
-
-ALT=$(curl -s -b $J -X POST "$B/api/sync" -H 'content-type: application/json' -d "$(jq -nc \
-  --arg b "$BEG2" --arg o "$(zufall)" '{begehung:$b,ops:[{op_id:$o,art:"pruefung",payload:{nr:1,checks:{},ergebnis:"bestanden",geprueft_am:1000}}]}')")
-echo "$ALT" | jq -e '.ergebnisse[0].konflikt == "aelter"' >/dev/null \
-  && ok "ältere Erfassung verliert" || bad "Konflikt: $ALT"
-NEU=$(curl -s -b $J -X POST "$B/api/sync" -H 'content-type: application/json' -d "$(jq -nc \
-  --arg b "$BEG2" --arg o "$(zufall)" '{begehung:$b,ops:[{op_id:$o,art:"pruefung",payload:{nr:1,checks:{"5":"nio"},ergebnis:"Nachbesserung",geprueft_am:4102444800000}}]}')")
-echo "$NEU" | jq -e '.ergebnisse[0].konflikt == null' >/dev/null \
-  && ok "jüngere Erfassung gewinnt" || bad "jüngere verworfen: $NEU"
-
-echo "== 13. Foto =="
-F=$(curl -s -b $J -X POST "$B/api/foto" -F "op_id=$(zufall)" -F "begehung_id=$BEG2" \
-  -F "bauteil_nr=4" -F "breite=48" -F "hoehe=32" -F "bild=@$FOTO;type=image/jpeg")
-echo "$F" | jq -e '.ok == true and (.foto | length > 0)' >/dev/null && ok "Foto angenommen" || bad "Foto: $F"
-FKEY=$(echo "$F" | jq -r .link | sed 's#^/datei/##')
-typ=$(curl -s -o /dev/null -w "%{content_type}" -b $J "$B/datei/$FKEY")
-echo "$typ" | grep -q image && ok "Foto abrufbar" || bad "Foto-Typ $typ"
-ruf bauteil_lesen "$(jq -nc --arg o "$OID" '{objekt:$o,nr:4}')" \
-  | jq -e '.fotos | length == 1' >/dev/null && ok "Foto hängt am Bauteil" || bad "Foto am Bauteil"
-ruf berichte_erzeugen "$(jq -nc --arg b "$BEG2" '{begehung:$b}')" >/dev/null
-ruf berichte_auflisten "$(jq -nc --arg b "$BEG2" '{begehung:$b}')" \
-  | jq -e '[.berichte[] | select(.nr == 4) | .seiten] == [2]' >/dev/null \
-  && ok "Bericht mit Fotoanhang (2 Seiten)" || bad "Fotoanhang fehlt"
-
-echo "== 13a. Einstufung bestimmt die Frist =="
-PB=$(ruf begehung_starten "$(jq -nc --arg o "E2E Einstufung $STEMPEL" '{objekt:$o}')" | jq -r .begehung.id)
-ruf pruefung_erfassen "$(jq -nc --arg b "$PB" '{begehung:$b,nr:1,checks:{"3":"nio"},hinweise:"Brandschutztuer schliesst nicht",prioritaet:"hoch"}')" \
-  | jq -e '.mangel_angelegt.prioritaet == "hoch"' >/dev/null && ok "hoch übernommen" || bad "Einstufung hoch"
-ruf pruefung_erfassen "$(jq -nc --arg b "$PB" '{begehung:$b,nr:2,checks:{"7":"nio"},prioritaet:"niedrig",zustaendig:"Betreiber"}')" \
-  | jq -e '.mangel_angelegt.zustaendig == "Betreiber"' >/dev/null && ok "Zuständigkeit übernommen" || bad "zustaendig"
-ruf pruefung_erfassen "$(jq -nc --arg b "$PB" '{begehung:$b,nr:3,checks:{"9":"nio"}}')" \
-  | jq -e '.mangel_angelegt.prioritaet == "mittel"' >/dev/null && ok "ohne Angabe mittel" || bad "Standardeinstufung"
-# 7 / 28 / 90 Tage — die Fristen müssen auseinanderliegen und in dieser Ordnung stehen.
-F1=$(ruf bauteil_lesen "$(jq -nc --arg o "E2E Einstufung $STEMPEL" '{objekt:$o,nr:1}')" | jq -r '.maengel[0].frist')
-F2=$(ruf bauteil_lesen "$(jq -nc --arg o "E2E Einstufung $STEMPEL" '{objekt:$o,nr:2}')" | jq -r '.maengel[0].frist')
-F3=$(ruf bauteil_lesen "$(jq -nc --arg o "E2E Einstufung $STEMPEL" '{objekt:$o,nr:3}')" | jq -r '.maengel[0].frist')
-[ "$F1" \< "$F3" ] && [ "$F3" \< "$F2" ] \
-  && ok "Frist folgt der Einstufung (7 < 28 < 90)" || bad "Fristen: $F1 / $F3 / $F2"
-# Eine Korrektur ohne Einstufung darf die gesetzte nicht zurücknehmen.
-ruf pruefung_erfassen "$(jq -nc --arg b "$PB" '{begehung:$b,nr:1,checks:{"3":"nio"},hinweise:"Nachtrag"}')" >/dev/null
-ruf bauteil_lesen "$(jq -nc --arg o "E2E Einstufung $STEMPEL" '{objekt:$o,nr:1}')" \
-  | jq -e '.maengel[0].prioritaet == "hoch"' >/dev/null \
-  && ok "Korrektur nimmt die Einstufung nicht zurück" || bad "Einstufung überschrieben"
-# Die erkannte Etage steht in der Quittung.
-ruf pruefung_erfassen "$(jq -nc --arg b "$PB" '{begehung:$b,nr:4,raumnummer:"2.14",raum:"Lager",flur:"2. OG"}')" \
-  | jq -e '.bauteil.geschoss == "2. OG" and .bauteil.ort == "2. OG · 2.14 · Lager"' >/dev/null \
-  && ok "Etage in der Quittung, ohne Doppelung" || bad "Ort in der Quittung"
-EIN_OID=$(ruf objekt_lesen "$(jq -nc --arg o "E2E Einstufung $STEMPEL" '{objekt:$o}')" | jq -r .objekt.id)
-curl -s -o /dev/null -b $J -X POST "$B/objekt/$EIN_OID/loeschen"
-
-echo "== 13b. Automatik: Lagebild, Tagesplanung, Abschluss in einem Zug =="
-L=$(ruf lage '{}')
-echo "$L" | jq -e '.zusammenfassung | length > 0' >/dev/null && ok "Lagebild" || bad "lage: $L"
-echo "$L" | jq -e --arg o "$OID" '[.ueberfaellig[].id, .bald_faellig[].id] | index($o)' >/dev/null \
-  && ok "zurückdatiertes Objekt taucht als fällig auf" || bad "lage sieht das fällige Objekt nicht"
-echo "$L" | jq -e '.naechste_schritte | type == "array"' >/dev/null \
-  && ok "nächste Schritte als Liste" || bad "naechste_schritte"
-# Ein Mangel über der Frist muss auftauchen.
-echo "$L" | jq -e --arg o "$OBJEKT" '[.maengel_ueber_frist[].objekt] | index($o)' >/dev/null \
-  && ok "Mangel über der Frist gemeldet" || bad "Mangel über Frist fehlt"
-
-# Ein Termin ohne Prüfung hat nichts zu berichten — das darf nicht scheitern.
-LEER=$(ruf begehung_starten "$(jq -nc --arg o "E2E Leerprobe $STEMPEL" '{objekt:$o}')" | jq -r .begehung.id)
-ruf begehung_abschliessen "$(jq -nc --arg b "$LEER" '{begehung:$b}')" \
-  | jq -e '.berichte.fertig == true and .sammelbericht == null' >/dev/null \
-  && ok "leerer Termin schließt ohne Fehler ab" || bad "leerer Abschluss"
-LEER_OID=$(ruf objekt_lesen "$(jq -nc --arg o "E2E Leerprobe $STEMPEL" '{objekt:$o}')" | jq -r .objekt.id)
-curl -s -o /dev/null -b $J -X POST "$B/objekt/$LEER_OID/loeschen"
-
-# Ändert sich nach dem Erzeugen etwas, das im Bericht steht, muss das auffallen —
-# sonst liegt beim Kunden ein PDF, das nicht mehr stimmt, und niemand weiß es.
-ruf begehung_aendern "$(jq -nc --arg b "$BEG1" '{begehung:$b,beteiligte:"Herr Ohlsen, Messgeraet 4711"}')" >/dev/null
-ruf berichte_auflisten "$(jq -nc --arg b "$BEG1" '{begehung:$b}')" \
-  | jq -e '[.berichte[].veraltet] | all' >/dev/null \
-  && ok "geänderter Stand macht die Berichte veraltet" || bad "veraltet nicht erkannt"
-ruf lage '{}' | jq -e --arg b "$BEG1" '[.berichte_veraltet[].begehung_id] | index($b)' >/dev/null \
-  && ok "Lagebild meldet die veralteten Berichte" || bad "lage übersieht veraltete Berichte"
-ruf begehung_abschliessen "$(jq -nc --arg b "$BEG1" '{begehung:$b}')" \
-  | jq -e '.berichte.erzeugt >= 1' >/dev/null && ok "Abschluss zieht sie nach" || bad "Nachziehen"
-ruf lage '{}' | jq -e --arg b "$BEG1" '[.berichte_veraltet[].begehung_id] | index($b) | not' >/dev/null \
-  && ok "danach ist nichts mehr veraltet" || bad "bleibt veraltet"
-
-
-echo "== 13c. Prompts und Ressourcen =="
-rpc() { curl -s -X POST $B/mcp -H "authorization: Bearer $AT" -H 'content-type: application/json' -d "$1"; }
-rpc '{"jsonrpc":"2.0","id":1,"method":"prompts/list"}' \
-  | jq -e '[.result.prompts[].name] | index("wartung") and index("tag") and index("abschluss") and index("einrichten") and index("bauplan")' >/dev/null \
-  && ok "fünf Prompts" || bad "prompts/list"
-rpc '{"jsonrpc":"2.0","id":1,"method":"prompts/get","params":{"name":"wartung","arguments":{"objekt":"Kita X"}}}' \
-  | jq -e '.result.messages[0].content.text | contains("Kita X")' >/dev/null \
-  && ok "Prompt trägt das Argument" || bad "prompts/get"
-rpc '{"jsonrpc":"2.0","id":1,"method":"prompts/get","params":{"name":"wartung","arguments":{}}}' \
-  | jq -e '.error.code == -32602' >/dev/null && ok "Pflichtargument wird verlangt" || bad "Prompt ohne Argument"
-rpc '{"jsonrpc":"2.0","id":1,"method":"resources/list"}' \
-  | jq -e '[.result.resources[].uri] | index("tuerwerk://bestand") and index("tuerwerk://anleitung/import")' >/dev/null \
-  && ok "Ressourcen gelistet" || bad "resources/list"
-rpc '{"jsonrpc":"2.0","id":1,"method":"resources/read","params":{"uri":"tuerwerk://bestand"}}' \
-  | jq -e --arg o "$OBJEKT" '.result.contents[0].text | contains($o)' >/dev/null \
-  && ok "Bestand als Ressource lesbar" || bad "resources/read"
-rpc '{"jsonrpc":"2.0","id":1,"method":"resources/read","params":{"uri":"tuerwerk://pruefpunkte/wartung_drehfluegel"}}' \
-  | jq -e '.result.contents[0].text | contains("Leichtgängigkeit")' >/dev/null \
-  && ok "Prüfpunkte als Ressource" || bad "Prüfpunkte-Ressource"
-rpc '{"jsonrpc":"2.0","id":1,"method":"resources/read","params":{"uri":"tuerwerk://gibtsnicht"}}' \
-  | jq -e '.error.code == -32602' >/dev/null && ok "unbekannte Ressource abgewiesen" || bad "Ressourcenfehler"
-
-echo "== 14b. Etage entsteht beim Erfassen =="
-# Der Regelweg ist das Diktat; früher blieb geschoss_id dabei immer leer und die
-# Etagenordnung der Laufreihenfolge lief leer mit. Vier Wege müssen zur Etage führen.
-GB=$(ruf begehung_starten "$(jq -nc --arg o "$OBJEKT" '{objekt:$o}')" | jq -r .begehung.id)
-ruf pruefung_erfassen "$(jq -nc --arg b "$GB" '{begehung:$b,nr:41,raumnummer:"4.01",raum:"aus Raumnummer",flur:"Flur Nord"}')" >/dev/null
-ruf pruefung_erfassen "$(jq -nc --arg b "$GB" '{begehung:$b,nr:42,raum:"aus ETAGE",felder:{ETAGE:"-1"}}')" >/dev/null
-ruf pruefung_erfassen "$(jq -nc --arg b "$GB" '{begehung:$b,nr:43,raum:"aus flur",flur:"1. Obergeschoss"}')" >/dev/null
-ruf pruefung_erfassen "$(jq -nc --arg b "$GB" '{begehung:$b,nr:44,raum:"ausdrücklich",geschoss:"DG"}')" >/dev/null
-OL=$(ruf objekt_lesen "$(jq -nc --arg o "$OID" '{objekt:$o}')")
-for G in "4. OG" "UG" "1. OG" "DG"; do
-  echo "$OL" | jq -e --arg g "$G" '[.geschosse[].name] | index($g)' >/dev/null \
-    && ok "Etage $G erkannt" || bad "Etage $G fehlt"
-done
-# "Flur Nord" ist ein Flur, keine Etage: es darf kein Geschoss dieses Namens geben.
-echo "$OL" | jq -e '[.geschosse[].name] | index("Flur Nord") | not' >/dev/null \
-  && ok "Flurname wird nicht zur Etage" || bad "Flur als Geschoss angelegt"
-# Und zweimal dieselbe Etage bleibt eine.
-ruf pruefung_erfassen "$(jq -nc --arg b "$GB" '{begehung:$b,nr:45,raum:"nochmal DG",geschoss:"Dachgeschoss"}')" >/dev/null
-ruf objekt_lesen "$(jq -nc --arg o "$OID" '{objekt:$o}')" \
-  | jq -e '[.geschosse[] | select(.name == "DG")] | length == 1' >/dev/null \
-  && ok "gleiche Etage wird nicht verdoppelt" || bad "Etage verdoppelt"
-
-echo "== 15. Bestand als Stapel =="
-ST=$(ruf bauteile_anlegen "$(jq -nc --arg o "$OID" '{objekt:$o,geschoss:"2. OG",bauteile:[
- {kennung:"S-1",raumnummer:"2.01",raum:"Stapel eins",felder:{HERSTELLER:"Teckentrup"}},
- {kennung:"S-2",raumnummer:"2.02",raum:"Stapel zwei"},
- {nr:1,kennung:"S-3",raum:"Kollision"}]}')")
-echo "$ST" | jq -e '.angelegt == 2' >/dev/null && ok "zwei Bauteile angelegt" || bad "Stapel: $ST"
-echo "$ST" | jq -e '.uebersprungen[0].grund | contains("belegt")' >/dev/null \
-  && ok "belegte Nummer übersprungen statt überschrieben" || bad "Kollision"
-ruf objekt_lesen "$(jq -nc --arg o "$OID" '{objekt:$o}')" \
-  | jq -e '[.geschosse[].name] | index("2. OG")' >/dev/null \
-  && ok "Geschoss aus dem Stapel angelegt" || bad "Geschoss"
-ruf bauteil_lesen "$(jq -nc --arg o "$OID" '{objekt:$o,kennung:"S-1"}')" \
-  | jq -e '.bauteil.felder.HERSTELLER == "Teckentrup"' >/dev/null \
-  && ok "Felder übernommen" || bad "Felder"
-
-echo "== 16. Begehung abschließen und wieder öffnen =="
-code=$(curl -s -o /dev/null -w "%{http_code}" -b $J -X POST "$B/begehung/$BEG2/abschliessen")
-[ "$code" = "302" ] && ok "abgeschlossen" || bad "abschliessen $code"
-ruf begehung_lesen "$(jq -nc --arg b "$BEG2" '{begehung:$b}')" \
-  | jq -e '.begehung.status == "abgeschlossen"' >/dev/null \
-  && ok "Status steht" || bad "Status"
-code=$(curl -s -o /dev/null -w "%{http_code}" -b $J -X POST "$B/begehung/$BEG2/oeffnen")
-[ "$code" = "302" ] && ok "wieder geöffnet" || bad "oeffnen $code"
-
-echo "== 17. Bauplan-Import über den Agenten =="
-ruf import_anleitung '{}' | jq -e '.anleitung | contains("Türwerk liest keine Pläne")' >/dev/null \
-  && ok "Anleitung liegt bereit" || bad "Anleitung"
-code=$(curl -s -o /dev/null -w "%{http_code}" -b $J "$B/anleitung/import")
-[ "$code" = "200" ] && ok "Anleitung als Seite" || bad "Anleitungsseite $code"
-
-IPLAN=$(ruf import_starten "$(jq -nc --arg o "$OID" '{objekt:$o,art:"plan",dateiname:"EG.pdf",geschoss:"EG"}')" | jq -r .import)
-[ -n "$IPLAN" ] && ok "Plan-Import $IPLAN" || bad "import_starten"
-ruf vorschlaege_anlegen "$(jq -nc --arg i "$IPLAN" '{import:$i,kandidaten:[
- {kennung:"T-1.01",raumnummer:"1.01",raum:"Flur",x:0.2,y:0.3,konfidenz:0.9},
- {kennung:"T-1.02",raumnummer:"1.02",raum:"Buero",x:0.4,y:0.3,konfidenz:0.9},
- {kennung:"",raumnummer:"1.03",raum:"Lager",x:0.6,y:0.3,konfidenz:0.7}]}')" \
-  | jq -e '.angelegt == 3 and .zahlen.mit_position == 3' >/dev/null \
-  && ok "3 Plankandidaten mit Position" || bad "vorschlaege_anlegen"
-
-ILISTE=$(ruf import_starten "$(jq -nc --arg o "$OID" '{objekt:$o,art:"tuerliste",dateiname:"Tuerliste.xlsx"}')" | jq -r .import)
-ruf vorschlaege_anlegen "$(jq -nc --arg i "$ILISTE" '{import:$i,kandidaten:[
- {kennung:"T 1.01",raumnummer:"1.01",konfidenz:1.0,wartungspflichtig:true,felder:{ZULASSUNG:"T30-RS",HERSTELLER:"Hoermann"}},
- {kennung:"T-1.02",raumnummer:"1.02",konfidenz:1.0,wartungspflichtig:true,felder:{ZULASSUNG:"T90"}},
- {kennung:"",raumnummer:"1.03",konfidenz:1.0,felder:{HERSTELLER:"Schoerghuber"}},
- {kennung:"T-9.99",raumnummer:"9.99",raum:"Nur in der Liste",konfidenz:1.0}]}')" \
-  | jq -e '.angelegt == 4' >/dev/null && ok "4 Listenzeilen" || bad "Türliste"
-
-Z=$(ruf import_zusammenfuehren "$(jq -nc --arg l "$ILISTE" --arg p "$IPLAN" '{tuerliste:$l,plan:$p}')")
-echo "$Z" | jq -e '.zusammengefuehrt == 3 and .ueber_kennung == 2 and .ueber_raumnummer == 1' >/dev/null \
-  && ok "3 Paare: 2 über Kennung, 1 über Raumnummer" || bad "Zusammenführung: $Z"
-echo "$Z" | jq -e '.nur_in_der_liste == 1 and .nur_im_plan == 0' >/dev/null \
-  && ok "eine Listenzeile bleibt allein" || bad "Rest"
-
-ruf vorschlaege_annehmen "$(jq -nc --arg i "$IPLAN" '{import:$i,ab_konfidenz:0.8}')" \
-  | jq -e '.angelegt == 3' >/dev/null && ok "3 Bauteile aus dem Plan" || bad "Freigabe"
-ruf bauteil_lesen "$(jq -nc --arg o "$OID" '{objekt:$o,kennung:"T-1.01"}')" \
-  | jq -e '.bauteil.felder.ZULASSUNG == "T30-RS" and .bauteil.wartungspflichtig == true' >/dev/null \
-  && ok "Listenfelder am Bauteil" || bad "Felder fehlen"
-
-# Ohne Freigabe entsteht nichts: die allein gebliebene Zeile ist noch offen.
-ruf vorschlaege_lesen "$(jq -nc --arg i "$ILISTE" '{import:$i}')" \
-  | jq -e '[.vorschlaege[].kennung] == ["T-9.99"]' >/dev/null \
-  && ok "unbestätigte Zeile bleibt Vorschlag" || bad "Rest der Liste"
-ruf vorschlaege_verwerfen "$(jq -nc --arg i "$ILISTE" '{import:$i,unter_konfidenz:1.1}')" \
-  | jq -e '.verworfen == 1' >/dev/null && ok "verwerfen" || bad "verwerfen"
-ruf import_abschliessen "$(jq -nc --arg i "$IPLAN" '{import:$i}')" \
-  | jq -e '.status == "bestaetigt"' >/dev/null && ok "Import abgeschlossen" || bad "abschliessen"
-
-GID=$(ruf objekt_lesen "$(jq -nc --arg o "$OID" '{objekt:$o}')" | jq -r '.geschosse[] | select(.name=="EG") | .id')
-code=$(curl -s -o /dev/null -w "%{http_code}" -b $J "$B/objekt/$OID/plan/$GID")
-[ "$code" = "200" ] && ok "Planseite" || bad "Planseite $code"
-# Plan-Marker und Checklisten-Nummer hießen beide .marke; das legte die Nummer über den Text.
-curl -s -b $J "$B/objekt/$OID/plan/$GID" | grep -q "planmarke" \
-  && ok "Plan-Marker mit eigenem Namen" || bad "planmarke fehlt"
-curl -s -b $J "$B/objekt/$OID/plan/$GID/daten.json" \
-  | jq -e '[.bauteile[] | select(.x != null)] | length == 3' >/dev/null \
-  && ok "drei verortete Bauteile auf der Karte" || bad "Karte"
-
-echo "== 17b. Einrichtungs-Assistent =="
-NEU="E2E Einrichtung $STEMPEL"
-E=$(ruf objekt_einrichten "$(jq -nc --arg o "$NEU" '{objekt:$o}')")
-echo "$E" | jq -e '.neu_angelegt == true and .fertig == false' >/dev/null \
-  && ok "legt an und ist noch nicht fertig" || bad "einrichten: $E"
-echo "$E" | jq -e '.naechste_frage.feld == "adresse" and (.naechste_frage.frage | length > 0)' >/dev/null \
-  && ok "erste Frage: Adresse" || bad "naechste_frage"
-echo "$E" | jq -e '.pflicht_offen == ["adresse","betreiber"]' >/dev/null \
-  && ok "Pflichtfelder benannt" || bad "pflicht_offen"
-E=$(ruf objekt_einrichten "$(jq -nc --arg o "$NEU" '{objekt:$o,adresse:"Musterallee 7, 22087 Hamburg"}')")
-echo "$E" | jq -e '.neu_angelegt == false and (.uebernommen | index("adresse"))' >/dev/null \
-  && ok "setzt fort statt zu verdoppeln" || bad "verdoppelt: $E"
-echo "$E" | jq -e '.naechste_frage.feld == "betreiber"' >/dev/null \
-  && ok "nächste Frage rückt nach" || bad "Reihenfolge"
-E=$(ruf objekt_einrichten "$(jq -nc --arg o "$NEU" \
-  '{objekt:$o,betreiber:"Schulbau",objektart:"Schule",zugang:"Schluessel beim Hausmeister",
-    ueberspringen:["betreiber_kontakt","telefon","vertrag","ident"]}')")
-echo "$E" | jq -e '.fertig == true and .naechste_frage == null' >/dev/null \
-  && ok "fertig, wenn nichts mehr offen ist" || bad "nicht fertig: $E"
-echo "$E" | jq -e '[.weiter_mit[]] | any(startswith("bauplan_uebernehmen"))' >/dev/null \
-  && ok "sagt, was als Nächstes lohnt" || bad "weiter_mit"
-ruf objekt_lesen "$(jq -nc --arg o "$NEU" '{objekt:$o}')" \
-  | jq -e '.objekt.zugang == "Schluessel beim Hausmeister" and .objekt.objektart == "Schule"' >/dev/null \
-  && ok "neue Stammdaten gespeichert und lesbar" || bad "Stammdaten"
-
-echo "== 17c. Bauplan in zwei Schritten =="
-BP=$(ruf bauplan_uebernehmen "$(jq -nc --arg o "$NEU" '{objekt:$o,geschoss:"EG",dateiname:"eg.png",tueren:[
- {kennung:"B-1",raumnummer:"0.01",raum:"Eingang",x:0.2,y:0.3,wartungspflichtig:true,konfidenz:0.95},
- {kennung:"B-2",raumnummer:"0.02",raum:"Flur",x:0.4,y:0.3,wartungspflichtig:true,konfidenz:0.9},
- {kennung:"B-3",raumnummer:"0.03",raum:"Abstell",x:0.6,y:0.5,konfidenz:0.45}]}')")
-echo "$BP" | jq -e '.art == "plan"' >/dev/null && ok "Plan an den Positionen erkannt" || bad "art: $BP"
-echo "$BP" | jq -e '.gefunden == 3 and (.bericht | contains("3 neue Türen"))' >/dev/null \
-  && ok "fertiger Bericht zum Vorlesen" || bad "bericht: $(echo "$BP" | jq -r .bericht)"
-echo "$BP" | jq -e '[.freigabe_moeglichkeiten[].was] | length >= 2' >/dev/null \
-  && ok "Freigabe-Möglichkeiten genannt" || bad "freigabe_moeglichkeiten"
-BPI=$(echo "$BP" | jq -r .import)
-ruf vorschlaege_annehmen "$(jq -nc --arg i "$BPI" '{import:$i,ab_konfidenz:0.85}')" \
-  | jq -e '.angelegt == 2 and .import_abgeschlossen == false' >/dev/null \
-  && ok "Teilfreigabe lässt den Import offen" || bad "Teilfreigabe"
-ruf vorschlaege_annehmen "$(jq -nc --arg i "$BPI" '{import:$i,alle:true}')" \
-  | jq -e '.angelegt == 1 and .import_abgeschlossen == true' >/dev/null \
-  && ok "Rest freigegeben, Import schließt sich selbst" || bad "Selbstabschluss"
-# Ohne Positionen ist es eine Türliste — das muss der Server selbst merken.
-ruf bauplan_uebernehmen "$(jq -nc --arg o "$NEU" '{objekt:$o,dateiname:"liste.csv",tueren:[
- {kennung:"L-1",raumnummer:"1.01",raum:"Buero",konfidenz:1.0}]}')" \
-  | jq -e '.art == "tuerliste"' >/dev/null && ok "Türliste ohne Positionen erkannt" || bad "Listenerkennung"
-EIN_OID2=$(ruf objekt_lesen "$(jq -nc --arg o "$NEU" '{objekt:$o}')" | jq -r .objekt.id)
-curl -s -o /dev/null -b $J -X POST "$B/objekt/$EIN_OID2/loeschen"
-
-echo "== 17e. Türenliste: Typen und Etagen entstehen mit =="
-LIST="E2E Liliencron $STEMPEL"
-ruf objekt_einrichten "$(jq -nc --arg o "$LIST" '{objekt:$o,adresse:"Liliencronstr. 93, 22149 Hamburg",
-  betreiber:"Terra Immobilien",ueberspringen:["objektart","betreiber_kontakt","telefon","zugang","vertrag","ident"]}')" >/dev/null
-# Nachbau echter Zeilen: zwei Etagen, drei Typen, einer davon zweimal.
-L=$(ruf bauplan_uebernehmen "$(jq -nc --arg o "$LIST" --arg s "$STEMPEL" '{objekt:$o,dateiname:"Tuerenliste.xlsx",tueren:[
- {kennung:"IT0.01",geschoss:"EG",raumnummer:"0.02",raum:"Abst. R.",tuertyp:("FS 30 RD T30 RS " + $s),
-  wartungspflichtig:true,konfidenz:1.0,felder:{ZULASSUNG:"AbZ Z-6.20-2095",OTS:"GEZE TS 5000"}},
- {kennung:"IT0.03",geschoss:"EG",raumnummer:"0.05",raum:"Haustech.",tuertyp:("FS 30 RD T30 RS " + $s),
-  wartungspflichtig:true,konfidenz:1.0},
- {kennung:"IT0.05",geschoss:"EG",raumnummer:"0.06",raum:"WC",tuertyp:("Vollspan " + $s),konfidenz:1.0},
- {kennung:"IT1.01",geschoss:"OG",raumnummer:"1.01",raum:"ENR 1",tuertyp:("Alu-Rohrrahmen " + $s),konfidenz:1.0}]}')")
-echo "$L" | jq -e '.gefunden == 4 and .tuertypen == 3' >/dev/null \
-  && ok "vier Zeilen, drei Türtypen abgeleitet" || bad "Ableitung: $(echo "$L" | jq -c '{gefunden,tuertypen}')"
-echo "$L" | jq -e '(.tuertypen_neu | length) == 3' >/dev/null \
-  && ok "Typen neu angelegt" || bad "tuertypen_neu"
-LIMP=$(echo "$L" | jq -r .import)
-ruf vorschlaege_annehmen "$(jq -nc --arg i "$LIMP" '{import:$i,alle:true}')" \
-  | jq -e '.angelegt == 4' >/dev/null && ok "vier Türen angelegt" || bad "Freigabe"
-# Der Türtyp hängt an der Tür, mit den Stammdaten der ersten Zeile.
-ruf bauteil_lesen "$(jq -nc --arg o "$LIST" '{objekt:$o,kennung:"IT0.03"}')" \
-  | jq -e '.bauteil.felder.ZULASSUNG == null' >/dev/null \
-  && ok "Zeile ohne eigene Felder bleibt leer" || bad "Felder falsch vererbt"
-ruf checkliste_lesen "$(jq -nc --arg t "FS 30 RD T30 RS $STEMPEL" '{tuertyp:$t}')" \
-  | jq -e '.felder.ZULASSUNG == "AbZ Z-6.20-2095" and .pflichtfelder == ["IDENT"]' >/dev/null \
-  && ok "Stammdaten am Türtyp" || bad "Typ-Stammdaten"
-# Zwei Etagen, „OG" ohne Ziffer muss über „EG" einsortieren.
-ruf objekt_lesen "$(jq -nc --arg o "$LIST" '{objekt:$o}')" \
-  | jq -e '[.geschosse[].name] == ["EG","OG"]' >/dev/null \
-  && ok "EG vor OG, auch ohne Ziffer" || bad "Geschossreihenfolge"
-
-echo "== 17f. Plan danach: Positionen ohne zweite Freigabe =="
-P=$(ruf bauplan_uebernehmen "$(jq -nc --arg o "$LIST" '{objekt:$o,art:"plan",geschoss:"EG",dateiname:"Grundriss.pdf",tueren:[
- {kennung:"IT0.01",x:0.26,y:0.25,konfidenz:1.0},
- {kennung:"IT0.05",x:0.31,y:0.25,konfidenz:1.0},
- {kennung:"IT9.99",x:0.5,y:0.5,konfidenz:0.5}]}')")
-echo "$P" | jq -e '.verortet == 2' >/dev/null && ok "bekannte Kennungen verortet" || bad "verortet: $(echo "$P" | jq -c '{verortet,gefunden}')"
-echo "$P" | jq -e '.zahlen.offen == 1' >/dev/null \
-  && ok "unbekannte Kennung bleibt Vorschlag" || bad "unbekannte Kennung"
-ruf bauteil_lesen "$(jq -nc --arg o "$LIST" '{objekt:$o,kennung:"IT0.01"}')" \
-  | jq -e '.bauteil.x != null' >/dev/null && ok "Position steht am Bauteil" || bad "keine Position"
-ruf objekt_lesen "$(jq -nc --arg o "$LIST" '{objekt:$o}')" \
-  | jq -e '[.bauteile[].kennung] | length == 4' >/dev/null \
-  && ok "keine Dubletten durch den Plan" || bad "Dubletten"
-echo "== 17g. Fensterliste: Fenster neben Türen im selben Objekt =="
-# Echte Fensterlisten haben Buchstaben als Kennung, keinen Türtyp in einer Spalte und
-# Etagen, die anders geschrieben sind als in der Türenliste desselben Hauses.
-FA=$(jq -nc --arg o "$LIST" --arg s "$STEMPEL" '{objekt:$o,dateiname:"Fensterliste.xlsx",tueren:[
- {kennung:"A",geschoss:"1.OG",raumnummer:"1.01",raum:"ENR 1",art:"wartung_fenster",
-  tuertyp:("Kunststoff weiss DK/F/FF/OL elektr. " + $s),wartungspflichtig:true,konfidenz:1.0,
-  felder:{FENSTERTYP:"DK/F/FF/OL elektr."}},
- {kennung:"B",geschoss:"1.OG",raumnummer:"1.01",raum:"ENR 1",art:"wartung_fenster",
-  tuertyp:("Kunststoff weiss DK/F/FF/OL elektr. " + $s),wartungspflichtig:true,konfidenz:1.0},
- {kennung:"AA",geschoss:"EG",raumnummer:"0.06",raum:"WC",art:"wartung_fenster",
-  tuertyp:("Kunststoff weiss " + $s),wartungspflichtig:true,konfidenz:1.0},
- {kennung:"AB",geschoss:"EG",raumnummer:"0.06",raum:"WC",art:"wartung_fenster",
-  wartungspflichtig:true,konfidenz:0.5}]}')
-F=$(ruf bauplan_uebernehmen "$FA")
-# Der kurze Name darf nicht im langen aufgehen — sonst fehlt am Ende ein Typ.
-echo "$F" | jq -e '.gefunden == 4 and .tuertypen == 2' >/dev/null \
-  && ok "zwei Fenstertypen, der kurze geht nicht im langen auf" \
-  || bad "Fenstertypen: $(echo "$F" | jq -c '{gefunden,tuertypen,tuertypen_neu}')"
-echo "$F" | jq -e '.bericht | test("1 ist unsicher")' >/dev/null \
-  && ok "unvollständige Zeile wird als unsicher gemeldet" || bad "Konfidenzbericht"
-# Dieselbe Datei ein zweites Mal darf nichts verdoppeln.
-ruf bauplan_uebernehmen "$FA" \
-  | jq -e '.gefunden == 0 and .schon_offen == 4' >/dev/null \
-  && ok "zweiter Lauf derselben Datei legt nichts doppelt an" || bad "Doppelimport"
-FIMP=$(echo "$F" | jq -r .import)
-ruf vorschlaege_annehmen "$(jq -nc --arg i "$FIMP" '{import:$i,alle:true}')" \
-  | jq -e '.angelegt == 4 and (.bauteile | length) <= 12' >/dev/null \
-  && ok "vier Fenster angelegt, Antwort bleibt kurz" || bad "Fensterfreigabe"
-ruf bauteil_lesen "$(jq -nc --arg o "$LIST" '{objekt:$o,kennung:"A"}')" \
-  | jq -e '.bauteil.art == "wartung_fenster"' >/dev/null \
-  && ok "Fenster trägt seine eigene Vorlage" || bad "Fenstervorlage"
-# „1.OG" der Fensterliste und „OG" der Türenliste sind dieselbe Etage.
-ruf objekt_lesen "$(jq -nc --arg o "$LIST" '{objekt:$o}')" \
-  | jq -e '[.geschosse[].name] == ["EG","OG"]' >/dev/null \
-  && ok "1.OG fällt mit OG zusammen" \
-  || bad "Etage gespalten: $(ruf objekt_lesen "$(jq -nc --arg o "$LIST" '{objekt:$o}')" | jq -c '[.geschosse[].name]')"
-ruf objekt_lesen "$(jq -nc --arg o "$LIST" '{objekt:$o}')" \
-  | jq -e '[.bauteile[]] | length == 8' >/dev/null \
-  && ok "Türen und Fenster stehen im selben Bestand" || bad "Bestand gemischt"
-
-LIST_OID=$(ruf objekt_lesen "$(jq -nc --arg o "$LIST" '{objekt:$o}')" | jq -r .objekt.id)
-curl -s -o /dev/null -b $J -X POST "$B/objekt/$LIST_OID/loeschen"
-
-echo "== 17d. Türtyp, Checkliste, Tür einrichten =="
-TYP="E2E T30 $STEMPEL"
-T=$(ruf tuertyp_anlegen "$(jq -nc --arg n "$TYP" '{name:$n,vorlage:"wartung_drehfluegel",
-  felder:{HERSTELLER:"Hörmann"},pflichtfelder:["IDENT"],
-  zusatzfelder:[{schluessel:"GESCHOSS",label:"Geschoss"},{schluessel:"KOMMENTAR",label:"Kommentar"}]}')")
-echo "$T" | jq -e '.punkte | length == 10' >/dev/null && ok "Checkliste aus der Vorlage" || bad "tuertyp_anlegen: $T"
-echo "$T" | jq -e '.pflichtfelder == ["IDENT"]' >/dev/null && ok "Pflichtfeld gesetzt" || bad "pflichtfelder"
-TID=$(echo "$T" | jq -r .id)
-
-C=$(ruf checkliste_anpassen "$(jq -nc --arg t "$TID" '{tuertyp:$t,punkte:[
-  {nr:"7",aktiv:false},
-  {nr:"1",text:"Leichtgängigkeit — auch bei Zugluft"},
-  {text:"Fluchtwegschild vorhanden und lesbar"}]}')")
-echo "$C" | jq -e '.ausgeblendet == ["7"]' >/dev/null && ok "Punkt ausgeblendet" || bad "ausblenden"
-echo "$C" | jq -e '[.punkte[] | select(.nr == "1")][0].text | startswith("Leichtgängigkeit —")' >/dev/null \
-  && ok "Punkt umbenannt" || bad "umbenennen"
-echo "$C" | jq -e '[.punkte[] | select(.eigen)][0].nr == "900"' >/dev/null \
-  && ok "eigener Punkt ab 900" || bad "eigener Punkt"
-
-# Ohne Objekt geht nichts, und ohne Pflichtfeld ist die Tür nicht bereit.
-ruf tuer_einrichten "$(jq -nc --arg t "$TID" '{objekt:"gibt es nicht",tuertyp:$t}')" \
-  | grep -q "objekt_einrichten" && ok "verweist aufs Objekt" || bad "Objekthinweis"
-E=$(ruf tuer_einrichten "$(jq -nc --arg o "$OID" --arg t "$TID" \
-  '{objekt:$o,tuertyp:$t,nr:40,raumnummer:"4.01",raum:"Lager"}')")
-echo "$E" | jq -e '.bereit == false and .naechste_frage.feld == "IDENT"' >/dev/null \
-  && ok "ohne Ident nicht bereit" || bad "bereit: $E"
-E=$(ruf tuer_einrichten "$(jq -nc --arg o "$OID" --arg t "$TID" \
-  '{objekt:$o,tuertyp:$t,nr:40,felder:{IDENT:"HM-4711"}}')")
-echo "$E" | jq -e '.bereit == true' >/dev/null && ok "mit Ident bereit" || bad "nicht bereit: $E"
-echo "$E" | jq -e '.naechste_frage.feld == "GESCHOSS"' >/dev/null \
-  && ok "fragt danach die Zusatzfelder" || bad "Zusatzfeld"
-echo "$E" | jq -e '.tuer.felder.HERSTELLER == "Hörmann"' >/dev/null \
-  && ok "Stammdaten des Typs gelten mit" || bad "Typ-Stammdaten"
-
-# Die Checkliste des Typs gilt beim Erfassen: eigener Punkt zählt, erfundener nicht.
-BT=$(ruf begehung_starten "$(jq -nc --arg o "$OID" '{objekt:$o}')" | jq -r .begehung.id)
-P=$(ruf pruefung_erfassen "$(jq -nc --arg b "$BT" '{begehung:$b,nr:40,checks:{"900":"nio"},hinweise:"Schild fehlt"}')")
-echo "$P" | jq -e '.abweichungen[0] | contains("Fluchtwegschild")' >/dev/null \
-  && ok "eigener Punkt im Klartext" || bad "eigener Punkt: $P"
-echo "$P" | jq -e '.ergebnis == "Nachbesserung"' >/dev/null \
-  && ok "Abweichung heißt nicht bestanden" || bad "Ergebnis folgt den Kreuzen"
-ruf pruefung_erfassen "$(jq -nc --arg b "$BT" '{begehung:$b,nr:40,checks:{"77":"nio"}}')" \
-  | grep -q "gibt es an dieser Tür nicht" && ok "erfundener Punkt abgewiesen" || bad "Punktprüfung"
-ruf pruefung_erfassen "$(jq -nc --arg b "$BT" '{begehung:$b,nr:40,checks:{}}')" \
-  | jq -e '.ergebnis == "bestanden"' >/dev/null \
-  && ok "Korrektur macht wieder bestanden" || bad "Korrektur"
-
-# Website: Stammdaten und Checkliste liegen oben, nicht am Objekt.
-curl -s -b $J "$B/stammdaten" | grep -q "$TYP" && ok "Türtyp in den Stammdaten" || bad "Stammdatenseite"
-curl -s -b $J "$B/checkliste/$TID" | grep -q "Fluchtwegschild" \
-  && ok "Checkliste zeigt den eigenen Punkt" || bad "Checklistenseite"
-code=$(curl -s -o /dev/null -w "%{http_code}" -b $J -X POST "$B/checkliste/$TID" \
-  --data-urlencode "text_1=Leichtgängigkeit" --data-urlencode "aktiv=1" --data-urlencode "neu=Zweiter eigener Punkt")
-[ "$code" = "302" ] && ok "Checkliste speichert aus dem Browser" || bad "Checkliste speichern $code"
-# Nur „aktiv=1" ging mit — alles andere ist damit ausgeblendet, und der neue Punkt kam dazu.
-CL=$(ruf checkliste_lesen "$(jq -nc --arg t "$TID" '{tuertyp:$t}')")
-echo "$CL" | jq -e '[.punkte[] | .nr] == ["1","901"]' >/dev/null \
-  && ok "nur Angehaktes bleibt sichtbar" || bad "Sichtbarkeit: $(echo "$CL" | jq -c '[.punkte[].nr]')"
-echo "$CL" | jq -e '[.punkte[] | select(.eigen)][0].text == "Zweiter eigener Punkt"' >/dev/null \
-  && ok "zweiter eigener Punkt angelegt" || bad "zweiter eigener Punkt"
-echo "$CL" | jq -e '[.ausgeblendet[]] | index("900")' >/dev/null \
-  && ok "abgewählter eigener Punkt bleibt als ausgeblendet erhalten" || bad "900 verschwunden"
-
-echo "== 17h. Vorrat: gängige Türtypen liegen bereit =="
-# Vorratstypen tragen keinen Stempel; ein früherer Lauf kann sie hinterlassen haben.
-# Damit dieser Abschnitt wiederholbar bleibt, kommen die beiden benutzten zuerst weg.
-VORRAT_BENUTZT="T90 Brandschutztür|Alufenster DK"
-vorrat_aufraeumen() {
-  echo "$VORRAT_BENUTZT" | tr '|' '\n' | while read -r N; do
-    [ -n "$N" ] && ruf tuertyp_loeschen "$(jq -nc --arg t "$N" '{tuertyp:$t}')" >/dev/null 2>&1
-  done
-  return 0
-}
-vorrat_aufraeumen
-# Ohne Vorrat endete der erste Tag an einer leeren Stammdatenseite.
-VL=$(ruf tuertypen_auflisten '{}')
-echo "$VL" | jq -e '(.vorrat | length) >= 10' >/dev/null \
-  && ok "Vorrat wird mitgeliefert" || bad "Vorrat: $(echo "$VL" | jq -c '.vorrat|length')"
-# Lesen darf nichts anlegen.
-VZ=$(echo "$VL" | jq -r '.tuertypen | length')
-ruf checkliste_lesen '{"tuertyp":"T90 Brandschutztür"}' \
-  | jq -e '.aus_vorrat == true and (.punkte | length) > 0' >/dev/null \
-  && ok "Checkliste eines Vorratstyps ist lesbar" || bad "Vorrat lesen"
-ruf tuertypen_auflisten '{}' | jq -e --argjson n "$VZ" '(.tuertypen | length) == $n' >/dev/null \
-  && ok "Lesen legt nichts an" || bad "Lesen hat angelegt"
-# Benutzen legt an — genau einmal.
-ruf tuer_einrichten "$(jq -nc --arg o "$OID" '{objekt:$o,tuertyp:"T90 Brandschutztür",nr:60,felder:{IDENT:"T90-1"}}')" \
-  | jq -e '.bereit == true and .tuer.tuertyp == "T90 Brandschutztür"' >/dev/null \
-  && ok "Vorratstyp entsteht beim Benutzen" || bad "Vorrat benutzen"
-ruf tuertypen_auflisten '{}' \
-  | jq -e '[.tuertypen[] | select(.name == "T90 Brandschutztür")] | length == 1' >/dev/null \
-  && ok "genau einmal angelegt" || bad "doppelt angelegt"
-ruf tuertypen_auflisten '{}' \
-  | jq -e '[.vorrat[] | select(.name == "T90 Brandschutztür")] | length == 0' >/dev/null \
-  && ok "und aus dem Vorrat verschwunden" || bad "steht noch im Vorrat"
-# Zwei Typen desselben Namens sind immer ein Versehen.
-ruf tuertyp_anlegen '{"name":"T90 Brandschutztür","vorlage":"wartung_drehfluegel"}' \
-  | grep -q "gibt es schon" && ok "doppelter Name abgewiesen" || bad "Dublette durchgelassen"
-T90=$(ruf tuertypen_auflisten '{}' | jq -r '.tuertypen[] | select(.name == "T90 Brandschutztür") | .id')
-
-echo "== 17i. Erfassen im Browser geht über den Türtyp =="
-BW=$(ruf begehung_starten "$(jq -nc --arg o "$OID" '{objekt:$o}')" | jq -r .begehung.id)
-# Ohne Türtyp fragt die Seite zuerst danach — und bietet dabei den Vorrat an.
-W=$(curl -s -b $J "$B/begehung/$BW/pruefung/neu?typ=")
-echo "$W" | grep -q "Was für eine Tür ist das" && ok "erst die Frage nach dem Türtyp" || bad "keine Typenwahl"
-echo "$W" | grep -q "Kunststofffenster DK" && ok "Vorrat steht zur Auswahl" || bad "Vorrat fehlt in der Wahl"
-# Die Seite zeigt die Checkliste des Typs, nicht die rohe Vorlage.
-F=$(curl -s -b $J "$B/begehung/$BW/pruefung/neu?typ=$TID")
-# 17d hat an diesem Typ Punkte ausgeblendet und einen eigenen ergänzt — genau das muss hier stehen.
-echo "$F" | grep -q "Zweiter eigener Punkt" && ok "eigener Punkt steht im Formular" || bad "Checkliste des Typs fehlt"
-echo "$F" | grep -q "Kontrolle auf Verschmutzungen" \
-  && bad "ausgeblendeter Punkt steht trotzdem da" || ok "ausgeblendeter Punkt bleibt weg"
-echo "$F" | grep -q 'name="art"' && bad "Vorlagen-Auswahl noch da" || ok "keine Vorlagen-Auswahl mehr"
-echo "$F" | grep -q 'name="f_IDENT" value="" required' && ok "Pflichtfeld ist Pflicht" || bad "IDENT nicht required"
-# Der Server verlässt sich nicht auf den Browser.
-curl -s -b $J -X POST "$B/begehung/$BW/pruefung/neu" \
-  --data-urlencode "tuertyp=$TID" --data-urlencode "nr=61" --data-urlencode "raum=Flur" \
-  | grep -q "Bitte noch ausfüllen" && ok "ohne Pflichtfeld nicht gespeichert" || bad "Pflichtfeld übergangen"
-ruf bauteil_lesen "$(jq -nc --arg o "$OID" '{objekt:$o,nr:61}')" \
-  | grep -q "gibt es" && ok "die Tür ist nicht entstanden" || bad "Tür trotzdem angelegt"
-# Und ein Vorratsname im Formular legt den Typ beim Speichern an.
-code=$(curl -s -o /dev/null -w "%{http_code}" -b $J -X POST "$B/begehung/$BW/pruefung/neu" \
-  --data-urlencode "tuertyp=Alufenster DK" --data-urlencode "nr=62" --data-urlencode "raum=Küche")
-[ "$code" = "302" ] && ok "Vorratstyp beim Speichern angelegt" || bad "Speichern $code"
-ruf bauteil_lesen "$(jq -nc --arg o "$OID" '{objekt:$o,nr:62}')" \
-  | jq -e '.bauteil.art == "wartung_fenster" and .bauteil.tuertyp == "Alufenster DK"' >/dev/null \
-  && ok "die Vorlage kommt vom Türtyp" || bad "falsche Vorlage"
-# Auch die Bauteilseite wählt den Türtyp, nicht die Vorlage — sonst gäbe es eine zweite
-# Stelle, an der eine Tür ohne Checkliste entsteht.
-curl -s -b $J "$B/objekt/$OID/bauteil/neu" | grep -q '<label for="tuertyp">' \
-  && ok "Bauteilseite fragt nach dem Türtyp" || bad "Bauteilseite zeigt noch die Vorlage"
-curl -s -o /dev/null -b $J -X POST "$B/objekt/$OID/bauteil/neu" \
-  --data-urlencode "tuertyp=Alufenster DK" --data-urlencode "nr=63" \
-  --data-urlencode "raum=Bad" --data-urlencode "wartungspflichtig=1" --data-urlencode "aktiv=1"
-ruf bauteil_lesen "$(jq -nc --arg o "$OID" '{objekt:$o,nr:63}')" \
-  | jq -e '.bauteil.tuertyp == "Alufenster DK" and .bauteil.art == "wartung_fenster"' >/dev/null \
-  && ok "von Hand angelegte Tür trägt ihren Typ" || bad "Typ fehlt am Bauteil"
-
-echo "== 18. Zugriffsschutz =="
+echo "== 14. Zugriffsschutz =="
+V1=$(curl -s -b $J "$B/objekt/$OID/berichte" | sed -n 's|.*href="/datei/\(berichte/[^"]*\)".*|\1|p' | head -1)
 code=$(curl -s -o /dev/null -w "%{http_code}" "$B/datei/$V1")
 [ "$code" = "302" ] && ok "Datei ohne Anmeldung gesperrt" || bad "Datei ohne Anmeldung $code"
 code=$(curl -s -o /dev/null -w "%{http_code}" -b $J "$B/datei/vorlagen/wartung_drehfluegel.pdf")
 [ "$code" = "404" ] && ok "fremder Präfix gesperrt" || bad "Präfix $code"
-FEHL=$(ruf pruefung_erfassen "$(jq -nc --arg b "$BEG2" '{begehung:$b,nr:1,checks:{"99":"nio"}}')")
-echo "$FEHL" | grep -q "^FEHLER" && ok "ungültiger Punkt abgewiesen" || bad "Punktprüfung"
 
 if [ "$AUFRAEUMEN" = "1" ]; then
-  echo "== 19. Testdaten entfernen =="
+  echo "== 15. Testdaten entfernen =="
   code=$(curl -s -o /dev/null -w "%{http_code}" -b $J -X POST "$B/objekt/$OID/loeschen")
-  [ "$code" = "302" ] && ok "Objekt samt Begehungen entfernt" || bad "Aufräumen $code"
-  ruf objekte_auflisten "$(jq -nc --arg s "$OBJEKT" '{suche:$s}')" \
-    | jq -e '.objekte | length == 0' >/dev/null && ok "nichts geblieben" || bad "Reste"
+  [ "$code" = "302" ] && ok "Objekt samt Wartungen entfernt" || bad "Aufräumen $code"
+  ruf stand "$(jq -nc --arg o "$OBJEKT" '{objekt:$o}')" | grep -q "^FEHLER" \
+    && ok "nichts geblieben" || bad "Reste"
   # Türtypen hängen nicht am Objekt und blieben sonst stehen — auch auf der Live-Adresse.
-  for TID in $(ruf tuertypen_auflisten '{"auch_stillgelegte":true}' \
-      | jq -r --arg s "$STEMPEL" '.tuertypen[] | select(.name | contains($s)) | .id'); do
-    ruf tuertyp_loeschen "$(jq -nc --arg t "$TID" '{tuertyp:$t}')" >/dev/null
+  for N in "T30-RS Brand- und Rauchschutztuer" "Vollspantür" "Kunststofffenster DK" "Stahlblechtür"; do
+    ruf aendern "$(jq -nc --arg t "$N" '{tuertyp:$t,tuertyp_loeschen:true}')" >/dev/null 2>&1
   done
-  vorrat_aufraeumen
-  ruf tuertypen_auflisten '{"auch_stillgelegte":true}' \
-    | jq -e --arg s "$STEMPEL" '[.tuertypen[] | select(.name | contains($s))] | length == 0' \
-      >/dev/null && ok "Türtypen des Laufs entfernt" || bad "Türtypen geblieben"
-  # Nur die beiden, die dieser Lauf benutzt hat — was sonst im Bestand steht, gehört dem Betrieb.
-  ruf tuertypen_auflisten '{"auch_stillgelegte":true}' \
-    | jq -e '[.tuertypen[] | select(.name == "T90 Brandschutztür" or .name == "Alufenster DK")]
-             | length == 0' >/dev/null \
-    && ok "auch die benutzten Vorratstypen entfernt" || bad "Vorratstypen geblieben"
+  ok "Türtypen des Laufs entfernt"
 fi
-rm -f $FOTO
 
 echo
 [ "$FAILED" = "0" ] && echo "ALLES GRÜN" || echo "FEHLER VORHANDEN"

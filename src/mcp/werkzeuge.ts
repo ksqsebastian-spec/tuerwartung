@@ -373,9 +373,14 @@ const wartungStarten: ToolDef = {
     const bauteile = inLaufreihenfolge(await bauteileMitStand(ctx.env.DB, objekt), geschosse);
     const faellige = bauteile.filter(istFaellig);
 
-    /* Was beim letzten Mal offen blieb, gehört an den Anfang — danach wird gefragt. */
+    /*
+     * Was beim letzten Mal offen blieb, gehört an den Anfang — danach wird gefragt. Gefragt
+     * wird an jeder Tür, deren letzte Prüfung „Nachbesserung" ergab, nicht nur an den heute
+     * fälligen: der Befund hängt an der Tür, nicht am Termin, und wer ohnehin davorsteht, soll
+     * ihn nicht erst im nächsten Jahr wiedersehen.
+     */
     const nachsehen: { nr: number; seit: string; punkte: string[]; hinweise?: string }[] = [];
-    for (const b of faellige) {
+    for (const b of bauteile.filter((x) => x.letztes_ergebnis === "Nachbesserung")) {
       const alt = await letztesMal(ctx.env.DB, b.id, begehung.id);
       if (alt) {
         nachsehen.push({
@@ -607,7 +612,9 @@ const wartungFertig: ToolDef = {
     });
     let sammel: { version: number; link: string } | null = null;
     if (lauf.fertig) {
-      const sb = await sammelberichtErzeugen(ctx.env, neu.id, ctx.nutzer.benutzer);
+      const sb = await sammelberichtErzeugen(ctx.env, neu.id, ctx.nutzer.benutzer, {
+        nurWennNoetig: true,
+      });
       sammel = { version: sb.version, link: `${ctx.origin}/datei/${sb.schluessel}` };
     }
     return {

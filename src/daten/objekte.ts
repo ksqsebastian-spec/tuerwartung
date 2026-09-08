@@ -546,7 +546,6 @@ export async function objektLoeschen(db: D1Database, objektId: string): Promise<
     `SELECT s.r2_schluessel AS k FROM sammelberichte s JOIN begehungen g ON g.id = s.begehung_id
       WHERE g.objekt_id = ?`,
   );
-  await sammeln("SELECT r2_schluessel AS k FROM fotos WHERE objekt_id = ?");
   await sammeln(
     "SELECT betreiber_unterschrift AS k FROM begehungen WHERE objekt_id = ? AND betreiber_unterschrift IS NOT NULL",
   );
@@ -568,7 +567,6 @@ export async function objektLoeschen(db: D1Database, objektId: string): Promise<
         "DELETE FROM sammelberichte WHERE begehung_id IN (SELECT id FROM begehungen WHERE objekt_id = ?)",
       )
       .bind(objektId),
-    db.prepare("DELETE FROM fotos WHERE objekt_id = ?").bind(objektId),
     db
       .prepare(
         "DELETE FROM pruefungen WHERE begehung_id IN (SELECT id FROM begehungen WHERE objekt_id = ?)",

@@ -2,12 +2,13 @@
 
 Türenwartung für Seehafer Elemente.
 
-Der Bestand steht, die Fristen laufen mit, die Protokolle entstehen unterwegs. Ein Cloudflare
-Worker, der drei Dinge ist:
+Einmal einrichten, dann diktieren, dann liegen die Protokolle da. Ein Cloudflare Worker, der
+drei Dinge ist:
 
-1. **Arbeitsfläche im Browser** — Türtypen mit ihren Checklisten, Objekte mit ihrem Bestand,
-   Türen mit ihrer Geschichte, Berichte.
-2. **OAuth-geschützter MCP-Server** — Claude schreibt darüber jede diktierte Tür sofort weg.
+1. **Arbeitsfläche im Browser** — Objekte mit ihrem Bestand, Türtypen mit ihren Checklisten,
+   Berichte.
+2. **OAuth-geschützter MCP-Server** — sechs Werkzeuge, über die Claude jede diktierte Tür sofort
+   wegschreibt.
 3. **Berichtsgenerator** — füllt die Formular-PDFs aus, versioniert sie und legt sie in R2 ab.
 
 Alles an einer Adresse, eine Anmeldung: wer sich auf der Website anmeldet, verbindet damit auch
@@ -15,124 +16,100 @@ Claude.
 
 ## Das Modell in einem Absatz
 
-**Der Türtyp steht vor allem, das Bauteil ist die feste Größe — nicht der Termin.** Ein
-**Türtyp** trägt, was für alle Türen seiner Art gleich ist, und bringt **seine Checkliste** mit.
-Ein **Objekt** (die Liegenschaft) trägt seine **Bauteile** — Türen, Fenster, Feststellanlagen —,
-jedes von einem Türtyp, und jedes trägt seine Geschichte über die Jahre. Eine **Begehung** ist
-ein Termin an einem Objekt; sie erzeugt **Prüfungen** an Bauteilen. Eine Abweichung heißt: die
-Tür hat nicht bestanden — das bleibt an der Tür hängen und wird beim nächsten Mal abgefragt,
-auch über Jahre hinweg. Aus jeder Prüfung entsteht ein **Bericht**, und zwar versioniert: ändert
-sich der Stand, entsteht eine neue Version daneben; was beim Kunden liegt, bleibt genau so.
+**Der Türtyp steht vor allem, die Tür ist die feste Größe — nicht der Termin.** Ein **Türtyp**
+trägt, was für alle Türen seiner Art gleich ist, und bringt **seine Checkliste** mit. Ein
+**Objekt** (die Liegenschaft) trägt seine **Türen** — auch Fenster und Feststellanlagen —, jede
+von einem Türtyp, und jede trägt ihre Geschichte über die Jahre. Eine **Wartung** ist ein Termin
+an einem Objekt; sie erzeugt **Prüfungen** an Türen. Eine Abweichung heißt: die Tür hat nicht
+bestanden — das bleibt an der Tür hängen und wird beim nächsten Mal abgefragt, auch über Jahre.
+Aus jeder Prüfung entsteht ein **Bericht**, versioniert: ändert sich der Stand, entsteht eine
+neue Version daneben; was beim Kunden liegt, bleibt genau so.
 
-„Tür 12" meint deshalb das Bauteil Nr. 12 dieses Objekts — nächstes Jahr wieder dieselbe Tür.
+„Tür 12" meint deshalb die Tür Nr. 12 dieses Objekts — nächstes Jahr wieder dieselbe.
+
+Diese drei Ebenen sind die ganze Ordnung, und der Einrichtungs-Assistent zeigt sie so:
+
+| | steht am | Beispiel |
+|---|---|---|
+| **konstant** | Objekt | Adresse, Betreiber, Zugang, Intervall, Rechtsgrundlagen |
+| **wiederholt** | Türtyp | Hersteller, Zulassung, die Prüfpunkte |
+| **variabel** | Tür | Ident-Nummer, Raum, Etage, das Ergebnis |
 
 ## Wie es benutzt wird
 
-**Vor Ort am Handy.** Der Monteur startet den Skill `tuerwerk-diktat`, sagt das Objekt und
-diktiert dann Tür für Tür. Standard ist „alles in Ordnung" — er nennt nur die Ausnahmen:
-„Tür 6, Punkt 8 nicht." Jede Tür geht sofort in die Datenbank; bricht das Gespräch ab, ist nichts
-verloren. Kennt Türwerk das Objekt nicht, legt es das Objekt an: die erste Begehung ist die
-Bestandsaufnahme. Hängt an einer Tür noch ein Mangel aus dem Vorjahr, fragt Claude danach. Auf
-„Fertig" liest Claude zurück, nennt die fälligen Türen die noch fehlen — und erzeugt in
-demselben Zug die Berichte und den Sammelbericht.
+**Vorher, im Büro** — `/objekt/<id>/einrichten`. Drei Schritte mit Haken:
 
-**Die Stammdaten liegen schon bereit.** Ein **Türtyp** — „T30-RS Brand- und Rauchschutztür" —
-wählt das Formular, trägt die Angaben, die für alle Türen dieser Art gleich sind (Hersteller,
-Zulassung), und legt fest, was an jeder einzelnen Tür stehen muss, bevor geprüft werden darf.
-Aus der Vorlage entsteht dabei **seine Checkliste**; die wird zurechtgelegt: Punkte umbenennen,
-ausblenden, eigene ergänzen, dazu Felder wie Geschoss oder Kommentar.
+1. **Die Liegenschaft.** Adresse, Betreiber, Ansprechpartner mit Telefon und vor allem **wie man
+   reinkommt** („Schlüssel beim Hausmeister"). Das Feld, das die vergebliche Anfahrt verhindert.
+2. **Die Türen.** Am schnellsten aus der Türenliste des Bauvorhabens: Datei in Claude hängen,
+   „lies das ein". Claude liest sie, meldet die Zeilen über `einrichten`, liest den Bericht vor
+   und holt die Freigabe — Türtypen, Geschosse, Nummern und Laufreihenfolge entstehen dabei von
+   selbst. Ein ganzes Haus sind fünf Aufrufe statt achtzig. Ohne Freigabe entstehen keine Türen;
+   das ist der Punkt, an dem ein Mensch entscheidet.
+3. **Die Türtypen.** Was sich je Art wiederholt, samt Checkliste: Punkte umbenennen, ausblenden,
+   eigene ergänzen. Einrichten muss man dafür nichts — die gängigen Typen liegen im **Vorrat**
+   (T30, T30-RS, T90, Rauchschutz, Vollspan, Alu-Rohrrahmen, Feststellanlagen, Kunststoff-,
+   Holz- und Alufenster) und entstehen beim ersten Gebrauch.
 
-Einrichten muss man dafür nichts: die **gängigen Typen liegen im Vorrat** — T30, T30-RS, T90,
-Rauchschutz, Vollspan, Alu-Rohrrahmen, Feststellanlagen, Kunststoff-, Holz- und Alufenster. Sie
-stehen überall zur Auswahl, wo ein Türtyp verlangt wird, und entstehen beim ersten Gebrauch. Wer
-sie nie benutzt, sieht sie nur in einer Liste stehen; wer sie benutzt, benennt sie danach um.
-Im Chat mit `/tuertyp`, in der App unter **Stammdaten**.
+Am Ende steht die **Laufliste** (`/objekt/<id>/liste`): alle Türen in Laufreihenfolge, Geschoss
+für Geschoss, dazu je Türtyp seine Prüfpunkte. Das ist, was vor Ort abgearbeitet wird.
 
-**Dann die Türen.** `/tuer` im Chat oder `tuer_einrichten`: Türtyp nennen, dann fragt Türwerk
-nach dem, was dieser Typ verlangt — eine Frage nach der anderen, bis alles steht. Vorher lässt
-sich nichts prüfen, und das ist Absicht: was beim Anlegen fehlt, fehlt später im Bericht. Steht
-die Ident-Nummer nur auf dem Typenschild, fotografiert der Monteur es und Claude liest sie ab.
+**Vor Ort am Handy.** Der Monteur startet den Skill `tuerwerk-diktat` oder sagt `/wartung`,
+nennt das Objekt und diktiert Tür für Tür. Standard ist „alles in Ordnung" — er nennt nur die
+Ausnahmen: „Tür 6, Punkt 8 nicht." Jede Tür geht sofort in die Datenbank; bricht das Gespräch ab,
+ist nichts verloren. Hing an einer Tür beim letzten Mal etwas offen, fragt Claude danach. Auf
+„Fertig" liest Claude zurück, nennt die fälligen Türen die noch fehlen, erzeugt die Berichte und
+den Sammelbericht und gibt den Link zur Unterschrift.
 
-**Ein neues Objekt** richtet `/einrichten` ein: Adresse, Betreiber, Ansprechpartner mit Telefon,
-Wartungsvertrag und vor allem **wie man reinkommt** („Schlüssel beim Hausmeister", „Anmeldung im
-Sekretariat"). Der Zugang steht danach auf der Objektseite — das Feld, das die vergebliche
-Anfahrt verhindert.
+**Danach.** Die Berichte liegen auf der Objektseite, getrennt nach **bestanden** und
+**Nachbesserung** — in der Ansicht und als zwei Ordner im ZIP. Der Betreiber unterschreibt auf
+dem Handy unter `/begehung/<id>/unterschrift`; danach entstehen die Berichte in neuer Version,
+mit Unterschrift und Klarnamen im Formular.
 
-**Ein Bauplan oder eine Türenliste** ist zwei Schritte: Claude liest die Datei und gibt die
-gefundenen Türen mit `bauplan_uebernehmen` ab, dann liest es vor, was gefunden wurde, und holt
-die Freigabe. Ohne Freigabe entstehen keine Bauteile — das ist der Punkt, an dem ein Mensch
-entscheidet. Türtypen, Geschosse, Nummern und Laufreihenfolge entstehen dabei von selbst: ein
-ganzes Haus sind damit fünf Aufrufe statt achtzig.
+## Die sechs Werkzeuge
 
-**So wenig Eingabe wie möglich.** Was der Server ausrechnen kann, fragt er nicht: die Etage einer
-Tür erkennt er aus Raumnummer, ETAGE oder Flur; eine Abweichung macht die Prüfung von selbst zu
-„nicht bestanden"; `lage` beantwortet „was ist zu tun?" in einem Aufruf statt in vieren. Und der
-Connector bringt Schrägstrich-Befehle mit — **/wartung, /tuertyp, /tuer, /tag, /abschluss,
-/einrichten, /bauplan** —, damit auch der Einstieg nicht formuliert werden muss.
+| Werkzeug | wofür |
+|---|---|
+| `stand` | Lagebild, ein Objekt mit Bestand und Checklisten, oder die Geschichte einer Tür |
+| `wartung_starten` | Termin am Objekt; bringt fällige Türen, Checklisten und offene Befunde mit |
+| `tuer_erfassen` | eine Tür oder ein Schwung, sofort geschrieben |
+| `wartung_fertig` | zurücklesen, Berichte und Sammelbericht in einem Zug |
+| `einrichten` | Objekt, Türtypen und Bestand — auch aus einer Türenliste, mit Freigabe |
+| `aendern` | korrigieren, was schon steht |
 
-## Wie die Oberfläche aufgebaut ist
+Dazu zwei Schrägstrich-Befehle im Client (`/wartung`, `/fertig`) und drei Ressourcen zum
+Nachschlagen (`tuerwerk://bestand`, `tuerwerk://checklisten`, `tuerwerk://anleitung/import`).
 
-Oben in der Leiste: **Objekte · Stammdaten · Checkliste**. Stammdaten und Checkliste stehen dort,
-weil sie über allen Objekten gelten — ein Türtyp und seine Punkte bleiben gleich, egal an welcher
-Liegenschaft man steht.
-
-**Ein Objekt** (`/objekt/:id`) hat zwei Reiter, mehr nicht:
-
-- **Bestand** — alle Türen mit ihrem Ergebnis: bestanden, nicht bestanden, noch nicht geprüft.
-  Darüber ein Satz, der sagt wo man steht, und ein Knopf, der weiterführt.
-- **Berichte** — je Termin die PDFs mit allen Versionen, Sammelbericht, ZIP.
-
-**Eine Tür erfassen** ist eine Frage nach der anderen: *was für eine Tür ist das?* — eingerichtete
-Typen zuerst, darunter der Vorrat. Danach das Formular **dieses Typs**: seine Checkliste
-(umbenannt, ausgeblendet, mit eigenen Punkten), seine Pflichtfelder, seine Zusatzfelder. Was für
-alle Türen des Typs gleich ist, steht eingeklappt darunter statt in der ersten Reihe. Eine
-Vorlage lässt sich hier nicht mehr wählen — sie kommt vom Typ, und damit auch nicht mehr
-verwechseln. Fehlt ein Pflichtfeld, wird nicht gespeichert; die nächste Tür kommt mit dem Typ der
-vorigen voreingestellt.
-
-Einen „Termin" gibt es in der Oberfläche nicht: wer eine Tür erfasst, meint den heutigen Termin
-an diesem Objekt, und der entsteht dabei von selbst. Kein „Begehung starten", kein „fortsetzen".
-Intern trägt die Begehung weiterhin die Prüfungen und Berichte.
-
-**Der Rundgang** (`/rundgang/:begehung`) ist die Gegenrichtung: selber tippen, auch ohne Netz.
-Ein Service Worker legt die Seite in den Cache, IndexedDB hält Daten, Warteschlange und Fotos;
-hochgeschoben wird, sobald wieder Verbindung da ist. Unterwegs lassen sich unbekannte Türen
-anlegen und Fotos aufnehmen.
-
-**Der Betreiber unterschreibt** auf dem Handy unter `/begehung/<id>/unterschrift`. Danach
-entstehen die Berichte in neuer Version, mit Unterschrift und Klarnamen im Formular.
+Vorher waren es vierundvierzig Werkzeuge mit 48 KB Beschreibung. Der Ablauf hat aber vier
+Schritte, und für ein kleines Modell am Telefon ist jeder zusätzliche Name eine Abzweigung, an
+der es falsch abbiegen kann — und Text, den es vor jedem Wort mitliest.
 
 ## Aufbau
 
 ```
 src/
   index.ts            Router — ein switch über Methode und Pfad
-  reihenfolge.ts      Laufreihenfolge der Bauteile (Geschoss, Raumnummer, Weg)
-  web/rundgang.client.js.txt, web/plan.client.js.txt, web/sw.js.txt
-                      die Browser-Skripte, als Text einkompiliert
+  reihenfolge.ts      Laufreihenfolge der Türen (Geschoss, Raumnummer, Weg)
   auth/               Anmeldung (Benutzer + Passwort), Sitzungs-Cookies, OAuth 2.1
-  mcp/                MCP-Protokoll, die 44 Tools (werkzeuge + import_werkzeuge),
-                      dazu prompts.ts: die sieben Schrägstrich-Befehle und die Ressourcen
+  mcp/                die sechs Werkzeuge (werkzeuge.ts), die Handgriffe dahinter
+                      (tuertypen_werkzeuge, import_werkzeuge), Prompts und Ressourcen
   import/             Anleitung für den Agenten, Zusammenführung Liste + Plan
   daten/              D1-Zugriff: tuertypen, objekte, bauteile, begehungen, importe,
-                      maengel, fotos, berichte, sync, personen, basis (IDs, Fristen, Zugriff)
+                      berichte, personen, basis (IDs, Fristen, Zugriff)
   pdf/                Formular-Overlay (pdf-lib), Deckblatt, ZIP, Erzeugungslauf
   vorlagen/           Profile, Cheatsheets und Formular-PDFs der drei Vorlagen,
-                      dazu typenvorrat.ts: die gängigen Türtypen, die bereitliegen
-  web/                Seiten und Gestaltung
-  shared/             Krypto und Stylesheet, übernommen aus `mcpees`
-schema.sql            D1-Schema v2
+                      dazu typenvorrat.ts: die gängigen Türtypen
+  web/                Seiten und Gestaltung, darunter einrichten.ts (Assistent + Laufliste)
+schema.sql            D1-Schema
 scripts/konten.mjs    Konten anlegen und Passwörter setzen
 scripts/e2e.sh        End-to-End-Prüfung gegen einen laufenden Server
-scripts/rundgang-offline.mjs
-                      die Abnahme des Rundgangs im Browser, mit getrenntem Netz
-KONZEPT.md            Die Spezifikation von Türwerk 2 (Stufen 1–4)
+KONZEPT.md            Die Spezifikation, aus der Türwerk 2 entstanden ist
 ```
 
 Die drei Vorlagen (Drehflügeltüren, Fenster, Feststellanlagen) stammen aus dem alten Skill
-`tuerenwartung-diktat`: dieselben Koordinaten-Profile, dieselben Cheatsheets, dieselben PDFs. Das
-Python-Skript `fill_pdf_overlay.py` ist nach pdf-lib übersetzt. Alles drei ist **einkompiliert**,
-damit ein Deployment vollständig ist und kein Zustand beim Aufsetzen vergessen werden kann.
+`tuerenwartung-diktat`: dieselben Koordinaten-Profile, dieselben Cheatsheets, dieselben PDFs.
+Alles drei ist **einkompiliert**, damit ein Deployment vollständig ist und kein Zustand beim
+Aufsetzen vergessen werden kann.
 
 Die Prüfpunkte werden aus den Cheatsheet-Tabellen gelesen. Nummer und Klartext stehen damit an
 genau einer Stelle: der Monteur diktiert „Punkt 7", die Website zeigt „7 — Kontrolle auf
@@ -140,48 +117,43 @@ Verschmutzungen", das PDF kreuzt die richtige Zeile an.
 
 ### Fristen
 
-Nirgends gespeichert, immer gerechnet: **Fälligkeit eines Bauteils** = Datum der letzten Prüfung
-plus Intervall (des Bauteils, sonst des Objekts, Standard zwölf Monate). Ohne Prüfung: sofort
-fällig. Die Fälligkeit eines Objekts ist die seines frühesten Bauteils. Rot heißt überfällig,
-gelb heißt innerhalb von 30 Tagen.
+Nirgends gespeichert, immer gerechnet: **Fälligkeit einer Tür** = Datum der letzten Prüfung plus
+Intervall (der Tür, sonst des Objekts, Standard zwölf Monate). Ohne Prüfung: sofort fällig. Die
+Fälligkeit eines Objekts ist die seiner frühesten Tür. Rot heißt überfällig, gelb heißt innerhalb
+von 30 Tagen.
 
-### Offline
+### Was beim letzten Mal offen war
 
-Der Rundgang ist die einzige Seite ohne Netzzwang. Jede Erfassung wird lokal in eine
-Warteschlange geschrieben und mit einer selbst erzeugten `op_id` versehen; `POST /api/sync`
-trägt sie in `sync_ops` ein, und eine bereits bekannte `op_id` bleibt wirkungslos — Wiederholen
-ist damit harmlos. Prüfen zwei Geräte dasselbe Bauteil, gewinnt die jüngere Erfassung
-(`geprueft_am`). Ist eine im Rundgang vergebene Türnummer inzwischen belegt, legt der Server sie
-um und schickt die Zuordnung zurück, die der Client in seine wartenden Operationen einträgt.
+Ebenfalls nicht gespeichert, sondern gelesen: die jüngste frühere Prüfung einer Tür, sofern sie
+„Nachbesserung" ergab. Damit fragt Claude beim nächsten Termin von selbst danach, ohne dass
+irgendwo ein zweiter Zustand gepflegt werden muss, der irgendwann nicht mehr zur Prüfung passt.
+Eine eigene Mängelverwaltung gab es einmal; sie sagte dasselbe an zweiter Stelle.
 
 ### Bauplan-Import
 
-Türwerk liest keine Pläne — der Agent liest sie. Du hängst den Grundriss oder die Türliste in
-Claude, sagst „importier das nach Türwerk", und Claude holt sich mit `import_anleitung` das
-Format, meldet die gefundenen Türen als **Vorschläge** und berichtet, was dabei herauskam. Erst
-eine Freigabe macht daraus Bauteile — im Gespräch („nimm alle ab 0.85") oder auf der Planseite,
-die das Rasterbild mit Markern nach Konfidenz zeigt. Das Bild rendert der Browser (PDFs über
-pdf.js), der Worker legt es nur ab. Kein API-Schlüssel, kein KI-Aufruf aus dem Worker.
+Türwerk liest keine Pläne — der Agent liest sie. Du hängst den Grundriss oder die Türenliste in
+Claude, sagst „importier das nach Türwerk", und Claude holt sich mit
+`tuerwerk://anleitung/import` das Format, meldet die gefundenen Türen über `einrichten` als
+**Vorschläge** und berichtet, was dabei herauskam. Erst `einrichten` mit `freigeben` macht daraus
+Türen. Kein API-Schlüssel, kein KI-Aufruf aus dem Worker.
 
-Liegen Türliste und Plan vor, führt `import_zusammenfuehren` sie zusammen: gleiche Kennung,
-sonst gleiche Raumnummer, wenn dort auf beiden Seiten genau eine Tür steht. Position kommt vom
-Plan, Felder von der Liste; was nicht sicher zusammenpasst, bleibt getrennt stehen. Kommt der
-Plan **nach** der Liste, ist das kein zweiter Bestand: bekannte Kennungen bekommen ihre Position
-direkt ans Bauteil, ohne zweite Freigabe.
+Aus der Spalte Türtyp entstehen die **Türtypen** samt Stammdaten und Checkliste — steht der Name
+im Vorrat, gilt der Vorrat —, aus der Spalte Ebene die **Geschosse** in der richtigen
+Reihenfolge; Nummern und Laufreihenfolge vergibt der Server. Was in einer Türenliste steht, gilt
+als wartungspflichtig, sofern nichts anderes dabeisteht. Der Aufruf darf sich wiederholen: eine
+Kennung, die schon als offener Vorschlag liegt, kommt nicht noch einmal dazu.
 
-Eine Liste bringt mehr mit als Zeilen. Aus der Spalte Türtyp entstehen die **Türtypen** samt
-Stammdaten und Checkliste, aus der Spalte Ebene die **Geschosse** in der richtigen Reihenfolge;
-Nummern und Laufreihenfolge vergibt der Server. Der Aufruf darf sich wiederholen — eine Kennung,
-die schon als offener Vorschlag liegt, kommt nicht noch einmal dazu, und ohne Neues entsteht auch
-kein leerer Import.
+Kommt der Plan **nach** der Liste, ist das kein zweiter Bestand: bekannte Kennungen bekommen ihre
+Position direkt an der Tür, ohne zweite Freigabe. Die Planseite (`/objekt/<id>/plan/<geschoss>`)
+zeigt das Rasterbild mit Markern nach Konfidenz; das Bild rendert der Browser (PDFs über pdf.js),
+der Worker legt es nur ab.
 
 ### Versionierte Berichte
 
-Jede Prüfung trägt einen `stand_hash`: SHA-256 über alles, was ins PDF geht — Objekt, Begehung,
-Bauteil, Prüfung, Fotos, Unterschriften. `berichte_erzeugen` legt nur dort eine neue Version an,
-wo dieser Hash von dem der neuesten Version abweicht. Zweimal hintereinander aufgerufen entsteht
-also keine zweite Version; nach einer Änderung entsteht `v2` neben `v1`, und `v1` bleibt unter
-seinem R2-Schlüssel abrufbar.
+Jede Prüfung trägt einen `stand_hash`: SHA-256 über alles, was ins PDF geht — Objekt, Termin,
+Tür, Prüfung, Unterschriften. Erzeugt wird nur dort, wo dieser Hash von dem der neuesten Version
+abweicht. Zweimal hintereinander aufgerufen entsteht also keine zweite Version; nach einer
+Änderung entsteht `v2` neben `v1`, und `v1` bleibt unter seinem R2-Schlüssel abrufbar.
 
 ## Anmeldung
 
@@ -204,13 +176,7 @@ zwingend) — Claude registriert sich selbst, der Monteur meldet sich einmal an 
 Zugriff. Wer im Token steckt, liegt verschlüsselt in KV: der Schlüssel wird aus dem Token selbst
 abgeleitet, wer nur KV lesen kann, bekommt Chiffretext.
 
-Der öffentliche Katalog steht unter `/tools.json`, gleiche Machart wie bei `hero-mcp` und
-`tarifcheck` — der Hub kann ihn abgreifen.
-
-Neben den Tools bietet der Server **Prompts** (`/wartung`, `/tuertyp`, `/tuer`, `/tag`, `/abschluss`, `/einrichten`, `/bauplan` —
-fertige Gesprächsanfänge, die im Client als Befehle erscheinen) und **Ressourcen**
-(`tuerwerk://bestand`, `tuerwerk://checklisten`, `tuerwerk://anleitung/import` —
-Nachschlagewissen, das der Client anhängen kann, ohne dass ein Tool-Aufruf im Gespräch steht).
+Der öffentliche Katalog steht unter `/tools.json` — der Hub kann ihn abgreifen.
 
 ## Entwickeln und Deployen
 
@@ -224,24 +190,15 @@ npm run deploy     # baut und deployt (wrangler login vorausgesetzt)
 Für `npm run dev` braucht es eine Datei `.dev.vars` mit `SITZUNGS_SCHLUESSEL="…"` (steht in
 `.gitignore`).
 
-Der Durchstich lässt sich gegen den laufenden Entwicklungsserver prüfen — die Abnahmekriterien
-der Stufe 1 aus `KONZEPT.md`, dazu Anmeldung, OAuth-Tanz und Website. Der Lauf braucht `jq` und
-räumt seine Testdaten am Ende selbst weg:
+Der Durchstich lässt sich gegen den laufenden Entwicklungsserver prüfen — Anmeldung, OAuth-Tanz,
+die sechs Werkzeuge von Ende zu Ende, Website. Der Lauf braucht `jq` und räumt seine Testdaten
+selbst weg:
 
 ```bash
 npm run konten -- marc:Marc --passwort=test-test-1234
 npx wrangler d1 execute tuerwartung --local --file konten.sql
 bash scripts/e2e.sh                                            # lokal
 PASSWORT=… bash scripts/e2e.sh https://tuerwerk.ksqsebastian.workers.dev   # live
-```
-
-Der Rundgang im Browser, mit getrenntem Netz, ist die eine Abnahme, die ein Bash-Skript nicht
-leisten kann. Playwright ist deshalb keine Abhängigkeit des Projekts, sondern wird für den
-Lauf danebengelegt:
-
-```bash
-npm install --no-save playwright
-node scripts/rundgang-offline.mjs
 ```
 
 `wrangler.jsonc` zeigt mit `main` auf das fertige Bündel, nicht auf die Quelle: die Vorlagen-PDFs
@@ -256,47 +213,12 @@ wrangler secret put SITZUNGS_SCHLUESSEL      # lange Zufallszeichenkette
 ```
 
 `npm run schema` ist wiederholbar und setzt den Bestand zurück — `personen` bleibt erhalten.
-Stammt eine Datenbank noch aus Türwerk 1, fehlt der Tabelle `personen` die Spalte `rolle`; die
-holt man einmalig nach:
-
-```bash
-npx wrangler d1 execute tuerwartung --remote --file schema_personen_rolle.sql
-```
 
 ## Bindings
 
 | Binding | Was |
 |---|---|
-| `DB` | D1 `tuerwartung` — Türtypen, Objekte, Bauteile, Begehungen, Prüfungen, Berichte, Personen |
-| `R2` | R2 `tuerwartung` — Berichte (`berichte/…`), Fotos (`fotos/…`), Pläne (`plaene/…`), Unterschriften (`unterschriften/…`) |
+| `DB` | D1 `tuerwartung` — Türtypen, Objekte, Türen, Wartungen, Prüfungen, Berichte, Personen |
+| `R2` | R2 `tuerwartung` — Berichte (`berichte/…`), Pläne (`plaene/…`), Unterschriften |
 | `OAUTH_KV` | Clients, Grants, Tokens, Fehlversuchszähler |
 | `SITZUNGS_SCHLUESSEL` | Secret, signiert die Sitzungs-Cookies |
-| `ANTHROPIC_API_KEY` | vorgesehen, aber **nicht benutzt** — der Bauplan-Import läuft über den Agenten (Abschnitt 7.0) |
-
-## Stand
-
-Umgesetzt sind **Stufe 1 bis 3** aus `KONZEPT.md`, Abschnitt 14 — und darüber hinaus der
-Umbau auf **Türtypen mit eigener Checkliste** (Abschnitt 1.2): Stammdaten und Checkliste oben
-in der Leiste, ein Objekt nur noch mit Bestand und Berichten, geführtes Einrichten von Objekt,
-Türtyp und Tür. Dazu Fristen, versionierte Berichte, Betreiber-Unterschrift, Sammelbericht,
-Rundgang ohne Netz, Fotos und der Bauplan-Import über den Agenten mit Planseite.
-
-**Entfallen** sind Mängel und Touren als eigene Features: eine Tür hat bestanden oder nicht,
-und das steht im Bestand. Was beim letzten Mal nicht in Ordnung war, wird beim nächsten Mal
-abgefragt — mehr Verwaltung braucht es nicht.
-
-Der Vorlagen-Editor aus Stufe 4 hat sich damit weitgehend erledigt: eine eigene Checkliste je
-Türtyp gibt es jetzt. Offen bleibt nur, ein viertes **Formular-PDF** ohne Deployment
-hinzuzufügen.
-
-Zur Probe lief zuerst ein frei lizenzierter Grundriss aus Wikimedia Commons durch den Import
-(„2 bhk Bungalow floor plan", 7 Türen): alle sieben gefunden, keine falsche, die Marker sitzen
-auf den Türen. Danach die echten Unterlagen eines Bauvorhabens — Türenliste, Fensterliste und
-Grundrisse eines Hauses: **67 Türen mit 12 Türtypen, 74 Fenster mit 3 Fenstertypen, drei
-Geschosse**, in fünf Aufrufen statt in achtzig. Türen und Fenster stehen danach im selben
-Bestand, und der Rundgang mischt sie nach Etage und Raumnummer.
-
-Erst diese echten Listen zeigten drei stille Fehler, die kein Testdatensatz hergibt: ein Türtyp
-ging unbemerkt in einem längeren Namen auf, „OG" und „1.OG" derselben Liegenschaft wurden zwei
-Etagen, und dieselbe Datei zweimal gelesen legte alles zweimal an. Alle drei sind behoben und
-durch `scripts/e2e.sh` abgedeckt.

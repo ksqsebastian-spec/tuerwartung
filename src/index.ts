@@ -861,10 +861,17 @@ async function begehungRoute(
       const schluessel = `unterschriften/betreiber/${begehung.id}.png`;
       await env.R2.put(schluessel, bytes, { httpMetadata: { contentType: "image/png" } });
       await betreiberUnterschrift(env.DB, begehung.id, schluessel, name);
-      /* Die Unterschrift ändert den Stand — die Berichte entstehen in neuer Version. */
+      /*
+       * Die Unterschrift ändert den Stand — die Berichte entstehen in neuer Version, und der
+       * Sammelbericht gleich mit: er trägt sie auf dem Deckblatt, und er ist das Dokument, das
+       * der Betreiber bekommt.
+       */
       let meldungText = "Unterschrift+gespeichert.";
       try {
         const lauf = await berichteErzeugen(env, begehung.id, { nutzer: nutzer.benutzer });
+        if (lauf.fertig) {
+          await sammelberichtErzeugen(env, begehung.id, nutzer.benutzer, { nurWennNoetig: true });
+        }
         meldungText = `Unterschrift+gespeichert,+${lauf.erzeugt}+Berichte+neu.`;
       } catch {
         /* Ohne Prüfungen gibt es noch nichts zu erzeugen — das ist kein Fehler. */
