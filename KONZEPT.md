@@ -676,6 +676,15 @@ nur der Agent) und die Freigabe (die muss ein Mensch geben). Also:
 2. **`vorschlaege_annehmen(...)`** — die Freigabe. Bleibt danach nichts offen, setzt sie den
    Import selbst auf `bestaetigt`.
 
+**Nachtrag 2: was echte Listen dem Import beigebracht haben.** Eine Türenliste und eine
+Fensterliste desselben Hauses genügten, um drei stille Fehler zu zeigen. Der Typname wurde
+unscharf gesucht, und „Kunststoff weiß" ging in „Kunststoff weiß DK/F/FF/OL elektr." auf — aus
+vier Typen wurden zwei, ohne Meldung. Die Türenliste schrieb „OG", die Fensterliste „1.OG", und
+die Etage stand danach doppelt im Objekt, Türen im einen, Fenster im anderen Geschoss. Und
+dieselbe Datei ein zweites Mal einzulesen legte alles ein zweites Mal an. Seitdem: der Typname
+wird genau verglichen, Geschosse gleicher Höhe fallen zusammen, und eine Kennung, die schon als
+offener Vorschlag liegt, kommt nicht noch einmal dazu — der Aufruf darf sich wiederholen.
+
 `import_starten`, `vorschlaege_anlegen` und `import_abschliessen` bleiben als Feinweg bestehen —
 für das Zusammenführen von Plan und Liste (7.7) und für Fälle, in denen einzeln gesteuert werden
 soll. Der Regelweg sind die zwei Schritte.
@@ -926,10 +935,11 @@ Namen deutsch, `readOnlyHint` gesetzt wie in v1. Alle Argumente optional außer 
 
 | Tool | Argumente | Wirkung |
 |---|---|---|
-| `tuertypen_auflisten` | — | alle Türtypen mit Vorlage, Pflicht- und Zusatzfeldern |
+| `tuertypen_auflisten` | auch_stillgelegte | alle Türtypen mit Vorlage, Pflicht- und Zusatzfeldern |
 | `checkliste_lesen` | tuertyp* | die Prüfpunkte dieses Typs, wie sie hier gelten |
 | `tuertyp_anlegen` | name*, vorlage*, beschreibung, felder, pflichtfelder[], zusatzfelder[] | legt den Typ an; die Checkliste entsteht aus der Vorlage |
 | `tuertyp_aendern` | tuertyp*, Felder | Stammdaten, Pflicht- und Zusatzfelder; `aktiv: false` legt still |
+| `tuertyp_loeschen` | tuertyp* | endgültig — nur solange keine Tür daran hängt; sonst stilllegen |
 | `checkliste_anpassen` | tuertyp*, punkte[], zuruecksetzen | umbenennen, ausblenden, eigene ergänzen (Abschnitt 1.2) |
 | `tuer_einrichten` | objekt*, tuertyp*, nr, Ortsangaben, felder, ueberspringen[] | **Der geführte Weg zu einer Tür.** Nennt genau EINE nächste Frage, bis `bereit`. Vorher lässt sich nichts prüfen |
 | `objekt_einrichten` | objekt*, alle Stammdatenfelder, ueberspringen[] | **Der geführte Einstieg.** Legt an oder setzt fort, übernimmt Mitgegebenes und nennt `naechste_frage` — genau EINE Frage. Mehrfach aufrufen, bis `fertig`. `weiter_mit` sagt, was danach lohnt |

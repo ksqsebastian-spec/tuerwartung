@@ -14,6 +14,7 @@ import {
   tuertypAendern,
   tuertypAnlegen,
   tuertypLesen,
+  tuertypLoeschen,
   tuertypSuchen,
   tuertypenListe,
 } from "../daten/tuertypen";
@@ -84,15 +85,23 @@ const tuertypenAuflisten: ToolDef = {
   title: "Türtypen auflisten",
   description:
     "Alle eingerichteten Türtypen mit Vorlage, Stammdaten und der Zahl ihrer Prüfpunkte. " +
-    "Das ist der erste Blick, bevor eine Tür angelegt wird — ohne Türtyp geht nichts.",
-  inputSchema: { type: "object", properties: {}, additionalProperties: false },
+    "Das ist der erste Blick, bevor eine Tür angelegt wird — ohne Türtyp geht nichts. " +
+    "Stillgelegte bleiben außen vor, bis 'auch_stillgelegte' sie dazuholt.",
+  inputSchema: {
+    type: "object",
+    properties: { auch_stillgelegte: bool("true zeigt auch die stillgelegten Typen") },
+    additionalProperties: false,
+  },
   annotations: NUR_LESEN,
-  async handler(_args, ctx) {
-    const liste = await tuertypenListe(ctx.env.DB);
+  async handler(args, ctx) {
+    const liste = await tuertypenListe(ctx.env.DB, {
+      auch_stillgelegte: args.auch_stillgelegte === true,
+    });
     return {
       tuertypen: liste.map((t) => ({
         id: t.id,
         name: t.name,
+        stillgelegt: t.aktiv ? undefined : true,
         vorlage: t.art,
         vorlage_label: VORLAGEN[t.art]?.label ?? t.art,
         pruefpunkte: t.punkte.filter((p) => p.aktiv).length,
@@ -265,6 +274,42 @@ const tuertypAendernTool: ToolDef = {
     if (args.aktiv !== undefined) patch.aktiv = args.aktiv === false ? 0 : 1;
     const neu = await tuertypAendern(ctx.env.DB, t.id, patch);
     return { ...typAnsicht(neu!, ctx), geaendert: Object.keys(patch) };
+  },
+};
+
+/**
+ * Ein Türtyp, an dem nie eine Tür hing, ist ein Vertipper — der darf ganz weg.
+ *
+ * Alles andere wird stillgelegt ('tuertyp_aendern' mit aktiv: false): die Historie einer
+ * geprüften Tür ist der Wert der ganzen Anwendung und wird nicht durch ein Aufräumen weggewischt.
+ */
+const tuertypLoeschenTool: ToolDef = {
+  name: "tuertyp_loeschen",
+  title: "Türtyp löschen",
+  description:
+    "Löscht einen Türtyp endgültig — nur, solange keine Tür und kein Vorschlag daran hängt. " +
+    "Für alles andere ist 'tuertyp_aendern' mit 'aktiv: false' der Weg: der Typ verschwindet " +
+    "aus der Auswahl, die Türen behalten ihre Historie.",
+  inputSchema: {
+    type: "object",
+    properties: { tuertyp: str("Name oder ID") },
+    required: ["tuertyp"],
+    additionalProperties: false,
+  },
+  annotations: SCHREIBT,
+  async handler(args, ctx) {
+    const t = await holeTyp(ctx, pflicht<string>(args, "tuertyp"));
+    const weg = await tuertypLoeschen(ctx.env.DB, t.id);
+    if (weg.geloescht) return { geloescht: true, name: t.name };
+    const zahl = weg.tueren + weg.vorschlaege;
+    return {
+      geloescht: false,
+      name: t.name,
+      haengt_dran: zahl,
+      hinweis:
+        `An '${t.name}' ${zahl === 1 ? "hängt noch eine Tür" : `hängen noch ${zahl} Türen`} — ` +
+        "deshalb nicht gelöscht. Stilllegen geht: 'tuertyp_aendern' mit aktiv: false.",
+    };
   },
 };
 
@@ -493,6 +538,7 @@ export const TUERTYP_TOOLS: ToolDef[] = [
   checklisteLesen,
   tuertypAnlegenTool,
   tuertypAendernTool,
+  tuertypLoeschenTool,
   checklisteAnpassenTool,
   tuerEinrichtenTool,
 ];

@@ -85,6 +85,17 @@ export async function tuertypSeite(
   const t = await tuertypLesen(env.DB, id);
   if (!t) return umleitung("/stammdaten");
   const felder = typFelder(t.art);
+  /* An einem Typ, an dem nie eine Tür hing, ist nichts zu bewahren — der darf ganz weg. */
+  const benutzt = Number(
+    (
+      await env.DB.prepare(
+        `SELECT (SELECT COUNT(*) FROM bauteile WHERE tuertyp_id = ?1)
+              + (SELECT COUNT(*) FROM vorschlaege WHERE tuertyp_id = ?1) AS n`,
+      )
+        .bind(t.id)
+        .first()
+    )?.n ?? 0,
+  );
 
   const kasten = (feld: string) =>
     `<label class="kaestchen"><input type="checkbox" name="pflicht" value="${esc(feld)}"${
@@ -139,12 +150,28 @@ Pflicht.</p>
 <span class="meta">Wirkt auf künftige Prüfungen; erzeugte Berichte bleiben.</span></div>
 </form>
 
-<form method="post" action="/stammdaten/${esc(t.id)}/stilllegen" class="knopfleiste"
+<div class="knopfleiste">
+<form method="post" action="/stammdaten/${esc(t.id)}/stilllegen"
   onsubmit="return confirm('${esc(t.name)} stilllegen? Bestehende Türen behalten ihre Historie.')">
 <button class="btn schmal gefahr" type="submit">${
       t.aktiv ? "Türtyp stilllegen" : "Wieder in Betrieb nehmen"
     }</button>
-</form>`,
+</form>${
+      benutzt
+        ? ""
+        : `
+<form method="post" action="/stammdaten/${esc(t.id)}/loeschen"
+  onsubmit="return confirm('${esc(t.name)} löschen? Es hängt keine Tür daran.')">
+<button class="btn schmal leise" type="submit">Löschen</button>
+</form>`
+    }
+</div>
+<p class="meta" style="margin-top:10px">${
+      benutzt
+        ? `${benutzt} ${benutzt === 1 ? "Tür hängt" : "Türen hängen"} an diesem Typ — löschen ` +
+          "geht nicht mehr, stilllegen schon."
+        : "Noch keine Tür an diesem Typ."
+    }</p>`,
     { titel: t.name, nutzer, aktiv: "stammdaten" },
   );
 }

@@ -213,6 +213,39 @@ export async function tuertypAendern(
   return tuertypLesen(db, id);
 }
 
+/**
+ * Einen Türtyp endgültig löschen — nur, solange ihn nichts benutzt.
+ *
+ * Stilllegen ist der Normalfall: der Typ verschwindet aus der Auswahl, und die Türen behalten
+ * ihre Historie. Ein Typ, an dem nie eine Tür hing, ist aber schlicht ein Vertipper und soll
+ * ganz weg, statt für immer in der Liste der Stillgelegten zu stehen. Hängt doch etwas daran,
+ * sagt die Antwort woran — gelöscht wird dann nichts.
+ */
+export async function tuertypLoeschen(
+  db: D1Database,
+  id: string,
+): Promise<{ geloescht: boolean; tueren: number; vorschlaege: number }> {
+  const tueren = Number(
+    (
+      await db
+        .prepare("SELECT COUNT(*) AS n FROM bauteile WHERE tuertyp_id = ?")
+        .bind(id)
+        .first()
+    )?.n ?? 0,
+  );
+  const vorschlaege = Number(
+    (
+      await db
+        .prepare("SELECT COUNT(*) AS n FROM vorschlaege WHERE tuertyp_id = ?")
+        .bind(id)
+        .first()
+    )?.n ?? 0,
+  );
+  if (tueren || vorschlaege) return { geloescht: false, tueren, vorschlaege };
+  await db.prepare("DELETE FROM tuertypen WHERE id = ?").bind(id).run();
+  return { geloescht: true, tueren: 0, vorschlaege: 0 };
+}
+
 /** Die nächste freie Nummer für einen eigenen Punkt. */
 export function naechsteEigeneNr(punkte: TypPunkt[]): string {
   const zahlen = punkte

@@ -721,6 +721,14 @@ if [ "$AUFRAEUMEN" = "1" ]; then
   [ "$code" = "302" ] && ok "Objekt samt Begehungen entfernt" || bad "Aufräumen $code"
   ruf objekte_auflisten "$(jq -nc --arg s "$OBJEKT" '{suche:$s}')" \
     | jq -e '.objekte | length == 0' >/dev/null && ok "nichts geblieben" || bad "Reste"
+  # Türtypen hängen nicht am Objekt und blieben sonst stehen — auch auf der Live-Adresse.
+  for TID in $(ruf tuertypen_auflisten '{"auch_stillgelegte":true}' \
+      | jq -r --arg s "$STEMPEL" '.tuertypen[] | select(.name | contains($s)) | .id'); do
+    ruf tuertyp_loeschen "$(jq -nc --arg t "$TID" '{tuertyp:$t}')" >/dev/null
+  done
+  ruf tuertypen_auflisten '{"auch_stillgelegte":true}' \
+    | jq -e --arg s "$STEMPEL" '[.tuertypen[] | select(.name | contains($s))] | length == 0' \
+      >/dev/null && ok "Türtypen des Laufs entfernt" || bad "Türtypen geblieben"
 fi
 rm -f $FOTO
 

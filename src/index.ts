@@ -58,6 +58,7 @@ import {
   tuertypAendern,
   tuertypAnlegen,
   tuertypLesen,
+  tuertypLoeschen,
 } from "./daten/tuertypen";
 import { anleitungSeite, importSeite, importeSeite } from "./web/import";
 import { planDaten, planSeite } from "./web/plan";
@@ -926,6 +927,18 @@ async function tuertypRoute(
   const typ = await tuertypLesen(env.DB, id);
   if (!typ) return fehlerSeite("Nicht gefunden", "Diesen Türtyp gibt es nicht.", 404);
   const meldung = url.searchParams.get("meldung") ?? undefined;
+
+  if (teile.length === 3 && teile[2] === "loeschen" && request.method === "POST") {
+    const weg = await tuertypLoeschen(env.DB, typ.id);
+    if (weg.geloescht) return umleitung("/stammdaten?meldung=T%C3%BCrtyp+gel%C3%B6scht.");
+    /* Hängt doch etwas dran, ist Stilllegen der richtige Weg — nicht der Verlust der Historie. */
+    return umleitung(
+      `/stammdaten/${typ.id}?meldung=` +
+        encodeURIComponent(
+          `Noch ${weg.tueren + weg.vorschlaege} Türen an diesem Typ — stilllegen statt löschen.`,
+        ),
+    );
+  }
 
   if (teile.length === 3 && teile[2] === "stilllegen" && request.method === "POST") {
     await tuertypAendern(env.DB, typ.id, { aktiv: typ.aktiv ? 0 : 1 });
