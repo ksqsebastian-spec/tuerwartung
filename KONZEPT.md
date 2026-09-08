@@ -866,6 +866,39 @@ gibt, und ein Objekt bekommt beim Anlegen keins mehr auf Vorrat.
 
 ---
 
+### 7.10 Türenlisten aus der Praxis
+
+Die echten Unterlagen eines Bauvorhabens (Beispiel Liliencronstr. 93: 67 Türen) haben eine feste
+Gestalt, und die kennt die Anleitung jetzt beim Namen:
+
+- **Türen- und Fensterlisten** sind breite Excel-Tabellen (dreihundert Spalten sind normal) mit
+  ein paar Kopfzeilen, einer Zeile Spaltenüberschriften und dann den Daten. Gebraucht werden
+  davon acht: Ebene, Tür-Nummer AG, Raum Nr, Raumbezeichnung, Türtyp, RS/FS, Zulassung, OTS.
+- **Wartungspflichtig** ist eine Zeile, wenn in *RS/FS* etwas anderes als ein Strich steht
+  (`T30`, `T30 RS`, `RS`, `DS`). Das ist verlässlicher als der Türtyp allein.
+- **Der Türtyp entsteht aus Türtyp + RS/FS**: „FS 30 RD" und „T30 RS" ergeben den Türtyp
+  `FS 30 RD T30 RS`. Gleiche Schreibweise heißt gleicher Typ. Aus 67 Zeilen werden so 12 Typen,
+  jeder mit eigener Checkliste und den Stammdaten seiner ersten Zeile.
+- **Das Geschoss steht je Zeile**, nicht am Import: eine Liste umfasst das ganze Haus. Echte
+  Listen schreiben oft bloß „OG" statt „1. OG" — deshalb sortiert `reihenfolgeAusName` ein
+  nacktes „OG" auf 1 und nicht auf 0 (sonst läge es gleichauf mit dem Erdgeschoss).
+
+**Grundrisse tragen die Türnummern meist als Text.** Bei Plänen aus einem CAD-Programm steht
+„IT0.05" in der Textebene des PDFs, mit Koordinaten — exakt, kostenlos und ohne Fehltreffer. Erst
+wenn die Textebene leer ist, wird geschätzt. In der Probe fanden sich so 60 von 67 Türnummern,
+alle deckungsgleich mit der Liste, kein einziger Fehltreffer.
+
+**Der Plan kommt nach der Liste.** Kennt das Objekt eine Kennung schon, ist das keine neue Tür:
+die Position wandert direkt ans vorhandene Bauteil. Leitsatz 6 verlangt eine Freigabe für neue
+Bauteile, nicht für die Koordinate einer Tür, die längst freigegeben ist — sonst entstünden bei
+jedem Plan Dubletten.
+
+Damit braucht ein ganzes Haus **fünf Aufrufe**: `objekt_einrichten`, zweimal
+`bauplan_uebernehmen` für die Liste (Stapel à 34), einmal `vorschlaege_annehmen`, einmal
+`bauplan_uebernehmen` für den Plan.
+
+---
+
 ## 8. MCP-Tools v2
 
 Namen deutsch, `readOnlyHint` gesetzt wie in v1. Alle Argumente optional außer den mit `*`.
@@ -915,7 +948,7 @@ Namen deutsch, `readOnlyHint` gesetzt wie in v1. Alle Argumente optional außer 
 | `berichte_erzeugen` | begehung*, alle_neu | versioniert, stückweise wie v1 (`fertig: false` → erneut) |
 | `sammelbericht_erzeugen` | begehung* | Abschnitt 4.4 |
 | `geschoss_anlegen` | objekt*, name*, reihenfolge | Geschoss, Reihenfolge aus dem Namen |
-| `bauplan_uebernehmen` | objekt*, tueren[]*, art, geschoss, dateiname, import | **Der Regelweg** (Abschnitt 7.0): Import anlegen und Fundstücke abgeben in einem Aufruf, mit fertigem Bericht und Freigabe-Möglichkeiten |
+| `bauplan_uebernehmen` | objekt*, tueren[]*, art, geschoss, dateiname, import | **Der Regelweg** (Abschnitt 7.0, 7.10): Import anlegen, Türtypen und Geschosse aus den Zeilen ableiten, bekannte Kennungen direkt verorten — mit fertigem Bericht und Freigabe-Möglichkeiten |
 | `import_starten` | objekt*, art*, dateiname, geschoss | Abschnitt 7.0 |
 | `vorschlaege_anlegen` | import*, kandidaten[]* | was der Agent gefunden hat |
 | `vorschlaege_annehmen` | import*, ids\|ab_konfidenz\|nur_wartungspflichtige\|alle | die Freigabe — hier entstehen Bauteile |

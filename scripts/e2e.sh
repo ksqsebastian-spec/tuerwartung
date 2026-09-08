@@ -539,8 +539,8 @@ BP=$(ruf bauplan_uebernehmen "$(jq -nc --arg o "$NEU" '{objekt:$o,geschoss:"EG",
  {kennung:"B-2",raumnummer:"0.02",raum:"Flur",x:0.4,y:0.3,wartungspflichtig:true,konfidenz:0.9},
  {kennung:"B-3",raumnummer:"0.03",raum:"Abstell",x:0.6,y:0.5,konfidenz:0.45}]}')")
 echo "$BP" | jq -e '.art == "plan"' >/dev/null && ok "Plan an den Positionen erkannt" || bad "art: $BP"
-echo "$BP" | jq -e '.gefunden == 3 and (.bericht | contains("3 Türen"))' >/dev/null \
-  && ok "fertiger Bericht zum Vorlesen" || bad "bericht"
+echo "$BP" | jq -e '.gefunden == 3 and (.bericht | contains("3 neue Türen"))' >/dev/null \
+  && ok "fertiger Bericht zum Vorlesen" || bad "bericht: $(echo "$BP" | jq -r .bericht)"
 echo "$BP" | jq -e '[.freigabe_moeglichkeiten[].was] | length >= 2' >/dev/null \
   && ok "Freigabe-Möglichkeiten genannt" || bad "freigabe_moeglichkeiten"
 BPI=$(echo "$BP" | jq -r .import)
@@ -556,6 +556,53 @@ ruf bauplan_uebernehmen "$(jq -nc --arg o "$NEU" '{objekt:$o,dateiname:"liste.cs
   | jq -e '.art == "tuerliste"' >/dev/null && ok "Türliste ohne Positionen erkannt" || bad "Listenerkennung"
 EIN_OID2=$(ruf objekt_lesen "$(jq -nc --arg o "$NEU" '{objekt:$o}')" | jq -r .objekt.id)
 curl -s -o /dev/null -b $J -X POST "$B/objekt/$EIN_OID2/loeschen"
+
+echo "== 17e. Türenliste: Typen und Etagen entstehen mit =="
+LIST="E2E Liliencron $STEMPEL"
+ruf objekt_einrichten "$(jq -nc --arg o "$LIST" '{objekt:$o,adresse:"Liliencronstr. 93, 22149 Hamburg",
+  betreiber:"Terra Immobilien",ueberspringen:["objektart","betreiber_kontakt","telefon","zugang","vertrag","ident"]}')" >/dev/null
+# Nachbau echter Zeilen: zwei Etagen, drei Typen, einer davon zweimal.
+L=$(ruf bauplan_uebernehmen "$(jq -nc --arg o "$LIST" --arg s "$STEMPEL" '{objekt:$o,dateiname:"Tuerenliste.xlsx",tueren:[
+ {kennung:"IT0.01",geschoss:"EG",raumnummer:"0.02",raum:"Abst. R.",tuertyp:("FS 30 RD T30 RS " + $s),
+  wartungspflichtig:true,konfidenz:1.0,felder:{ZULASSUNG:"AbZ Z-6.20-2095",OTS:"GEZE TS 5000"}},
+ {kennung:"IT0.03",geschoss:"EG",raumnummer:"0.05",raum:"Haustech.",tuertyp:("FS 30 RD T30 RS " + $s),
+  wartungspflichtig:true,konfidenz:1.0},
+ {kennung:"IT0.05",geschoss:"EG",raumnummer:"0.06",raum:"WC",tuertyp:("Vollspan " + $s),konfidenz:1.0},
+ {kennung:"IT1.01",geschoss:"OG",raumnummer:"1.01",raum:"ENR 1",tuertyp:("Alu-Rohrrahmen " + $s),konfidenz:1.0}]}')")
+echo "$L" | jq -e '.gefunden == 4 and .tuertypen == 3' >/dev/null \
+  && ok "vier Zeilen, drei Türtypen abgeleitet" || bad "Ableitung: $(echo "$L" | jq -c '{gefunden,tuertypen}')"
+echo "$L" | jq -e '(.tuertypen_neu | length) == 3' >/dev/null \
+  && ok "Typen neu angelegt" || bad "tuertypen_neu"
+LIMP=$(echo "$L" | jq -r .import)
+ruf vorschlaege_annehmen "$(jq -nc --arg i "$LIMP" '{import:$i,alle:true}')" \
+  | jq -e '.angelegt == 4' >/dev/null && ok "vier Türen angelegt" || bad "Freigabe"
+# Der Türtyp hängt an der Tür, mit den Stammdaten der ersten Zeile.
+ruf bauteil_lesen "$(jq -nc --arg o "$LIST" '{objekt:$o,kennung:"IT0.03"}')" \
+  | jq -e '.bauteil.felder.ZULASSUNG == null' >/dev/null \
+  && ok "Zeile ohne eigene Felder bleibt leer" || bad "Felder falsch vererbt"
+ruf checkliste_lesen "$(jq -nc --arg t "FS 30 RD T30 RS $STEMPEL" '{tuertyp:$t}')" \
+  | jq -e '.felder.ZULASSUNG == "AbZ Z-6.20-2095" and .pflichtfelder == ["IDENT"]' >/dev/null \
+  && ok "Stammdaten am Türtyp" || bad "Typ-Stammdaten"
+# Zwei Etagen, „OG" ohne Ziffer muss über „EG" einsortieren.
+ruf objekt_lesen "$(jq -nc --arg o "$LIST" '{objekt:$o}')" \
+  | jq -e '[.geschosse[].name] == ["EG","OG"]' >/dev/null \
+  && ok "EG vor OG, auch ohne Ziffer" || bad "Geschossreihenfolge"
+
+echo "== 17f. Plan danach: Positionen ohne zweite Freigabe =="
+P=$(ruf bauplan_uebernehmen "$(jq -nc --arg o "$LIST" '{objekt:$o,art:"plan",geschoss:"EG",dateiname:"Grundriss.pdf",tueren:[
+ {kennung:"IT0.01",x:0.26,y:0.25,konfidenz:1.0},
+ {kennung:"IT0.05",x:0.31,y:0.25,konfidenz:1.0},
+ {kennung:"IT9.99",x:0.5,y:0.5,konfidenz:0.5}]}')")
+echo "$P" | jq -e '.verortet == 2' >/dev/null && ok "bekannte Kennungen verortet" || bad "verortet: $(echo "$P" | jq -c '{verortet,gefunden}')"
+echo "$P" | jq -e '.zahlen.offen == 1' >/dev/null \
+  && ok "unbekannte Kennung bleibt Vorschlag" || bad "unbekannte Kennung"
+ruf bauteil_lesen "$(jq -nc --arg o "$LIST" '{objekt:$o,kennung:"IT0.01"}')" \
+  | jq -e '.bauteil.x != null' >/dev/null && ok "Position steht am Bauteil" || bad "keine Position"
+ruf objekt_lesen "$(jq -nc --arg o "$LIST" '{objekt:$o}')" \
+  | jq -e '[.bauteile[].kennung] | length == 4' >/dev/null \
+  && ok "keine Dubletten durch den Plan" || bad "Dubletten"
+LIST_OID=$(ruf objekt_lesen "$(jq -nc --arg o "$LIST" '{objekt:$o}')" | jq -r .objekt.id)
+curl -s -o /dev/null -b $J -X POST "$B/objekt/$LIST_OID/loeschen"
 
 echo "== 17d. Türtyp, Checkliste, Tür einrichten =="
 TYP="E2E T30 $STEMPEL"

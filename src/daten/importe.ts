@@ -39,6 +39,8 @@ export interface Vorschlag {
   raumnummer: string;
   raum: string;
   art: string;
+  /** Der Türtyp aus der Liste — er bestimmt später Vorlage und Checkliste. */
+  tuertyp_id: string | null;
   felder: Record<string, string>;
   wartungspflichtig: number;
   konfidenz: number;
@@ -158,6 +160,7 @@ export interface VorschlagEingabe {
   raumnummer?: string;
   raum?: string;
   art?: string;
+  tuertyp_id?: string | null;
   felder?: Record<string, string>;
   wartungspflichtig?: boolean | number;
   konfidenz?: number;
@@ -195,6 +198,7 @@ export async function vorschlaegeAnlegen(
       raumnummer: String(k.raumnummer ?? "").trim(),
       raum: String(k.raum ?? "").trim(),
       art: k.art || "wartung_drehfluegel",
+      tuertyp_id: k.tuertyp_id ?? null,
       felder: k.felder ?? {},
       wartungspflichtig: k.wartungspflichtig ? 1 : 0,
       konfidenz: Math.min(Math.max(Number(k.konfidenz ?? 0.8), 0), 1),
@@ -209,14 +213,15 @@ export async function vorschlaegeAnlegen(
       db
         .prepare(
           `INSERT INTO vorschlaege (id, import_id, objekt_id, geschoss_id, x, y, richtung_grad,
-             breite_m, kennung, raumnummer, raum, art, felder_json, wartungspflichtig, konfidenz,
-             herkunft, text_nahe_json, status, bauteil_id, angelegt_am)
-           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+             breite_m, kennung, raumnummer, raum, art, tuertyp_id, felder_json, wartungspflichtig,
+             konfidenz, herkunft, text_nahe_json, status, bauteil_id, angelegt_am)
+           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
         )
         .bind(
           v.id, v.import_id, v.objekt_id, v.geschoss_id, v.x, v.y, v.richtung_grad, v.breite_m,
-          v.kennung, v.raumnummer, v.raum, v.art, JSON.stringify(v.felder), v.wartungspflichtig,
-          v.konfidenz, v.herkunft, JSON.stringify(v.text_nahe), v.status, null, v.angelegt_am,
+          v.kennung, v.raumnummer, v.raum, v.art, v.tuertyp_id, JSON.stringify(v.felder),
+          v.wartungspflichtig, v.konfidenz, v.herkunft, JSON.stringify(v.text_nahe), v.status,
+          null, v.angelegt_am,
         ),
     );
   }
@@ -322,6 +327,7 @@ export async function vorschlaegeAnnehmen(
     const b = await bauteilAnlegen(db, {
       objekt_id: v.objekt_id,
       art: v.art,
+      tuertyp_id: v.tuertyp_id,
       nr: nr ?? (await naechsteNr(db, v.objekt_id)),
       kennung: v.kennung,
       geschoss_id: v.geschoss_id,

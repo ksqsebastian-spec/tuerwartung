@@ -84,13 +84,20 @@ const bauplan: PromptDef = {
     "die Vorschläge, ein Mensch gibt frei.",
   arguments: [arg("objekt", "Name oder Adresse des Objekts", true)],
   bauen: ({ objekt }) =>
-    `Hier ist ein Bauplan für „${objekt}“.\n\n` +
-    "Zwei Schritte: lies die Datei und gib die gefundenen Türen mit `bauplan_uebernehmen` ab — " +
-    "der Import legt sich dabei selbst an. Lies mir dann den `bericht` aus der Antwort vor, " +
-    "nicht die ganze Liste, und nenn die `freigabe_moeglichkeiten`. Erst auf mein Wort " +
-    "`vorschlaege_annehmen`: **ohne Freigabe entstehen keine Bauteile.**\n\n" +
+    `Hier sind die Unterlagen für „${objekt}“.\n\n` +
+    "Lies zuerst `import_anleitung` — dort steht, wie Türen- und Fensterlisten aufgebaut sind " +
+    "und welche Spalten wohin gehören. Dann:\n\n" +
+    "1. **Liste zuerst**, falls eine dabei ist: die Zeilen mit `bauplan_uebernehmen` abgeben, " +
+    "`geschoss` je Zeile, `tuertyp` aus Türtyp + RS/FS. Türtypen und Geschosse legt der Server " +
+    "dabei selbst an. Bei mehr als ~100 Zeilen mehrfach rufen und die `import`-Kennung mitgeben.\n" +
+    "2. Den `bericht` aus der Antwort vorlesen, nicht die ganze Liste, und die " +
+    "`freigabe_moeglichkeiten` nennen. Erst auf mein Wort `vorschlaege_annehmen`: **ohne " +
+    "Freigabe entstehen keine Bauteile.**\n" +
+    "3. **Plan danach**: Textebene lesen (die Türnummern stehen dort meist als echter Text mit " +
+    "Koordinaten), Positionen als Anteile 0..1 mitgeben. Bekannte Kennungen werden an den " +
+    "vorhandenen Türen verortet — dafür braucht es keine Freigabe mehr.\n\n" +
     "Wenn du beim Lesen unsicher bist, sag es lieber — eine niedrige Konfidenz ist besser als " +
-    "eine erfundene Tür. Details stehen in `import_anleitung`, falls du sie brauchst.",
+    "eine erfundene Tür.",
 };
 
 const einrichten: PromptDef = {

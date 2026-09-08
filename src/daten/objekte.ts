@@ -412,6 +412,8 @@ export function geschossName(text: string | null | undefined): string | null {
   if (/^(EG|ERDGESCHOSS|PARTERRE)$/.test(n)) return "EG";
   if (/^(UG|KG|KELLER|KELLERGESCHOSS|UNTERGESCHOSS|SOUTERRAIN)$/.test(n)) return "UG";
   if (/^(DG|DACH|DACHGESCHOSS|SPITZBODEN)$/.test(n)) return "DG";
+  /* Nacktes „OG" kommt in echten Listen vor, wenn es nur eines gibt. */
+  if (/^(OG|OBERGESCHOSS)$/.test(n)) return "OG";
 
   /* „1. OG", „2.UG", „3 OG", „1. Obergeschoss" */
   let t = /^(\d{1,2})\s*\.?\s*(OG|OBERGESCHOSS|STOCK|STOCKWERK)$/.exec(n);
@@ -463,14 +465,21 @@ export async function geschossZuordnen(
   return (await geschossAnlegen(db, objektId, name)).id;
 }
 
-/** „UG" = −1, „EG" = 0, „2. OG" = 2 — die Laufreihenfolge folgt dem Treppenhaus. */
+/**
+ * „UG" = −1, „EG" = 0, „2. OG" = 2 — die Laufreihenfolge folgt dem Treppenhaus.
+ *
+ * Echte Türenlisten schreiben oft bloß „OG" statt „1. OG", wenn das Haus nur eines hat. Ohne
+ * Sonderfall landete das auf 0 und damit gleichauf mit dem Erdgeschoss — die Reihenfolge kippte
+ * still. Also: nacktes „OG" ist das erste Obergeschoss.
+ */
 export function reihenfolgeAusName(name: string): number {
   const n = name.trim().toUpperCase();
-  if (/^(UG|KG|KELLER)/.test(n)) return -1;
-  if (/^(EG|ERD)/.test(n)) return 0;
-  if (/^(DG|DACH)/.test(n)) return 99;
+  if (/^(UG|KG|KELLER|SOUTERRAIN)/.test(n)) return -1;
+  if (/^(EG|ERD|PARTERRE)/.test(n)) return 0;
+  if (/^(DG|DACH|SPITZBODEN)/.test(n)) return 99;
   const zahl = /(\d+)/.exec(n)?.[1];
-  return zahl ? Number(zahl) : 0;
+  if (zahl) return Number(zahl);
+  return /^(OG|OBERGESCHOSS)/.test(n) ? 1 : 0;
 }
 
 export async function geschossAendern(

@@ -180,6 +180,9 @@ function bauteilAnsicht(b: BauteilMitStand) {
     kennung: b.kennung || undefined,
     art: b.art,
     ort: [b.raumnummer, b.raum || b.bezeichnung, b.flur].filter(Boolean).join(" · ") || undefined,
+    /* Verortet im Plan? Dann weiß der Agent, dass die Karte diese Tür kennt. */
+    x: b.x ?? undefined,
+    y: b.y ?? undefined,
     felder: b.felder,
     letzte_pruefung: b.letzte_pruefung || null,
     letztes_ergebnis: b.letztes_ergebnis || null,
@@ -1856,10 +1859,11 @@ export const ANLEITUNG =
   "Ein neues Objekt: 'objekt_einrichten' führt durch die Stammdaten — es nennt genau EINE " +
   "nächste Frage, die du stellst; die Antwort im nächsten Aufruf mitgeben, bis 'fertig'. Nicht " +
   "die ganze Liste vorlesen. " +
-  "Ein Bauplan oder eine Türliste: die Datei selbst lesen und mit 'bauplan_uebernehmen' " +
-  "abgeben — der Import legt sich dabei an. Den 'bericht' aus der Antwort vorlesen und die " +
-  "Freigabe einholen; erst 'vorschlaege_annehmen' macht Bauteile daraus, und danach schließt " +
-  "sich der Import selbst. " +
+  "Eine Türenliste oder ein Bauplan: 'import_anleitung' lesen, dann die Datei selbst lesen und " +
+  "mit 'bauplan_uebernehmen' abgeben — Türtypen, Geschosse und Nummern legt der Server dabei " +
+  "an. Liste zuerst, Plan danach: bekannte Kennungen werden an den vorhandenen Türen verortet, " +
+  "ohne zweite Freigabe. Den 'bericht' aus der Antwort vorlesen und die Freigabe einholen; erst " +
+  "'vorschlaege_annehmen' macht Bauteile daraus, danach schließt sich der Import selbst. " +
   "Selbst rechnen lassen statt nachfragen: 'lage' beantwortet 'was ist zu tun?' in einem " +
   "Aufruf (überfällige Objekte, Mängel über der Frist, ausstehende Berichte, dazu konkrete " +
   "nächste Schritte). Die Etage eines Bauteils erkennt der Server selbst aus Raumnummer, " +

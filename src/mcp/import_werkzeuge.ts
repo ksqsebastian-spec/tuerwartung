@@ -9,6 +9,8 @@ import type { Kontext, ToolDef } from "./protokoll";
 import { VORLAGEN_IDS, vorlage } from "../vorlagen";
 import { zugriffPruefen } from "../daten/basis";
 import { geschossAnlegen, geschosseListe, objektAufloesen } from "../daten/objekte";
+import { tuertypAnlegen, tuertypSuchen } from "../daten/tuertypen";
+import { bauteilAendern, bauteilPerKennung } from "../daten/bauteile";
 import type { Objekt } from "../daten/objekte";
 import {
   importAendern,
@@ -163,6 +165,11 @@ const KANDIDAT = {
     raumnummer: str("Raumnummer, z. B. 2.14 — treibt später die Laufreihenfolge"),
     raum: str("Raumbezeichnung, z. B. 'Flur Ost'"),
     art: str(`Vorlage: ${VORLAGEN_IDS.join(", ")} — Standard wartung_drehfluegel`),
+    tuertyp: str(
+      "Name des Türtyps aus der Liste, z. B. 'FS 30 RD' oder 'Alu-Rohrrahmen T30 RS'. Gibt es " +
+      "den Typ noch nicht, legt der Import ihn an — gleiche Schreibweise heißt gleicher Typ.",
+    ),
+    geschoss: str("Etage dieser Zeile, z. B. 'EG', '1. OG', 'DG'. Sticht das Geschoss des Imports."),
     x: num("Anteil der Bildbreite, 0..1, am Drehpunkt der Tür gemessen"),
     y: num("Anteil der Bildhöhe, 0..1, Ursprung oben links"),
     breite_m: num("Lichte Breite in Metern, falls ablesbar"),
@@ -303,7 +310,70 @@ const bauplanUebernehmenTool: ToolDef = {
       });
     }
 
-    await vorschlaegeAnlegen(ctx.env.DB, imp, tueren);
+    /*
+     * Die Türtypen stehen in der Liste — eine Türenliste führt je Zeile „FS 30 RD", „Vollspan",
+     * „Alu-Rohrrahmen". Daraus leiten wir sie ab, statt sie hinterher von Hand nachzupflegen:
+     * gleicher Name heißt gleicher Typ, und die Stammdaten der ersten Zeile (Zulassung,
+     * Hersteller, OTS …) gelten für alle. Ebenso das Geschoss je Zeile, denn eine Liste
+     * umfasst das ganze Haus, nicht ein Stockwerk.
+     */
+    const typen = new Map<string, string>();
+    const typenNeu: string[] = [];
+    for (const t of tueren) {
+      const name = String(t.tuertyp ?? "").trim();
+      if (name && !typen.has(name.toLowerCase())) {
+        const vorhanden = await tuertypSuchen(ctx.env.DB, name);
+        if (vorhanden) {
+          typen.set(name.toLowerCase(), vorhanden.id);
+        } else {
+          const neuerTyp = await tuertypAnlegen(ctx.env.DB, {
+            name,
+            art: String(t.art ?? "wartung_drehfluegel"),
+            beschreibung: `Aus ${imp.art === "plan" ? "dem Plan" : "der Liste"} übernommen`,
+            /* Was an dieser Zeile steht, gilt für alle Türen des Typs. */
+            felder: { ...((t.felder ?? {}) as Record<string, string>) },
+            pflicht: ["IDENT"],
+            angelegt_von: ctx.nutzer.benutzer,
+          });
+          typen.set(name.toLowerCase(), neuerTyp.id);
+          typenNeu.push(name);
+        }
+      }
+      const typId = name ? typen.get(name.toLowerCase()) : undefined;
+      if (typId) t.tuertyp_id = typId;
+      if (t.geschoss) t.geschoss_id = await holeGeschoss(ctx, objekt, t.geschoss);
+    }
+
+    /*
+     * Kennt das Objekt die Kennung schon, ist das keine neue Tür, sondern eine Ergänzung an
+     * einer bekannten: der Grundriss trägt die Position nach, nachdem die Liste den Bestand
+     * gelegt hat. Das wandert direkt ans Bauteil — Leitsatz 6 verlangt eine Freigabe für neue
+     * Bauteile, nicht für die Koordinate einer Tür, die längst freigegeben ist.
+     */
+    const verortet: string[] = [];
+    const neue: typeof tueren = [];
+    for (const t of tueren) {
+      const kennung = String(t.kennung ?? "").trim();
+      const treffer = kennung ? await bauteilPerKennung(ctx.env.DB, objekt.id, kennung) : [];
+      if (treffer.length === 1 && (t.x !== undefined || t.geschoss_id)) {
+        const patch: Record<string, unknown> = {};
+        if (t.x !== undefined && t.y !== undefined) {
+          patch.x = t.x;
+          patch.y = t.y;
+        }
+        if (t.richtung_grad !== undefined) patch.richtung_grad = t.richtung_grad;
+        if (t.breite_m !== undefined) patch.breite_m = t.breite_m;
+        if (t.geschoss_id && !treffer[0].geschoss_id) patch.geschoss_id = t.geschoss_id;
+        if (Object.keys(patch).length) {
+          await bauteilAendern(ctx.env.DB, treffer[0].id, patch);
+          verortet.push(kennung);
+          continue;
+        }
+      }
+      neue.push(t);
+    }
+
+    if (neue.length) await vorschlaegeAnlegen(ctx.env.DB, imp, neue);
     const alle = await vorschlaegeLesen(ctx.env.DB, { import_id: imp.id });
     const zahlen = zaehlen(alle);
     await importAendern(ctx.env.DB, imp.id, {
@@ -311,6 +381,7 @@ const bauplanUebernehmenTool: ToolDef = {
       ergebnis: { gefunden: alle.length, gemeldet_am: Date.now() },
     });
 
+    const typenGesamt = new Set(alle.map((v) => v.tuertyp_id).filter(Boolean)).size;
     const offene = alle.filter((v) => v.status === "offen");
     const sicher = offene.filter((v) => v.konfidenz >= 0.85).length;
     const pflichtig = offene.filter((v) => v.wartungspflichtig === 1).length;
@@ -320,17 +391,40 @@ const bauplanUebernehmenTool: ToolDef = {
       import: imp.id,
       objekt: objekt.name,
       art,
-      gefunden: alle.length,
+      gefunden: alle.length + verortet.length,
+      /* Türen, die es schon gab und die jetzt ihre Position im Plan haben. */
+      verortet: verortet.length,
+      /* Über den ganzen Import gezählt, nicht nur über diesen Stapel. */
+      tuertypen: typenGesamt,
+      tuertypen_neu: typenNeu,
       zahlen,
       /* Ein Satz, den man vorlesen kann — nicht die ganze Liste. */
-      bericht:
-        `${alle.length} ${alle.length === 1 ? "Tür" : "Türen"} gefunden, davon ${pflichtig} ` +
-        `wartungspflichtig und ${sicher} sicher erkannt` +
-        (unsicher
-          ? `; ${unsicher} ${unsicher === 1 ? "ist unsicher" : "sind unsicher"} und würde ich ` +
-            "einzeln zeigen."
-          : "."),
-      freigabe_moeglichkeiten: [
+      bericht: [
+        verortet.length
+          ? `${verortet.length} bekannte ${
+              verortet.length === 1 ? "Tür" : "Türen"
+            } im Plan verortet — die brauchen keine Freigabe.`
+          : "",
+        offene.length
+          ? `${offene.length} neue ${offene.length === 1 ? "Tür" : "Türen"}` +
+            (typenGesamt
+              ? `, ${typenGesamt} ${typenGesamt === 1 ? "Türtyp" : "Türtypen"}` +
+                (typenNeu.length ? ` (${typenNeu.length} davon neu)` : "")
+              : "") +
+            `, davon ${pflichtig} wartungspflichtig` +
+            (unsicher
+              ? `; ${unsicher} ${unsicher === 1 ? "ist" : "sind"} unsicher und würde ich ` +
+                "einzeln zeigen."
+              : ".")
+          : verortet.length
+            ? "Nichts Neues dabei."
+            : "Nichts gefunden.",
+      ]
+        .filter(Boolean)
+        .join(" "),
+      freigabe_moeglichkeiten: !offene.length
+        ? []
+        : [
         { was: `alle ${offene.length} übernehmen`, aufruf: { alle: true } },
         ...(sicher
           ? [{ was: `nur die ${sicher} sicheren (ab 0.85)`, aufruf: { ab_konfidenz: 0.85 } }]
@@ -345,10 +439,11 @@ const bauplanUebernehmenTool: ToolDef = {
           : []),
       ],
       link: `${ctx.origin}/objekt/${objekt.id}/import/${imp.id}`,
-      weiter:
-        "Den Bericht vorlesen und fragen, was übernommen werden soll. Dann " +
-        "'vorschlaege_annehmen' mit dieser Import-Kennung — mehr ist nicht nötig, der Import " +
-        "schließt sich danach selbst.",
+      weiter: offene.length
+        ? "Den Bericht vorlesen und fragen, was übernommen werden soll. Dann " +
+          "'vorschlaege_annehmen' mit dieser Import-Kennung — mehr ist nicht nötig, der Import " +
+          "schließt sich danach selbst."
+        : "Fertig, nichts freizugeben. Kurz berichten, was verortet wurde.",
     };
   },
 };

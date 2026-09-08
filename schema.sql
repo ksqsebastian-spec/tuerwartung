@@ -97,7 +97,6 @@ CREATE TABLE geschosse (
 );
 CREATE INDEX idx_geschosse_gebaeude ON geschosse (gebaeude_id, reihenfolge);
 
--- Bauteil: die dauerhafte Tür (oder das Fenster, die Feststellanlage).
 -- Türtypen: die Stammdatenebene über den Bauteilen.
 --
 -- Ein Türtyp ist eine benannte Ausprägung einer der drei Vorlagen — „T30 Flurtür Hörmann" auf
@@ -126,6 +125,7 @@ CREATE TABLE tuertypen (
 );
 CREATE INDEX idx_tuertypen_aktiv ON tuertypen (aktiv, name);
 
+-- Bauteil: die dauerhafte Tür (oder das Fenster, die Feststellanlage).
 CREATE TABLE bauteile (
   id            TEXT PRIMARY KEY,
   objekt_id     TEXT NOT NULL REFERENCES objekte(id),
@@ -281,6 +281,7 @@ CREATE TABLE vorschlaege (
   raumnummer    TEXT NOT NULL DEFAULT '',
   raum          TEXT NOT NULL DEFAULT '',
   art           TEXT NOT NULL DEFAULT 'wartung_drehfluegel',
+  tuertyp_id    TEXT REFERENCES tuertypen(id),   -- aus der Liste abgeleitet, siehe Abschnitt 7.10
   felder_json   TEXT NOT NULL DEFAULT '{}',
   wartungspflichtig INTEGER NOT NULL DEFAULT 0,
   konfidenz     REAL NOT NULL,                  -- 0..1

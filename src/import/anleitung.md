@@ -7,7 +7,10 @@ freigibt. Erst dann entstehen Bauteile.
 ## Ablauf — zwei Schritte
 
 Nur zwei Dinge sind echte Arbeit: die Datei lesen (das kann nur du) und die Freigabe (die muss
-ein Mensch geben). Alles andere macht der Server.
+ein Mensch geben). Alles andere macht der Server — Türtypen, Geschosse, Nummern, Laufreihenfolge.
+
+**Liegen Liste und Plan vor, nimm die Liste zuerst.** Sie trägt Türtypen und Stammdaten; der Plan
+trägt nur Positionen und wird danach an den vorhandenen Bestand gehängt.
 
 1. **Datei lesen und `bauplan_uebernehmen`.** Objekt, die gefundenen Türen, bei Plänen das
    Geschoss („EG", „1. OG", „UG" — unbekannte Namen werden angelegt). Ob Plan oder Türliste
@@ -24,6 +27,53 @@ ein Mensch geben). Alles andere macht der Server.
 Bleibt etwas Unklares übrig, kannst du es mit `vorschlaege_verwerfen` wegräumen oder mit
 `vorschlaege_lesen` einzeln zeigen. Und wenn Plan **und** Türliste vorliegen, siehe unten:
 beides einzeln übernehmen, dann `import_zusammenfuehren`.
+
+## Was in einer echten Türen- oder Fensterliste steht
+
+Die Listen aus dem Bauvorhaben sind breit (dreihundert Spalten sind normal), aber immer gleich
+gebaut: ein paar Kopfzeilen, dann eine Zeile mit den Spaltenüberschriften, dann die Daten. Diese
+Spalten brauchst du, alles andere kannst du überspringen:
+
+| Was in der Liste steht | Wohin |
+|---|---|
+| **Ebene** („EG", „OG", „DG", „1. OG") | `geschoss` |
+| **Tür Nummer AG** / Fenster Nummer AG („IT0.01", „AT0.11") | `kennung` |
+| **Raum Nr** („0.02") | `raumnummer` — treibt die Laufreihenfolge |
+| **Raumbezeichnung** („Abst. R.", „Krippe 2") | `raum` |
+| **Türtyp** („FS 30 RD", „Vollspan", „Alu-Rohrrahmen") | `tuertyp` |
+| **RS/FS** („T30 RS", „DS", „-") | siehe unten |
+| **Zulassung** („AbZ Z-6.20-2095") | `felder.ZULASSUNG` |
+| **OTS** („GEZE TS 5000") | `felder.OTS` |
+| **Absenkdichtung** | `felder.ABSENKDICHTUNG` |
+
+**Wartungspflichtig** ist eine Zeile, wenn in **RS/FS** etwas steht, das kein Strich ist: `T30`,
+`T30 RS`, `RS`, `DS`, `EI30`. Ein `-` oder eine leere Zelle heißt: nicht wartungspflichtig. Das
+ist die verlässlichste Regel — verlass dich nicht auf den Türtyp allein.
+
+**Den Türtyp aus Türtyp + RS/FS bilden**, wenn die Zeile wartungspflichtig ist: aus „FS 30 RD"
+und „T30 RS" wird der Türtyp `FS 30 RD T30 RS`. Sonst genügt der Türtyp. Gleiche Schreibweise
+heißt gleicher Typ — Türwerk legt ihn beim ersten Vorkommen an, mit den Feldern dieser Zeile als
+gemeinsame Stammdaten, und hängt alle weiteren Zeilen daran. Aus 67 Zeilen werden so etwa ein
+Dutzend Typen, jeder mit eigener Checkliste.
+
+**Konfidenz 1.0** bei Listenzeilen. Du hast sie gelesen, nicht geraten.
+
+Eine Liste umfasst das ganze Haus. Gib deshalb `geschoss` **je Zeile** mit, nicht als Argument
+des Imports — das ist nur für Pläne gedacht, die ein Stockwerk zeigen.
+
+## Ein Grundriss hat die Türnummern meist als Text
+
+Bevor du auf das Bild schaust: **lies die Textebene des PDFs.** Bei Plänen aus einem CAD-Programm
+stehen die Türnummern dort als echter Text mit Koordinaten — „IT0.05" an Position x/y. Das ist
+exakt, kostet nichts und trifft nicht daneben. Rechne die Koordinaten auf Anteile der Seitenbreite
+und -höhe um (0..1) und gib sie als `x` / `y` mit, Konfidenz 1.0.
+
+Erst wenn die Textebene leer ist (gescannter Plan, reines Bild), schaust du hin und schätzt — dann
+mit ehrlicher Konfidenz.
+
+**Kommt der Plan nach der Liste**, ist das kein zweiter Bestand: Türwerk erkennt die Kennungen
+wieder und trägt die Position an der vorhandenen Tür nach. Dafür braucht es keine Freigabe, und es
+entstehen keine Dubletten. Der Bericht sagt dir, wie viele verortet wurden.
 
 ## Ein Kandidat
 
