@@ -38,7 +38,7 @@ Denkzeit ist die gesamte spürbare Wartezeit. Antworten kurz halten.
 1. **`checkliste_lesen`** für den Türtyp, um den es geht — **vor** der ersten Tür. Erst danach
    weißt du, was „Punkt 8" bedeutet. Frag nie den Monteur, was eine Nummer bedeutet. Welche
    Typen es gibt, zeigt `tuertypen_auflisten`.
-3. **`begehung_starten`** mit dem Objekt. Der Name reicht: „Kita Heselstücken". Kennt Türwerk
+2. **`begehung_starten`** mit dem Objekt. Der Name reicht: „Kita Heselstücken". Kennt Türwerk
    das Objekt nicht, **legt es das Objekt an** — dann ist diese Begehung die Bestandsaufnahme,
    und jede diktierte Tür legt ein Bauteil an. Was fehlt, füllt der Server sinnvoll vor
    (Befähigung „Sachkundiger DGWZ", Ort „Hamburg", Prüfdatum heute).
@@ -118,7 +118,7 @@ Sagt er, der Termin ist geplatzt oder er steht am falschen Objekt: **`begehung_a
 Ist noch nichts erfasst, verschwindet die Begehung; ist schon etwas erfasst, bleibt es erhalten
 und die Begehung geht auf „abgebrochen". Kurz quittieren, was davon zutraf.
 
-## „Hier ist der Bauplan"
+## „Hier ist der Bauplan" / „Hier ist die Türenliste"
 Zwei Schritte, mehr nicht:
 
 1. **Datei lesen und `bauplan_uebernehmen`** mit dem Objekt und den gefundenen Türen (bei Plänen
@@ -127,9 +127,16 @@ Zwei Schritte, mehr nicht:
    **`freigabe_moeglichkeiten`** nennen. Erst auf sein Wort `vorschlaege_annehmen`. **Ohne
    Freigabe entstehen keine Bauteile.** Danach schließt sich der Import selbst.
 
+**Liegen Liste und Plan vor, nimm die Liste zuerst.** Sie trägt die Türtypen und die Etagen;
+beide entstehen beim Import von selbst, samt Checkliste je Typ. Der Plan kommt danach und trägt
+nur noch die Positionen an die vorhandenen Türen nach — ohne zweite Freigabe. Eine Fensterliste
+geht denselben Weg: `art: "wartung_fenster"`, Fenster und Türen stehen danach im selben Bestand.
+
 Unsicher beim Lesen? Niedrige Konfidenz angeben. Eine erfundene Tür ist schlimmer als eine
-fehlende. Details stehen in `import_anleitung`, falls du sie brauchst. Mitten im Diktat lohnt
-das nicht: dann lieber vertrösten und nach der Begehung machen.
+fehlende. Details stehen in `import_anleitung`, falls du sie brauchst — bei einer echten Liste
+lohnt das immer, dort steht die Spaltenzuordnung. Mitten im Diktat lohnt der ganze Import nicht:
+dann lieber vertrösten und nach der Begehung machen. Und: **derselbe Aufruf darf sich
+wiederholen** — was schon als Vorschlag liegt, kommt nicht doppelt dazu.
 
 ## „Die Tür ist neu"
 Eine Tür entsteht nicht mehr nebenbei: **`tuer_einrichten`**. Türtyp nennen, dann fragt das Tool
@@ -174,6 +181,8 @@ dasselbe wie dieser Skill — nur ohne dass jemand den Einstieg formulieren muss
 - Stammdatum des Objekts falsch? `objekt_aendern`. Stammdatum der Begehung? `begehung_aendern`.
   Danach `berichte_erzeugen` — der geänderte Stand erzeugt neue Versionen von selbst.
 - Tür ausgebaut? `bauteil_aendern` mit `aktiv: false` — die Historie bleibt, fällig wird sie nicht mehr.
+- Türtyp verschrieben? `tuertyp_loeschen`, solange keine Tür daran hängt. Hängt schon eine dran,
+  `tuertyp_aendern` mit `aktiv: false` — stilllegen statt löschen, die Historie bleibt.
 - „Was ist diese Woche dran?" → `faellig`. „Was ist an dem Objekt los?" → `objekt_lesen`.
   „Was ist noch offen?" → `lage`.
 - Unterschrift des Prüfers fehlt im Bericht? Einmalig auf der Website unter Einstellungen hochladen.

@@ -15,13 +15,14 @@ Claude.
 
 ## Das Modell in einem Absatz
 
-**Das Bauteil ist die feste Größe, nicht der Termin.** Ein **Objekt** (die Liegenschaft) trägt
-seine **Bauteile** — Türen, Fenster, Feststellanlagen —, und jedes Bauteil trägt seine Geschichte
-über die Jahre. Eine **Begehung** ist ein Termin an einem Objekt; sie erzeugt **Prüfungen** an
-Bauteilen. Aus einer Prüfung mit Abweichung entsteht ein **Mangel**, der am Bauteil hängt, bis
-ihn jemand freimeldet — auch über Jahre hinweg. Aus jeder Prüfung entsteht ein **Bericht**, und
-zwar versioniert: ändert sich der Stand, entsteht eine neue Version daneben; was beim Kunden
-liegt, bleibt genau so.
+**Der Türtyp steht vor allem, das Bauteil ist die feste Größe — nicht der Termin.** Ein
+**Türtyp** trägt, was für alle Türen seiner Art gleich ist, und bringt **seine Checkliste** mit.
+Ein **Objekt** (die Liegenschaft) trägt seine **Bauteile** — Türen, Fenster, Feststellanlagen —,
+jedes von einem Türtyp, und jedes trägt seine Geschichte über die Jahre. Eine **Begehung** ist
+ein Termin an einem Objekt; sie erzeugt **Prüfungen** an Bauteilen. Eine Abweichung heißt: die
+Tür hat nicht bestanden — das bleibt an der Tür hängen und wird beim nächsten Mal abgefragt,
+auch über Jahre hinweg. Aus jeder Prüfung entsteht ein **Bericht**, und zwar versioniert: ändert
+sich der Stand, entsteht eine neue Version daneben; was beim Kunden liegt, bleibt genau so.
 
 „Tür 12" meint deshalb das Bauteil Nr. 12 dieses Objekts — nächstes Jahr wieder dieselbe Tür.
 
@@ -51,9 +52,11 @@ Wartungsvertrag und vor allem **wie man reinkommt** („Schlüssel beim Hausmeis
 Sekretariat"). Der Zugang steht danach auf der Objektseite — das Feld, das die vergebliche
 Anfahrt verhindert.
 
-**Ein Bauplan** ist zwei Schritte: Claude liest die Datei und gibt die gefundenen Türen mit
-`bauplan_uebernehmen` ab, dann liest es vor, was gefunden wurde, und holt die Freigabe. Ohne
-Freigabe entstehen keine Bauteile — das ist der Punkt, an dem ein Mensch entscheidet.
+**Ein Bauplan oder eine Türenliste** ist zwei Schritte: Claude liest die Datei und gibt die
+gefundenen Türen mit `bauplan_uebernehmen` ab, dann liest es vor, was gefunden wurde, und holt
+die Freigabe. Ohne Freigabe entstehen keine Bauteile — das ist der Punkt, an dem ein Mensch
+entscheidet. Türtypen, Geschosse, Nummern und Laufreihenfolge entstehen dabei von selbst: ein
+ganzes Haus sind damit fünf Aufrufe statt achtzig.
 
 **So wenig Eingabe wie möglich.** Was der Server ausrechnen kann, fragt er nicht: die Etage einer
 Tür erkennt er aus Raumnummer, ETAGE oder Flur; eine Abweichung macht die Prüfung von selbst zu
@@ -95,10 +98,10 @@ src/
                       die Browser-Skripte, als Text einkompiliert
   auth/               Anmeldung (Benutzer + Passwort), Sitzungs-Cookies, OAuth 2.1
   mcp/                MCP-Protokoll, die 44 Tools (werkzeuge + import_werkzeuge),
-                      dazu prompts.ts: die vier Schrägstrich-Befehle und die Ressourcen
+                      dazu prompts.ts: die sieben Schrägstrich-Befehle und die Ressourcen
   import/             Anleitung für den Agenten, Zusammenführung Liste + Plan
-  daten/              D1-Zugriff: objekte, bauteile, begehungen, maengel, fotos,
-                      berichte, touren, sync, personen, basis (IDs, Fristen, Zugriff)
+  daten/              D1-Zugriff: tuertypen, objekte, bauteile, begehungen, importe,
+                      maengel, fotos, berichte, sync, personen, basis (IDs, Fristen, Zugriff)
   pdf/                Formular-Overlay (pdf-lib), Deckblatt, ZIP, Erzeugungslauf
   vorlagen/           Profile, Cheatsheets und Formular-PDFs der drei Vorlagen
   web/                Seiten und Gestaltung
@@ -147,7 +150,15 @@ pdf.js), der Worker legt es nur ab. Kein API-Schlüssel, kein KI-Aufruf aus dem 
 
 Liegen Türliste und Plan vor, führt `import_zusammenfuehren` sie zusammen: gleiche Kennung,
 sonst gleiche Raumnummer, wenn dort auf beiden Seiten genau eine Tür steht. Position kommt vom
-Plan, Felder von der Liste; was nicht sicher zusammenpasst, bleibt getrennt stehen.
+Plan, Felder von der Liste; was nicht sicher zusammenpasst, bleibt getrennt stehen. Kommt der
+Plan **nach** der Liste, ist das kein zweiter Bestand: bekannte Kennungen bekommen ihre Position
+direkt ans Bauteil, ohne zweite Freigabe.
+
+Eine Liste bringt mehr mit als Zeilen. Aus der Spalte Türtyp entstehen die **Türtypen** samt
+Stammdaten und Checkliste, aus der Spalte Ebene die **Geschosse** in der richtigen Reihenfolge;
+Nummern und Laufreihenfolge vergibt der Server. Der Aufruf darf sich wiederholen — eine Kennung,
+die schon als offener Vorschlag liegt, kommt nicht noch einmal dazu, und ohne Neues entsteht auch
+kein leerer Import.
 
 ### Versionierte Berichte
 
@@ -263,7 +274,14 @@ Der Vorlagen-Editor aus Stufe 4 hat sich damit weitgehend erledigt: eine eigene 
 Türtyp gibt es jetzt. Offen bleibt nur, ein viertes **Formular-PDF** ohne Deployment
 hinzuzufügen.
 
-Zur Probe wurde ein frei lizenzierter Grundriss aus Wikimedia Commons durch den Import geschickt
+Zur Probe lief zuerst ein frei lizenzierter Grundriss aus Wikimedia Commons durch den Import
 („2 bhk Bungalow floor plan", 7 Türen): alle sieben gefunden, keine falsche, die Marker sitzen
-auf den Türen. Mit einem echten Kundenplan und dessen Türliste ist das zu wiederholen — dann
-zählt die Trefferquote gegen eine Zahl, die nicht vom Leser selbst stammt.
+auf den Türen. Danach die echten Unterlagen eines Bauvorhabens — Türenliste, Fensterliste und
+Grundrisse eines Hauses: **67 Türen mit 12 Türtypen, 74 Fenster mit 3 Fenstertypen, drei
+Geschosse**, in fünf Aufrufen statt in achtzig. Türen und Fenster stehen danach im selben
+Bestand, und der Rundgang mischt sie nach Etage und Raumnummer.
+
+Erst diese echten Listen zeigten drei stille Fehler, die kein Testdatensatz hergibt: ein Türtyp
+ging unbemerkt in einem längeren Namen auf, „OG" und „1.OG" derselben Liegenschaft wurden zwei
+Etagen, und dieselbe Datei zweimal gelesen legte alles zweimal an. Alle drei sind behoben und
+durch `scripts/e2e.sh` abgedeckt.
