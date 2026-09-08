@@ -76,8 +76,15 @@ await p.evaluate(async (id) => {
   }
 }, objektId);
 
+/*
+ * Mit `ziel=rundgang` landet die Antwort direkt beim Rundgang. Die frühere Begehungsseite gibt
+ * es nicht mehr — sie leitet aufs Objekt um, und dieses Skript lief dann ins Leere.
+ */
 const begehungId = await p.evaluate(async (id) => {
-  const r = await fetch("/objekt/" + id + "/begehung", { method: "POST", body: new URLSearchParams() });
+  const r = await fetch("/objekt/" + id + "/begehung", {
+    method: "POST",
+    body: new URLSearchParams({ ziel: "rundgang" }),
+  });
   return new URL(r.url).pathname.split("/").pop();
 }, objektId);
 
@@ -122,20 +129,25 @@ await p.waitForFunction(() => document.getElementById("stand")?.textContent?.sta
   null, { timeout: 30000 }).then(() => ok("alles übertragen")).catch(() => bad("Abgleich hängt"));
 
 /* ── Serverstand prüfen ───────────────────────────────────────────────────── */
-const stand = await p.evaluate(async (id) => (await fetch("/begehung/" + id + "/stand.json")).json(), begehungId);
-stand.gesamt === 6 ? ok("neue Tür mit Server-Nummer angelegt") : bad("Bauteile: " + stand.gesamt);
-stand.geprueft === 3 ? ok("drei Prüfungen auf dem Server") : bad("Prüfungen: " + stand.geprueft);
-stand.bauteile.find((b) => b.nr === Number(offen[0]))?.abweichungen === 1
+/* Alles aus einer Quelle: `/api/rundgang` ist ohnehin der Stand, den der Rundgang lädt. */
+const stand = await p.evaluate(async (id) => (await fetch("/api/rundgang/" + id)).json(), begehungId);
+stand.bauteile.length === 6
+  ? ok("neue Tür mit Server-Nummer angelegt") : bad("Bauteile: " + stand.bauteile.length);
+const geprueft = stand.bauteile.filter((b) => b.pruefung).length;
+geprueft === 3 ? ok("drei Prüfungen auf dem Server") : bad("Prüfungen: " + geprueft);
+const erste = stand.bauteile.find((b) => b.nr === Number(offen[0]));
+Object.keys(erste?.pruefung?.checks ?? {}).length === 1
   ? ok("Abweichung übertragen") : bad("Abweichung fehlt");
 
 const lauf = await p.evaluate(async (id) =>
   (await fetch("/begehung/" + id + "/erzeugen", { method: "POST" })).json(), begehungId);
 lauf.erzeugt === 3 ? ok("drei Berichte erzeugt") : bad("Berichte: " + JSON.stringify(lauf));
-const mitAnhang = await p.evaluate(async (id) => {
+const nachher = await p.evaluate(async (id) => {
   const r = await fetch("/api/rundgang/" + id);
-  return (await r.json()).bauteile.length;
+  const d = await r.json();
+  return { anzahl: d.bauteile.length, checklisten: Object.keys(d.checklisten || {}).length };
 }, begehungId);
-mitAnhang === 6 ? ok("Rundgang kennt die neue Tür") : bad("Rundgang: " + mitAnhang);
+nachher.anzahl === 6 ? ok("Rundgang kennt die neue Tür") : bad("Rundgang: " + nachher.anzahl);
 
 /* ── Aufräumen ────────────────────────────────────────────────────────────── */
 await p.evaluate(async (id) => fetch("/objekt/" + id + "/loeschen", { method: "POST" }), objektId);

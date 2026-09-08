@@ -196,6 +196,7 @@ export function vorlagePdf(id: string): Uint8Array {
  * jetzt hier, damit Tools und Seiten dieselbe Beschriftung zeigen (Abschnitt 11).
  */
 export const FELD_LABELS: Record<string, string> = {
+  IDENT: "Ident-Nummer",
   ETAGE: "Etage",
   RAUM: "Raum",
   FLUR: "Flur",

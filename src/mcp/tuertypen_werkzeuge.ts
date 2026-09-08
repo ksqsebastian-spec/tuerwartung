@@ -8,15 +8,18 @@
  */
 import type { Kontext, ToolDef } from "./protokoll";
 import { VORLAGEN, VORLAGEN_IDS, vorlage } from "../vorlagen";
+import { TYPEN_VORRAT, vorratsTyp } from "../vorlagen/typenvorrat";
 import {
   punkteAnpassen,
   punkteAusVorlage,
   tuertypAendern,
   tuertypAnlegen,
+  tuertypAusVorrat,
   tuertypLesen,
   tuertypLoeschen,
   tuertypSuchen,
   tuertypenListe,
+  typOderVorrat,
 } from "../daten/tuertypen";
 import type { Tuertyp, Zusatzfeld } from "../daten/tuertypen";
 import { bauteilAendern, bauteilAnlegen, bauteilPerNr, bauteileMitStand } from "../daten/bauteile";
@@ -43,12 +46,34 @@ async function holeTyp(ctx: Kontext, text: string): Promise<Tuertyp> {
   const t = await tuertypSuchen(ctx.env.DB, text);
   if (!t) {
     const alle = await tuertypenListe(ctx.env.DB);
+    const nah = TYPEN_VORRAT.filter((v) =>
+      v.name.toLowerCase().includes(text.trim().toLowerCase()),
+    ).map((v) => v.name);
     throw new Error(
       `Türtyp '${text}' gibt es nicht.` +
-        (alle.length ? ` Vorhanden: ${alle.map((x) => x.name).join(", ")}.` : " Noch keiner angelegt."),
+        (alle.length ? ` Vorhanden: ${alle.map((x) => x.name).join(", ")}.` : "") +
+        (nah.length ? ` Im Vorrat liegt: ${nah.join(", ")}.` : "") +
+        (!alle.length && !nah.length
+          ? " 'tuertypen_auflisten' zeigt den Vorrat der gängigen Typen."
+          : ""),
     );
   }
   return t;
+}
+
+/**
+ * Wie `holeTyp`, aber ein Name aus dem Vorrat entsteht dabei.
+ *
+ * Nur für Werkzeuge, die ohnehin schreiben. „Türtyp T30-RS, Raum 1.04" soll am Telefon
+ * funktionieren, ohne dass vorher jemand eine Stammdatenseite geöffnet hat — das Anlegen ist
+ * dann keine eigene Entscheidung mehr, sondern Teil derselben.
+ */
+async function holeTypOderVorrat(ctx: Kontext, text: string): Promise<Tuertyp> {
+  const t = await tuertypSuchen(ctx.env.DB, text);
+  if (t) return t;
+  const neu = await tuertypAusVorrat(ctx.env.DB, text, ctx.nutzer.benutzer);
+  if (neu) return neu;
+  return holeTyp(ctx, text); // wirft mit der guten Meldung
 }
 
 async function holeObjekt(ctx: Kontext, text: string): Promise<Objekt> {
@@ -84,9 +109,11 @@ const tuertypenAuflisten: ToolDef = {
   name: "tuertypen_auflisten",
   title: "Türtypen auflisten",
   description:
-    "Alle eingerichteten Türtypen mit Vorlage, Stammdaten und der Zahl ihrer Prüfpunkte. " +
-    "Das ist der erste Blick, bevor eine Tür angelegt wird — ohne Türtyp geht nichts. " +
-    "Stillgelegte bleiben außen vor, bis 'auch_stillgelegte' sie dazuholt.",
+    "Alle eingerichteten Türtypen mit Vorlage, Stammdaten und der Zahl ihrer Prüfpunkte — dazu " +
+    "'vorrat': die gängigen Typen, die bereitliegen und beim ersten Gebrauch von selbst " +
+    "entstehen. Das ist der erste Blick, bevor eine Tür angelegt wird; ein leerer Bestand ist " +
+    "kein Hindernis, denn der Vorrat ist immer da. Stillgelegte bleiben außen vor, bis " +
+    "'auch_stillgelegte' sie dazuholt.",
   inputSchema: {
     type: "object",
     properties: { auch_stillgelegte: bool("true zeigt auch die stillgelegten Typen") },
@@ -108,9 +135,23 @@ const tuertypenAuflisten: ToolDef = {
         pflichtfelder: t.pflicht,
         zusatzfelder: t.zusatz.map((z) => z.schluessel),
       })),
+      /*
+       * Der Vorrat gehört in dieselbe Antwort: sonst fragt der Agent den Monteur nach einem
+       * Namen, den der Server längst kennt. Ein Vorratstyp lässt sich überall angeben, wo ein
+       * Türtyp verlangt wird — angelegt wird er beim ersten Gebrauch.
+       */
+      vorrat: TYPEN_VORRAT.filter(
+        (v) => !liste.some((t) => t.name.toLowerCase() === v.name.toLowerCase()),
+      ).map((v) => ({
+        name: v.name,
+        vorlage: v.art,
+        beschreibung: v.beschreibung,
+        pflichtfelder: v.pflicht,
+      })),
       hinweis: liste.length
         ? undefined
-        : "Noch kein Türtyp. 'tuertyp_anlegen' mit Name und Vorlage — die Checkliste entsteht dabei.",
+        : "Noch kein eigener Türtyp — nötig ist das auch nicht: nimm einen Namen aus 'vorrat', " +
+          "er entsteht beim ersten Gebrauch. Nur wenn keiner passt, 'tuertyp_anlegen'.",
       vorlagen: VORLAGEN_IDS.map((id) => ({ id, label: VORLAGEN[id].label })),
     };
   },
@@ -131,7 +172,25 @@ const checklisteLesen: ToolDef = {
   },
   annotations: NUR_LESEN,
   async handler(args, ctx) {
-    const t = await holeTyp(ctx, pflicht<string>(args, "tuertyp"));
+    const wunsch = pflicht<string>(args, "tuertyp");
+    /* Auch die Checkliste eines Vorratstyps ist lesbar — ohne ihn dafür anzulegen. */
+    const w = await typOderVorrat(ctx.env.DB, wunsch);
+    if (w?.aus_vorrat) {
+      return {
+        tuertyp: w.name,
+        aus_vorrat: true,
+        vorlage: w.art,
+        vorlage_label: VORLAGEN[w.art]?.label ?? w.art,
+        beschreibung: vorratsTyp(w.name)?.beschreibung ?? "",
+        felder: w.felder,
+        pflichtfelder: w.pflicht,
+        punkte: w.punkte.filter((p) => p.aktiv).map((p) => ({ nr: p.nr, text: p.text })),
+        hinweis:
+          "Dieser Typ liegt im Vorrat und ist noch nicht angelegt. Er entsteht beim ersten " +
+          "Gebrauch — 'tuer_einrichten' oder 'checkliste_anpassen' mit diesem Namen genügt.",
+      };
+    }
+    const t = await holeTyp(ctx, wunsch);
     return typAnsicht(t, ctx);
   },
 };
@@ -142,7 +201,9 @@ const tuertypAnlegenTool: ToolDef = {
   name: "tuertyp_anlegen",
   title: "Türtyp einrichten",
   description:
-    "Legt einen Türtyp an: Name, Vorlage (bestimmt Formular und Grund-Prüfpunkte) und die " +
+    "Legt einen **eigenen** Türtyp an. Vorher in 'tuertypen_auflisten' den 'vorrat' ansehen: " +
+    "passt einer davon, nenn einfach seinen Namen, wo ein Türtyp verlangt wird — dann braucht " +
+    "es dieses Werkzeug nicht. Sonst: Name, Vorlage (bestimmt Formular und Grund-Prüfpunkte) und die " +
     "Stammdaten, die für alle Türen dieses Typs gleich sind. Die Checkliste entsteht dabei aus " +
     "der Vorlage und lässt sich danach mit 'checkliste_anpassen' zurechtlegen. Mit " +
     "'pflichtfelder' festlegen, was beim Einrichten einer Tür stehen muss, bevor geprüft werden " +
@@ -349,7 +410,7 @@ const checklisteAnpassenTool: ToolDef = {
   },
   annotations: SCHREIBT,
   async handler(args, ctx) {
-    const t = await holeTyp(ctx, pflicht<string>(args, "tuertyp"));
+    const t = await holeTypOderVorrat(ctx, pflicht<string>(args, "tuertyp"));
     const punkte =
       args.zuruecksetzen === true
         ? punkteAusVorlage(t.art)
@@ -372,7 +433,8 @@ const tuerEinrichtenTool: ToolDef = {
   name: "tuer_einrichten",
   title: "Tür einrichten (geführt)",
   description:
-    "Richtet eine Tür an einem Objekt ein. Türtyp nennen, dann fragt das Tool nach dem, was " +
+    "Richtet eine Tür an einem Objekt ein. Türtyp nennen — ein eigener oder einer aus dem " +
+    "Vorrat ('tuertypen_auflisten'), der dann von selbst entsteht. Dann fragt das Tool nach dem, was " +
     "dieser Typ verlangt — eine Frage je Aufruf, Antwort im nächsten Aufruf mitgeben, bis " +
     "'bereit: true' kommt. Erst dann kann geprüft werden. Steht eine Ident-Nummer oder ein " +
     "Typenschild nur auf einem Foto: das Bild selbst lesen und den Wert hier mitgeben — " +
@@ -407,7 +469,7 @@ const tuerEinrichtenTool: ToolDef = {
   annotations: SCHREIBT,
   async handler(args, ctx) {
     const objekt = await holeObjekt(ctx, pflicht<string>(args, "objekt"));
-    const typ = await holeTyp(ctx, pflicht<string>(args, "tuertyp"));
+    const typ = await holeTypOderVorrat(ctx, pflicht<string>(args, "tuertyp"));
 
     const felder = { ...((args.felder ?? {}) as Record<string, string>) };
     for (const [k, v] of Object.entries(felder)) {

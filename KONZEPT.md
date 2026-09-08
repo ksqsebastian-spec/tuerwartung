@@ -689,6 +689,29 @@ offener Vorschlag liegt, kommt nicht noch einmal dazu — der Aufruf darf sich w
 für das Zusammenführen von Plan und Liste (7.7) und für Fälle, in denen einzeln gesteuert werden
 soll. Der Regelweg sind die zwei Schritte.
 
+### 1.3 Der Vorrat, und warum das Formular am Türtyp hängt
+
+Zwei Dinge fielen beim Durchgehen der fertigen Anwendung auf, und beide waren dieselbe Lücke.
+
+**Der leere Anfang.** Die Stammdatenseite begann leer. Wer die erste Tür erfassen wollte, musste
+vorher einen Türtyp erfinden — Name, Vorlage, Pflichtfelder —, ohne zu wissen, was davon später
+zählt. Das ist die Sorte Frage, die eine Anwendung selbst beantworten kann: die gängigen Typen
+sind seit Jahrzehnten dieselben. Also liegen sie im **Vorrat** (`src/vorlagen/typenvorrat.ts`),
+sichtbar, aber nicht in der Datenbank. Wer einen benutzt, legt ihn damit an; wer ihn nie benutzt,
+sieht ihn nur in einer Liste. Nichts einzurichten, nichts aufzuräumen. Pflichtfeld `IDENT` steht
+dort nur, wo es ein Kennzeichnungsschild gibt — sonst käme der Monteur an der ersten Bürotür
+nicht weiter, und das wäre dieselbe Sackgasse in neuer Form.
+
+**Das Formular am Objekt kannte den Türtyp nicht.** Es zeigte ein Auswahlfeld „Vorlage" und
+darunter die Punkte dieser Vorlage. Damit ging die halbe Anwendung an ihrem eigenen Kern vorbei:
+eine am Türtyp zurechtgelegte Checkliste kam im Browser nie an, Pflichtfelder wurden nicht
+verlangt, Zusatzfelder gab es nicht, und die falsche Vorlage war ein Klick weit weg. Der Rundgang
+ohne Netz hatte denselben Fehler — zwei Wahrheiten in einer Anwendung.
+
+Jetzt führt überall der Türtyp: erst die eine Frage („was für eine Tür ist das?"), dann seine
+Checkliste, seine Pflichtfelder, seine Zusatzfelder. Die Vorlage lässt sich gar nicht mehr wählen.
+Was für alle Türen des Typs gleich ist, liegt eingeklappt darunter statt in der ersten Reihe.
+
 ### 7.1 Grundsatz (überholt, siehe 7.0)
 
 Alles Schwere läuft **im Browser**, nicht im Worker: PDF rendern, Vektoren lesen, Bilder
@@ -935,7 +958,7 @@ Namen deutsch, `readOnlyHint` gesetzt wie in v1. Alle Argumente optional außer 
 
 | Tool | Argumente | Wirkung |
 |---|---|---|
-| `tuertypen_auflisten` | auch_stillgelegte | alle Türtypen mit Vorlage, Pflicht- und Zusatzfeldern |
+| `tuertypen_auflisten` | auch_stillgelegte | alle Türtypen mit Vorlage, Pflicht- und Zusatzfeldern — dazu `vorrat`, die gängigen Typen, die bereitliegen |
 | `checkliste_lesen` | tuertyp* | die Prüfpunkte dieses Typs, wie sie hier gelten |
 | `tuertyp_anlegen` | name*, vorlage*, beschreibung, felder, pflichtfelder[], zusatzfelder[] | legt den Typ an; die Checkliste entsteht aus der Vorlage |
 | `tuertyp_aendern` | tuertyp*, Felder | Stammdaten, Pflicht- und Zusatzfelder; `aktiv: false` legt still |

@@ -12,6 +12,8 @@ import { esc, seite, textfeld, umleitung, zeitpunkt } from "./layout";
 import { VORLAGEN, VORLAGEN_IDS, feldLabel } from "../vorlagen";
 import { tuertypLesen, tuertypenListe } from "../daten/tuertypen";
 import type { Tuertyp } from "../daten/tuertypen";
+import { TYPEN_VORRAT } from "../vorlagen/typenvorrat";
+import type { VorratsTyp } from "../vorlagen/typenvorrat";
 
 /** Die Felder, die ein Türtyp als Stammdaten führen kann — aus seiner Vorlage. */
 export function typFelder(art: string): string[] {
@@ -38,6 +40,18 @@ export async function stammdatenSeite(
   const typen = await tuertypenListe(env.DB, { auch_stillgelegte: true });
   const aktiv = typen.filter((t) => t.aktiv);
   const still = typen.filter((t) => !t.aktiv);
+  /* Was schon eingerichtet ist, steht nicht noch einmal im Vorrat. */
+  const belegt = new Set(typen.map((t) => t.name.toLowerCase()));
+  const vorrat = TYPEN_VORRAT.filter((v) => !belegt.has(v.name.toLowerCase()));
+
+  const vorratZeile = (v: VorratsTyp) =>
+    `<form method="post" action="/stammdaten/aus-vorrat" class="posten">
+<input type="hidden" name="name" value="${esc(v.name)}">
+<div class="haupt"><div class="name">${esc(v.name)}</div>
+<div class="unter">${esc(v.beschreibung)}${
+      v.pflicht.length ? ` · Pflicht: ${esc(v.pflicht.join(", "))}` : ""
+    }</div></div>
+<button class="btn schmal leise" type="submit">Übernehmen</button></form>`;
 
   return seite(
     `<h1 class="seite">Stammdaten</h1>
@@ -45,8 +59,8 @@ export async function stammdatenSeite(
       aktiv.length
         ? `${aktiv.length} ${aktiv.length === 1 ? "Türtyp" : "Türtypen"} eingerichtet. ` +
           "Ein Türtyp trägt, was für alle Türen dieser Art gleich ist — und seine Checkliste."
-        : "Noch kein Türtyp. Ein Türtyp legt fest, welches Formular gilt, welche Angaben eine " +
-          "Tür braucht und welche Punkte geprüft werden."
+        : "Noch kein eigener Türtyp — nötig ist das auch nicht. Die häufigen liegen unten bereit " +
+          "und entstehen, sobald du einen benutzt."
     }</p></div>
 ${meldung ? `<div class="note" style="margin-bottom:22px">${esc(meldung)}</div>` : ""}
 ${aktiv.length ? `<div class="liste">${aktiv.map(typZeile).join("")}</div>` : ""}
@@ -56,8 +70,18 @@ ${
     : ""
 }
 
-<details class="klapp" style="margin-top:30px"${aktiv.length ? "" : " open"}>
-<summary>Türtyp anlegen <span class="meta">oder im Chat mit tuertyp_anlegen</span></summary>
+${
+  vorrat.length
+    ? `<h2 class="abschnitt">Häufige Türtypen</h2>
+<p class="meta" style="margin-bottom:14px">Liegen bereit und sind noch nicht angelegt. Ein Klick
+übernimmt einen samt Checkliste; danach lässt er sich umbenennen und anpassen. Beim Erfassen
+einer Tür stehen sie ohnehin zur Auswahl — übernehmen musst du hier nichts.</p>
+<div class="liste">${vorrat.map(vorratZeile).join("")}</div>`
+    : ""
+}
+
+<details class="klapp" style="margin-top:30px">
+<summary>Eigenen Türtyp anlegen <span class="meta">oder im Chat mit tuertyp_anlegen</span></summary>
 <form class="karte" method="post" action="/stammdaten" style="margin-top:8px">
 <div class="felder">
 ${textfeld("name", "Name", "", 'required placeholder="T30 Flurtür Hörmann"')}

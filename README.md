@@ -36,11 +36,17 @@ Bestandsaufnahme. Hängt an einer Tür noch ein Mangel aus dem Vorjahr, fragt Cl
 „Fertig" liest Claude zurück, nennt die fälligen Türen die noch fehlen — und erzeugt in
 demselben Zug die Berichte und den Sammelbericht.
 
-**Zuerst die Stammdaten.** Ein **Türtyp** — „T30 Flurtür Hörmann" — wählt das Formular, trägt
-die Angaben, die für alle Türen dieser Art gleich sind (Hersteller, Zulassung), und legt fest,
-was an jeder einzelnen Tür stehen muss, bevor geprüft werden darf. Aus der Vorlage entsteht dabei
-**seine Checkliste**; die wird zurechtgelegt: Punkte umbenennen, ausblenden, eigene ergänzen,
-dazu Felder wie Geschoss oder Kommentar. Im Chat mit `/tuertyp`, in der App unter **Stammdaten**.
+**Die Stammdaten liegen schon bereit.** Ein **Türtyp** — „T30-RS Brand- und Rauchschutztür" —
+wählt das Formular, trägt die Angaben, die für alle Türen dieser Art gleich sind (Hersteller,
+Zulassung), und legt fest, was an jeder einzelnen Tür stehen muss, bevor geprüft werden darf.
+Aus der Vorlage entsteht dabei **seine Checkliste**; die wird zurechtgelegt: Punkte umbenennen,
+ausblenden, eigene ergänzen, dazu Felder wie Geschoss oder Kommentar.
+
+Einrichten muss man dafür nichts: die **gängigen Typen liegen im Vorrat** — T30, T30-RS, T90,
+Rauchschutz, Vollspan, Alu-Rohrrahmen, Feststellanlagen, Kunststoff-, Holz- und Alufenster. Sie
+stehen überall zur Auswahl, wo ein Türtyp verlangt wird, und entstehen beim ersten Gebrauch. Wer
+sie nie benutzt, sieht sie nur in einer Liste stehen; wer sie benutzt, benennt sie danach um.
+Im Chat mit `/tuertyp`, in der App unter **Stammdaten**.
 
 **Dann die Türen.** `/tuer` im Chat oder `tuer_einrichten`: Türtyp nennen, dann fragt Türwerk
 nach dem, was dieser Typ verlangt — eine Frage nach der anderen, bis alles steht. Vorher lässt
@@ -76,6 +82,14 @@ Liegenschaft man steht.
   Darüber ein Satz, der sagt wo man steht, und ein Knopf, der weiterführt.
 - **Berichte** — je Termin die PDFs mit allen Versionen, Sammelbericht, ZIP.
 
+**Eine Tür erfassen** ist eine Frage nach der anderen: *was für eine Tür ist das?* — eingerichtete
+Typen zuerst, darunter der Vorrat. Danach das Formular **dieses Typs**: seine Checkliste
+(umbenannt, ausgeblendet, mit eigenen Punkten), seine Pflichtfelder, seine Zusatzfelder. Was für
+alle Türen des Typs gleich ist, steht eingeklappt darunter statt in der ersten Reihe. Eine
+Vorlage lässt sich hier nicht mehr wählen — sie kommt vom Typ, und damit auch nicht mehr
+verwechseln. Fehlt ein Pflichtfeld, wird nicht gespeichert; die nächste Tür kommt mit dem Typ der
+vorigen voreingestellt.
+
 Einen „Termin" gibt es in der Oberfläche nicht: wer eine Tür erfasst, meint den heutigen Termin
 an diesem Objekt, und der entsteht dabei von selbst. Kein „Begehung starten", kein „fortsetzen".
 Intern trägt die Begehung weiterhin die Prüfungen und Berichte.
@@ -103,7 +117,8 @@ src/
   daten/              D1-Zugriff: tuertypen, objekte, bauteile, begehungen, importe,
                       maengel, fotos, berichte, sync, personen, basis (IDs, Fristen, Zugriff)
   pdf/                Formular-Overlay (pdf-lib), Deckblatt, ZIP, Erzeugungslauf
-  vorlagen/           Profile, Cheatsheets und Formular-PDFs der drei Vorlagen
+  vorlagen/           Profile, Cheatsheets und Formular-PDFs der drei Vorlagen,
+                      dazu typenvorrat.ts: die gängigen Türtypen, die bereitliegen
   web/                Seiten und Gestaltung
   shared/             Krypto und Stylesheet, übernommen aus `mcpees`
 schema.sql            D1-Schema v2

@@ -19,6 +19,7 @@ import { geschosseListe, objektLesen } from "../daten/objekte";
 import { bauteileMitStand, inLaufreihenfolge, naechsteNr } from "../daten/bauteile";
 import { begehungLesen, pruefungenHistorie, pruefungenLesen } from "../daten/begehungen";
 import { maengelZuBauteil } from "../daten/maengel";
+import { tuertypLesen } from "../daten/tuertypen";
 
 /** Der Service Worker, mit der Version des Deployments im Cache-Namen. */
 export function serviceWorkerText(version: string): string {
@@ -102,6 +103,8 @@ export async function rundgangDaten(env: Env, begehungId: string): Promise<unkno
       flur: b.flur,
       bezeichnung: b.bezeichnung,
       geschoss: geschossName.get(b.geschoss_id ?? "") ?? "",
+      /* Die Checkliste hängt am Türtyp — auch offline, sonst kreuzt der Rundgang andere Punkte an. */
+      tuertyp_id: b.tuertyp_id ?? "",
       felder: b.felder,
       letzte: letzte
         ? { datum: letzte.datum, ergebnis: letzte.ergebnis, checks: letzte.checks }
@@ -111,6 +114,24 @@ export async function rundgangDaten(env: Env, begehungId: string): Promise<unkno
         ? { checks: p.checks, ergebnis: p.ergebnis, hinweise: p.hinweise }
         : null,
     });
+  }
+
+  /*
+   * Die Checklisten der vorkommenden Türtypen — umbenannt, ausgeblendet, mit eigenen Punkten.
+   * Ohne sie zeigte der Rundgang die rohe Vorlage und damit eine andere Liste als der Browser
+   * am selben Bauteil. Zwei Wahrheiten in einer Anwendung sind eine zu viel.
+   */
+  const checklisten: Record<string, unknown> = {};
+  for (const id of new Set(bauteile.map((b) => b.tuertyp_id).filter(Boolean))) {
+    const t = await tuertypLesen(env.DB, id as string);
+    if (t) {
+      checklisten[t.id] = {
+        name: t.name,
+        punkte: t.punkte.filter((p) => p.aktiv).map((p) => ({ nr: p.nr, text: p.text })),
+        pflicht: t.pflicht,
+        zusatz: t.zusatz,
+      };
+    }
   }
 
   /* Nur die Vorlagen mitschicken, die an diesem Objekt vorkommen — der Rest wäre Ballast. */
@@ -137,6 +158,7 @@ export async function rundgangDaten(env: Env, begehungId: string): Promise<unkno
     },
     objekt: { id: objekt.id, name: objekt.name, adresse: objekt.adresse },
     vorlagen,
+    checklisten,
     bauteile: zeilen,
     naechste_nr: await naechsteNr(env.DB, objekt.id),
     stand: Date.now(),

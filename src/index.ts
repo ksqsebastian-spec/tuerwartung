@@ -58,6 +58,7 @@ import {
   tuertypAendern,
   tuertypAnlegen,
   tuertypLesen,
+  tuertypAusVorrat,
   tuertypLoeschen,
 } from "./daten/tuertypen";
 import { anleitungSeite, importSeite, importeSeite } from "./web/import";
@@ -105,7 +106,7 @@ import { fotoAnlegen, fotoEntfernen, fotoLesen, darfFotoLoeschen } from "./daten
 import { fotoOpGesehen, opsAnwenden } from "./daten/sync";
 import { pruefungZuBauteil } from "./daten/begehungen";
 import { ulid } from "./daten/basis";
-import { vorlage } from "./vorlagen";
+import { feldLabel, vorlage } from "./vorlagen";
 import type { Bewertung } from "./vorlagen";
 import { berichtePaket, berichteErzeugen, sammelberichtErzeugen } from "./pdf/berichte";
 
@@ -327,15 +328,35 @@ export default {
       case "GET /stammdaten":
         return stammdatenSeite(env, nutzer, meldung);
 
+      /* Ein Türtyp aus dem Vorrat: ein Klick, kein Formular. */
+      case "POST /stammdaten/aus-vorrat": {
+        const form = await formDaten(request);
+        const name = String(form.get("name") ?? "").trim();
+        const t = name ? await tuertypAusVorrat(env.DB, name, nutzer.benutzer) : null;
+        if (!t) return umleitung("/stammdaten?meldung=Diesen+Typ+gibt+es+im+Vorrat+nicht.");
+        return umleitung(
+          `/stammdaten/${t.id}?meldung=` +
+            encodeURIComponent("Übernommen. Hier lässt sich alles anpassen."),
+        );
+      }
+
       case "POST /stammdaten": {
         const form = await formDaten(request);
         const name = String(form.get("name") ?? "").trim();
         if (!name) return umleitung("/stammdaten?meldung=Name+fehlt.");
-        const t = await tuertypAnlegen(env.DB, {
-          name,
-          art: String(form.get("art") ?? "wartung_drehfluegel"),
-          angelegt_von: nutzer.benutzer,
-        });
+        let t;
+        try {
+          t = await tuertypAnlegen(env.DB, {
+            name,
+            art: String(form.get("art") ?? "wartung_drehfluegel"),
+            angelegt_von: nutzer.benutzer,
+          });
+        } catch (fehler) {
+          /* Doppelter Name — kein Absturz, sondern der Hinweis, dass es ihn schon gibt. */
+          return umleitung(
+            `/stammdaten?meldung=${encodeURIComponent(String((fehler as Error).message))}`,
+          );
+        }
         return umleitung(`/checkliste/${t.id}?meldung=Türtyp+angelegt.+Jetzt+die+Checkliste.`);
       }
 
@@ -769,9 +790,16 @@ async function begehungRoute(
     }
   }
 
-  /* Alte Adressen: die Checkliste ist jetzt die des Türtyps, oben in der Leiste. */
-  if (teile.length === 3 && (teile[2] === "checkliste" || teile[2] === "stand.json")) {
-    return umleitung("/checkliste");
+  /* Alte Adresse: die Checkliste ist jetzt die des Türtyps, oben in der Leiste. */
+  if (teile.length === 3 && teile[2] === "checkliste") return umleitung("/checkliste");
+
+  /*
+   * 'stand.json' gab es einmal als eigene Auskunft; heute steht dasselbe in '/api/rundgang'.
+   * Als Umleitung auf eine HTML-Seite war sie eine Falle: wer sie abfragte, bekam Markup
+   * zurück und einen Fehler beim Auswerten.
+   */
+  if (teile.length === 3 && teile[2] === "stand.json") {
+    return umleitung(`/api/rundgang/${begehung.id}`);
   }
 
   if (teile.length === 3 && teile[2] === "abschliessen" && request.method === "POST") {
@@ -865,26 +893,62 @@ async function begehungRoute(
       return fehlerSeite("Ungültige Prüfung", `'${kennung}' ist keine Bauteilnummer.`, 400);
     }
     if (request.method === "GET") {
-      return pruefungSeite(env, nutzer, begehung.id, nr);
+      return pruefungSeite(env, nutzer, begehung.id, nr, {
+        /* Ein vorhandenes, leeres 'typ' heißt: neu wählen. Kein 'typ' heißt: nimm den bekannten. */
+        typ: url.searchParams.has("typ") ? (url.searchParams.get("typ") ?? "") : undefined,
+        meldung,
+      });
     }
     if (request.method === "POST") {
       const objekt = await objektLesen(env.DB, begehung.objekt_id);
       if (!objekt) return fehlerSeite("Nicht gefunden", "Objekt fehlt.", 404);
       const form = await formDaten(request);
-      const art = String(form.get("art") ?? "") || undefined;
       const bestehende = await bauteileMitStand(env.DB, objekt, { auch_stillgelegte: true });
       const vorhanden = nr === null ? null : bestehende.find((b) => b.nr === nr);
-      const vorlagenId = vorhanden?.art ?? art ?? "wartung_drehfluegel";
+
+      /*
+       * Der Türtyp führt: er bestimmt die Vorlage, die gültigen Prüfpunkte und was an der Tür
+       * stehen muss. Steht im Formular ein Name aus dem Vorrat, entsteht der Typ genau hier —
+       * beim Speichern, wo ein Mensch etwas entschieden hat, und nicht schon beim Hinsehen.
+       */
+      const typWunsch = String(form.get("tuertyp") ?? "").trim();
+      const typ = typWunsch ? await tuertypAusVorrat(env.DB, typWunsch, nutzer.benutzer) : null;
+      if (typWunsch && !typ) {
+        return fehlerSeite("Unbekannter Türtyp", `'${typWunsch}' gibt es nicht.`, 400);
+      }
+      const vorlagenId = typ?.art ?? vorhanden?.art ?? "wartung_drehfluegel";
       const v = vorlage(vorlagenId);
 
+      const schluessel = new Set([
+        ...v.bauteilfelder,
+        ...(typ?.pflicht ?? []),
+        ...(typ?.zusatz ?? []).map((z) => z.schluessel),
+      ]);
       const felder: Record<string, string> = {};
-      for (const feld of v.bauteilfelder) {
+      for (const feld of schluessel) {
         const wert = form.get(`f_${feld}`);
         if (wert !== null) felder[feld] = String(wert).trim();
       }
+
+      /*
+       * Was der Türtyp verlangt, muss dastehen — sonst fehlt es später im Bericht, und dort
+       * fällt es niemandem mehr auf. Zurück zum Formular, nichts gespeichert.
+       */
+      const fehlend = (typ?.pflicht ?? []).filter(
+        (f) => !String(felder[f] ?? typ?.felder[f] ?? vorhanden?.felder[f] ?? "").trim(),
+      );
+      if (fehlend.length) {
+        return pruefungSeite(env, nutzer, begehung.id, nr, {
+          typ: typWunsch,
+          meldung: `Bitte noch ausfüllen: ${fehlend.map(feldLabel).join(", ")}. Der Türtyp '${
+            typ!.name
+          }' verlangt das an jeder Tür.`,
+        });
+      }
+
       /* Nur Abweichungen speichern — „in Ordnung" ist der Standard und braucht keinen Eintrag. */
       const checks: Record<string, Bewertung> = {};
-      for (const p of v.punkte) {
+      for (const p of typ?.punkte.filter((x) => x.aktiv) ?? v.punkte) {
         const wert = String(form.get(`p_${p.nr}`) ?? "io");
         if (wert !== "io") checks[p.nr] = wert as Bewertung;
       }
@@ -896,10 +960,11 @@ async function begehungRoute(
         begehung,
         {
           nr: vorhanden ? vorhanden.nr : Number.isFinite(gewuenschteNr) ? gewuenschteNr : undefined,
+          tuertyp: typ?.id,
           art: vorlagenId,
           felder,
           checks,
-          ergebnis: String(form.get("ergebnis") ?? "bestanden"),
+          /* Das Ergebnis folgt den Kreuzen — dafür braucht es kein Auswahlfeld mehr. */
           hinweise: String(form.get("hinweise") ?? "").trim(),
           raumnummer: String(form.get("raumnummer") ?? "").trim(),
           raum: String(form.get("raum") ?? "").trim(),
@@ -907,7 +972,10 @@ async function begehungRoute(
         },
         nutzer.benutzer,
       );
-      return umleitung(`/begehung/${begehung.id}?meldung=Tür+${e.bauteil.nr}+gespeichert.`);
+      const wie = e.pruefung.ergebnis === "bestanden" ? "bestanden" : "nicht bestanden";
+      return umleitung(
+        `/begehung/${begehung.id}?meldung=Tür+${e.bauteil.nr}+gespeichert+—+${encodeURIComponent(wie)}.`,
+      );
     }
   }
 

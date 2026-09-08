@@ -55,6 +55,11 @@ main.wrap { padding-top: 42px; }
 .zeile.oben { justify-content: space-between; margin-bottom: 26px; }
 h1.seite { font-size: clamp(1.9rem, 4vw, 2.5rem); letter-spacing: -.038em; }
 h2.abschnitt { font-size: 1.06rem; letter-spacing: -.02em; margin: 40px 0 14px; }
+/* Eine Stufe leiser als der Abschnitt — teilt eine Liste, ohne sie zu zerreißen. */
+h3.unterabschnitt {
+  font-size: .78rem; font-weight: 640; letter-spacing: .07em; text-transform: uppercase;
+  color: var(--ink-3); margin: 26px 0 4px;
+}
 .leer { border: 1px dashed var(--line-strong); border-radius: var(--radius); padding: 46px 28px; text-align: center; color: var(--ink-2); }
 
 /* ── Liste ────────────────────────────────────────────────────────────── */
@@ -65,6 +70,9 @@ h2.abschnitt { font-size: 1.06rem; letter-spacing: -.02em; margin: 40px 0 14px; 
   transition: background .18s var(--ease);
 }
 a.posten:hover { background: var(--wash); }
+/* Eine Zeile, die selbst ein Formular ist — der Vorrat übernimmt mit einem Knopf statt einem Link. */
+form.posten { margin: 0; }
+form.posten:hover { background: var(--wash); }
 .posten .haupt { min-width: 0; flex: 1; }
 .posten .name { font-weight: 600; letter-spacing: -.015em; }
 .posten .unter { font-size: .86rem; color: var(--ink-2); margin-top: 2px; }

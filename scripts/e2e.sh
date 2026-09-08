@@ -707,6 +707,71 @@ echo "$CL" | jq -e '[.punkte[] | select(.eigen)][0].text == "Zweiter eigener Pun
 echo "$CL" | jq -e '[.ausgeblendet[]] | index("900")' >/dev/null \
   && ok "abgewählter eigener Punkt bleibt als ausgeblendet erhalten" || bad "900 verschwunden"
 
+echo "== 17h. Vorrat: gängige Türtypen liegen bereit =="
+# Vorratstypen tragen keinen Stempel; ein früherer Lauf kann sie hinterlassen haben.
+# Damit dieser Abschnitt wiederholbar bleibt, kommen die beiden benutzten zuerst weg.
+VORRAT_BENUTZT="T90 Brandschutztür|Alufenster DK"
+vorrat_aufraeumen() {
+  echo "$VORRAT_BENUTZT" | tr '|' '\n' | while read -r N; do
+    [ -n "$N" ] && ruf tuertyp_loeschen "$(jq -nc --arg t "$N" '{tuertyp:$t}')" >/dev/null 2>&1
+  done
+  return 0
+}
+vorrat_aufraeumen
+# Ohne Vorrat endete der erste Tag an einer leeren Stammdatenseite.
+VL=$(ruf tuertypen_auflisten '{}')
+echo "$VL" | jq -e '(.vorrat | length) >= 10' >/dev/null \
+  && ok "Vorrat wird mitgeliefert" || bad "Vorrat: $(echo "$VL" | jq -c '.vorrat|length')"
+# Lesen darf nichts anlegen.
+VZ=$(echo "$VL" | jq -r '.tuertypen | length')
+ruf checkliste_lesen '{"tuertyp":"T90 Brandschutztür"}' \
+  | jq -e '.aus_vorrat == true and (.punkte | length) > 0' >/dev/null \
+  && ok "Checkliste eines Vorratstyps ist lesbar" || bad "Vorrat lesen"
+ruf tuertypen_auflisten '{}' | jq -e --argjson n "$VZ" '(.tuertypen | length) == $n' >/dev/null \
+  && ok "Lesen legt nichts an" || bad "Lesen hat angelegt"
+# Benutzen legt an — genau einmal.
+ruf tuer_einrichten "$(jq -nc --arg o "$OID" '{objekt:$o,tuertyp:"T90 Brandschutztür",nr:60,felder:{IDENT:"T90-1"}}')" \
+  | jq -e '.bereit == true and .tuer.tuertyp == "T90 Brandschutztür"' >/dev/null \
+  && ok "Vorratstyp entsteht beim Benutzen" || bad "Vorrat benutzen"
+ruf tuertypen_auflisten '{}' \
+  | jq -e '[.tuertypen[] | select(.name == "T90 Brandschutztür")] | length == 1' >/dev/null \
+  && ok "genau einmal angelegt" || bad "doppelt angelegt"
+ruf tuertypen_auflisten '{}' \
+  | jq -e '[.vorrat[] | select(.name == "T90 Brandschutztür")] | length == 0' >/dev/null \
+  && ok "und aus dem Vorrat verschwunden" || bad "steht noch im Vorrat"
+# Zwei Typen desselben Namens sind immer ein Versehen.
+ruf tuertyp_anlegen '{"name":"T90 Brandschutztür","vorlage":"wartung_drehfluegel"}' \
+  | grep -q "gibt es schon" && ok "doppelter Name abgewiesen" || bad "Dublette durchgelassen"
+T90=$(ruf tuertypen_auflisten '{}' | jq -r '.tuertypen[] | select(.name == "T90 Brandschutztür") | .id')
+
+echo "== 17i. Erfassen im Browser geht über den Türtyp =="
+BW=$(ruf begehung_starten "$(jq -nc --arg o "$OID" '{objekt:$o}')" | jq -r .begehung.id)
+# Ohne Türtyp fragt die Seite zuerst danach — und bietet dabei den Vorrat an.
+W=$(curl -s -b $J "$B/begehung/$BW/pruefung/neu?typ=")
+echo "$W" | grep -q "Was für eine Tür ist das" && ok "erst die Frage nach dem Türtyp" || bad "keine Typenwahl"
+echo "$W" | grep -q "Kunststofffenster DK" && ok "Vorrat steht zur Auswahl" || bad "Vorrat fehlt in der Wahl"
+# Die Seite zeigt die Checkliste des Typs, nicht die rohe Vorlage.
+F=$(curl -s -b $J "$B/begehung/$BW/pruefung/neu?typ=$TID")
+# 17d hat an diesem Typ Punkte ausgeblendet und einen eigenen ergänzt — genau das muss hier stehen.
+echo "$F" | grep -q "Zweiter eigener Punkt" && ok "eigener Punkt steht im Formular" || bad "Checkliste des Typs fehlt"
+echo "$F" | grep -q "Kontrolle auf Verschmutzungen" \
+  && bad "ausgeblendeter Punkt steht trotzdem da" || ok "ausgeblendeter Punkt bleibt weg"
+echo "$F" | grep -q 'name="art"' && bad "Vorlagen-Auswahl noch da" || ok "keine Vorlagen-Auswahl mehr"
+echo "$F" | grep -q 'name="f_IDENT" value="" required' && ok "Pflichtfeld ist Pflicht" || bad "IDENT nicht required"
+# Der Server verlässt sich nicht auf den Browser.
+curl -s -b $J -X POST "$B/begehung/$BW/pruefung/neu" \
+  --data-urlencode "tuertyp=$TID" --data-urlencode "nr=61" --data-urlencode "raum=Flur" \
+  | grep -q "Bitte noch ausfüllen" && ok "ohne Pflichtfeld nicht gespeichert" || bad "Pflichtfeld übergangen"
+ruf bauteil_lesen "$(jq -nc --arg o "$OID" '{objekt:$o,nr:61}')" \
+  | grep -q "gibt es" && ok "die Tür ist nicht entstanden" || bad "Tür trotzdem angelegt"
+# Und ein Vorratsname im Formular legt den Typ beim Speichern an.
+code=$(curl -s -o /dev/null -w "%{http_code}" -b $J -X POST "$B/begehung/$BW/pruefung/neu" \
+  --data-urlencode "tuertyp=Alufenster DK" --data-urlencode "nr=62" --data-urlencode "raum=Küche")
+[ "$code" = "302" ] && ok "Vorratstyp beim Speichern angelegt" || bad "Speichern $code"
+ruf bauteil_lesen "$(jq -nc --arg o "$OID" '{objekt:$o,nr:62}')" \
+  | jq -e '.bauteil.art == "wartung_fenster"' >/dev/null \
+  && ok "die Vorlage kommt vom Türtyp" || bad "falsche Vorlage"
+
 echo "== 18. Zugriffsschutz =="
 code=$(curl -s -o /dev/null -w "%{http_code}" "$B/datei/$V1")
 [ "$code" = "302" ] && ok "Datei ohne Anmeldung gesperrt" || bad "Datei ohne Anmeldung $code"
@@ -726,9 +791,15 @@ if [ "$AUFRAEUMEN" = "1" ]; then
       | jq -r --arg s "$STEMPEL" '.tuertypen[] | select(.name | contains($s)) | .id'); do
     ruf tuertyp_loeschen "$(jq -nc --arg t "$TID" '{tuertyp:$t}')" >/dev/null
   done
+  vorrat_aufraeumen
   ruf tuertypen_auflisten '{"auch_stillgelegte":true}' \
     | jq -e --arg s "$STEMPEL" '[.tuertypen[] | select(.name | contains($s))] | length == 0' \
       >/dev/null && ok "Türtypen des Laufs entfernt" || bad "Türtypen geblieben"
+  # Nur die beiden, die dieser Lauf benutzt hat — was sonst im Bestand steht, gehört dem Betrieb.
+  ruf tuertypen_auflisten '{"auch_stillgelegte":true}' \
+    | jq -e '[.tuertypen[] | select(.name == "T90 Brandschutztür" or .name == "Alufenster DK")]
+             | length == 0' >/dev/null \
+    && ok "auch die benutzten Vorratstypen entfernt" || bad "Vorratstypen geblieben"
 fi
 rm -f $FOTO
 

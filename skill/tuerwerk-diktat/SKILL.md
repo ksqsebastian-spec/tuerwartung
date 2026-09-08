@@ -148,7 +148,13 @@ beim Anlegen fehlt, fehlt später im Bericht.
 Hände voll; abtippen soll das niemand.
 
 ## „Ein neuer Türtyp"
-**`tuertyp_anlegen`** — Name, Vorlage, die gemeinsamen Angaben, und welche Felder an jeder Tür
+**Erst nachsehen, ob es ihn schon gibt.** `tuertypen_auflisten` liefert zwei Listen: die
+eingerichteten Typen und den **Vorrat** — die gängigen (T30, T30-RS, T90, Rauchschutz, Vollspan,
+Alu-Rohrrahmen, Feststellanlagen, Kunststoff-, Holz- und Alufenster). Passt einer davon, nenn
+einfach seinen Namen bei `tuer_einrichten`; er entsteht dabei von selbst. Frag den Monteur nicht
+nach einem Namen, den der Server längst kennt.
+
+Passt keiner: **`tuertyp_anlegen`** — Name, Vorlage, die gemeinsamen Angaben, und welche Felder an jeder Tür
 stehen müssen. Die Checkliste entsteht dabei aus der Vorlage; mit **`checkliste_anpassen`** wird
 sie zurechtgelegt: umbenennen, ausblenden, eigene Punkte ergänzen. Eigene Punkte tragen Nummern
 ab 900 und stehen im Bericht unter „Hinweise" — das Formular hat für sie kein Kästchen.

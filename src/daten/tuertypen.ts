@@ -17,6 +17,7 @@
  */
 import type { Pruefpunkt } from "../vorlagen";
 import { vorlage } from "../vorlagen";
+import { vorratsTyp } from "../vorlagen/typenvorrat";
 import { jetzt, lies, ulid } from "./basis";
 
 /** Ab hier zählen selbst hinzugefügte Punkte — außerhalb dessen, was das Formular kennt. */
@@ -148,6 +149,19 @@ export async function tuertypAnlegen(
 ): Promise<Tuertyp> {
   const t = jetzt();
   vorlage(daten.art); // wirft, wenn die Vorlage nicht existiert
+  /*
+   * Zwei Typen desselben Namens sind immer ein Versehen — und ein teures: die Türen verteilen
+   * sich auf beide, die Checkliste wird an einem gepflegt und am anderen nicht. Lieber hier
+   * abweisen als es später auseinandersortieren.
+   */
+  const doppelt = await tuertypPerName(db, daten.name);
+  if (doppelt) {
+    throw new Error(
+      `Den Türtyp '${doppelt.name}' gibt es schon${
+        doppelt.aktiv ? "" : " (stillgelegt)"
+      }. Ändern statt neu anlegen, oder einen anderen Namen wählen.`,
+    );
+  }
   const typ: Tuertyp = {
     id: ulid(t),
     name: daten.name.trim(),
@@ -211,6 +225,66 @@ export async function tuertypAendern(
     .bind(...werte, id)
     .run();
   return tuertypLesen(db, id);
+}
+
+/**
+ * Ein Türtyp, wie ihn eine Seite braucht — egal ob er schon in der Datenbank steht oder erst
+ * im Vorrat liegt.
+ *
+ * Das ist der Kniff, der den Vorrat brauchbar macht: eine Seite kann die Checkliste eines
+ * Vorratstyps zeigen, ohne ihn dafür anzulegen. Angelegt wird er erst beim Speichern — vorher
+ * hat niemand etwas entschieden, und ein GET soll nichts in der Datenbank verändern.
+ */
+export interface TypWahl {
+  id: string | null;
+  name: string;
+  art: string;
+  punkte: TypPunkt[];
+  pflicht: string[];
+  zusatz: Zusatzfeld[];
+  felder: Record<string, string>;
+  aus_vorrat: boolean;
+}
+
+export async function typOderVorrat(db: D1Database, wahl: string): Promise<TypWahl | null> {
+  const t = await tuertypPerName(db, wahl);
+  if (t) {
+    return {
+      id: t.id, name: t.name, art: t.art, punkte: t.punkte,
+      pflicht: t.pflicht, zusatz: t.zusatz, felder: t.felder, aus_vorrat: false,
+    };
+  }
+  const v = vorratsTyp(wahl);
+  if (!v) return null;
+  return {
+    id: null, name: v.name, art: v.art, punkte: punkteAusVorlage(v.art),
+    pflicht: v.pflicht, zusatz: [], felder: v.felder ?? {}, aus_vorrat: true,
+  };
+}
+
+/**
+ * Einen Türtyp aus dem Vorrat holen: gibt es ihn schon, kommt er zurück, sonst entsteht er.
+ *
+ * Damit ist ein Vorratstyp überall benutzbar, wo ein Typ verlangt wird — ohne dass ihn jemand
+ * vorher „einrichten" musste. Der Vorrat steht sichtbar herum, und der erste Klick macht ihn echt.
+ */
+export async function tuertypAusVorrat(
+  db: D1Database,
+  name: string,
+  nutzer?: string,
+): Promise<Tuertyp | null> {
+  const vorhanden = await tuertypPerName(db, name);
+  if (vorhanden) return vorhanden;
+  const v = vorratsTyp(name);
+  if (!v) return null;
+  return tuertypAnlegen(db, {
+    name: v.name,
+    art: v.art,
+    beschreibung: v.beschreibung,
+    felder: v.felder ?? {},
+    pflicht: v.pflicht,
+    angelegt_von: nutzer ?? "",
+  });
 }
 
 /**

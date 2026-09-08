@@ -19,6 +19,23 @@
 
   /* ── IndexedDB, so klein wie möglich ──────────────────────────────────── */
 
+  /*
+   * Die Prüfpunkte kommen vom Türtyp, nicht von der Vorlage: umbenannt, ausgeblendet, um eigene
+   * ergänzt. Nur wenn eine Tür keinen Typ hat, bleibt die rohe Vorlage übrig.
+   */
+  function vorlageFuer(b) {
+    var v = daten.vorlagen[b.art] || daten.vorlagen[Object.keys(daten.vorlagen)[0]];
+    var c = daten.checklisten && b.tuertyp_id ? daten.checklisten[b.tuertyp_id] : null;
+    if (!c || !c.punkte || !c.punkte.length) return v;
+    return {
+      label: c.name || v.label,
+      punkte: c.punkte,
+      bauteilfelder: v.bauteilfelder,
+      labels: v.labels,
+      kurz: v.kurz,
+    };
+  }
+
   function dbOeffnen() {
     return new Promise(function (fertig, fehler) {
       var a = indexedDB.open(DB_NAME, 1);
@@ -184,7 +201,7 @@
     var b = daten.bauteile.filter(function (x) { return x.nr === nr; })[0];
     if (!b) return;
     offen = b;
-    var v = daten.vorlagen[b.art] || daten.vorlagen[Object.keys(daten.vorlagen)[0]];
+    var v = vorlageFuer(b);
     var p = b.pruefung || { checks: {}, ergebnis: "bestanden", hinweise: "" };
 
     /* Wo steht die Tür? Bei einer im Rundgang angelegten weiß das sonst niemand. */
@@ -247,7 +264,7 @@
   function pruefungSichern() {
     if (!offen) return;
     var b = offen;
-    var v = daten.vorlagen[b.art] || daten.vorlagen[Object.keys(daten.vorlagen)[0]];
+    var v = vorlageFuer(b);
     var felder = {};
     v.bauteilfelder.forEach(function (f) {
       var eingabe = document.querySelector('[data-feld="' + f + '"]');
@@ -288,12 +305,19 @@
 
   function neueTuer() {
     var nr = naechsteNr();
-    var art = (daten.bauteile[daten.bauteile.length - 1] || {}).art || Object.keys(daten.vorlagen)[0];
-    var op = { op_id: uuid(), art: "bauteil_neu", ts: Date.now(), payload: { nr: nr, art: art } };
+    /* Türtyp und Vorlage der zuletzt erfassten Tür — im Treppenhaus ist das fast immer richtig. */
+    var letzte = daten.bauteile[daten.bauteile.length - 1] || {};
+    var art = letzte.art || Object.keys(daten.vorlagen)[0];
+    var typId = letzte.tuertyp_id || "";
+    var op = {
+      op_id: uuid(), art: "bauteil_neu", ts: Date.now(),
+      payload: { nr: nr, art: art, tuertyp_id: typId },
+    };
     ops.push(op);
     setzen("ops", op);
     daten.bauteile.push({
-      id: "lokal-" + op.op_id, nr: nr, kennung: "", art: art, raumnummer: "", raum: "", flur: "",
+      id: "lokal-" + op.op_id, nr: nr, kennung: "", art: art, tuertyp_id: typId,
+      raumnummer: "", raum: "", flur: "",
       bezeichnung: "", geschoss: "", felder: {}, letzte: null, maengel: [], pruefung: null, lokal: true,
     });
     speichern();

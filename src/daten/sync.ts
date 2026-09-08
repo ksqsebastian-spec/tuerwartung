@@ -80,6 +80,8 @@ export async function opsAnwenden(
         const b = await bauteilAnlegen(db, {
           objekt_id: objekt.id,
           art: String(p.art || "wartung_drehfluegel"),
+          /* Der Türtyp reist mit: sonst hätte eine offline angelegte Tür keine Checkliste. */
+          tuertyp_id: p.tuertyp_id ? String(p.tuertyp_id) : null,
           nr: echte,
           kennung: p.kennung ?? "",
           raumnummer: p.raumnummer ?? "",
