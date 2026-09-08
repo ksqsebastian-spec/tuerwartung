@@ -708,16 +708,20 @@ async function objektRoute(
     }
     if (request.method === "POST") {
       const form = await formDaten(request);
-      const art = String(form.get("art") ?? "wartung_drehfluegel");
+      /* Der Türtyp bestimmt die Vorlage — hier wie überall sonst. */
+      const typWunsch = String(form.get("tuertyp") ?? "").trim();
+      const typ = typWunsch ? await tuertypAusVorrat(env.DB, typWunsch, nutzer.benutzer) : null;
+      const art = typ?.art ?? String(form.get("art") ?? "wartung_drehfluegel");
       const v = vorlage(art);
       const felder: Record<string, string> = {};
-      for (const feld of v.bauteilfelder) {
+      for (const feld of [...v.bauteilfelder, ...(typ?.zusatz ?? []).map((z) => z.schluessel)]) {
         const wert = form.get(`f_${feld}`);
         if (wert !== null) felder[feld] = String(wert).trim();
       }
       const intervall = Number(form.get("intervall_monate"));
       const gemeinsam = {
         art,
+        tuertyp_id: typ?.id ?? null,
         kennung: String(form.get("kennung") ?? "").trim(),
         geschoss_id: String(form.get("geschoss_id") ?? "") || null,
         raumnummer: String(form.get("raumnummer") ?? "").trim(),

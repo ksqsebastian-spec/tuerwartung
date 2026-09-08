@@ -24,6 +24,8 @@ import { maengelZuBauteil } from "../daten/maengel";
 import { fotosZuBauteil } from "../daten/fotos";
 import { fotoBereich } from "./fotos";
 import { berichteZuPruefung } from "../daten/berichte";
+import { tuertypenListe, typOderVorrat } from "../daten/tuertypen";
+import { TYPEN_VORRAT } from "../vorlagen/typenvorrat";
 
 export async function bauteilSeite(
   env: Env,
@@ -40,8 +42,19 @@ export async function bauteilSeite(
   if (nr !== null && !b) return umleitung(`/objekt/${o.id}`);
 
   const naechste = alle.length ? Math.max(...alle.map((x) => x.nr)) + 1 : 1;
-  const art = b?.art ?? alle[alle.length - 1]?.art ?? VORLAGEN_IDS[0];
+
+  /*
+   * Auch hier wählt man den Türtyp, nicht die Vorlage — die kommt von ihm. Sonst gäbe es eine
+   * zweite Stelle, an der eine Tür ohne Checkliste entstehen kann, und die fiele erst im Bericht auf.
+   */
+  const typen = await tuertypenListe(env.DB);
+  const belegt = new Set(typen.map((t) => t.name.toLowerCase()));
+  const vorrat = TYPEN_VORRAT.filter((v2) => !belegt.has(v2.name.toLowerCase()));
+  const gewaehlt = b?.tuertyp_id ?? alle[alle.length - 1]?.tuertyp_id ?? typen[0]?.id ?? "";
+  const typ = gewaehlt ? await typOderVorrat(env.DB, gewaehlt) : null;
+  const art = typ?.art ?? b?.art ?? alle[alle.length - 1]?.art ?? VORLAGEN_IDS[0];
   const v = vorlage(art);
+  const pflicht = new Set(typ?.pflicht ?? []);
 
   const geschossAuswahl = auswahlfeld(
     "geschoss_id",
@@ -57,11 +70,19 @@ export async function bauteilSeite(
 ${textfeld("nr", "Nummer", String(b?.nr ?? naechste), b ? 'aria-describedby="nrhinweis"' : "")}
 ${textfeld("kennung", "Kennung (Türliste/Plan)", b?.kennung ?? "")}
 ${auswahlfeld(
-  "art",
-  "Vorlage",
-  VORLAGEN_IDS.map((id) => ({ wert: id, text: VORLAGEN[id].label })),
-  art,
+  "tuertyp",
+  "Türtyp",
+  [
+    ...typen.map((t) => ({ wert: t.id, text: `${t.name} · ${VORLAGEN[t.art]?.label ?? t.art}` })),
+    ...vorrat.map((x) => ({
+      wert: x.name,
+      text: `${x.name} · ${VORLAGEN[x.art]?.label ?? x.art} · liegt bereit`,
+    })),
+  ],
+  gewaehlt,
 )}
+<p class="meta" style="margin-top:-10px">Bestimmt Formular und Checkliste. Ein Typ, der bereitliegt,
+entsteht beim Speichern.</p>
 ${geschossAuswahl}
 ${textfeld("raumnummer", "Raumnummer", b?.raumnummer ?? "")}
 ${textfeld("raum", "Raum", b?.raum ?? "")}
@@ -75,9 +96,19 @@ ${b ? '<p class="meta" id="nrhinweis" style="margin-top:-8px">Die Nummer ist die
 <h2 class="abschnitt">Felder</h2>
 <p class="meta">Stammdaten des Bauteils — sie gelten fürs nächste Jahr weiter.</p>
 <div class="felder" style="margin-top:14px">
-${v.bauteilfelder
-  .filter((f) => !["RAUM", "FLUR", "RAUMBEZ"].includes(f))
-  .map((f) => textfeld(`f_${f}`, feldLabel(f), b?.felder[f] ?? ""))
+${[
+  ...(typ?.zusatz ?? []).map((z) => z.schluessel),
+  ...v.bauteilfelder.filter(
+    (f) => !["RAUM", "FLUR", "RAUMBEZ"].includes(f) && !(typ?.zusatz ?? []).some((z) => z.schluessel === f),
+  ),
+]
+  .map((f) =>
+    textfeld(
+      `f_${f}`,
+      feldLabel(f) + (pflicht.has(f) ? " *" : ""),
+      b?.felder[f] ?? typ?.felder[f] ?? "",
+    ),
+  )
   .join("")}
 </div>
 

@@ -14,6 +14,7 @@
  */
 import type { Kontext, ToolDef } from "./protokoll";
 import { TUERTYP_TOOLS } from "./tuertypen_werkzeuge";
+import { tuertypLesen } from "../daten/tuertypen";
 import {
   BEWERTUNGEN,
   VORLAGEN,
@@ -387,9 +388,11 @@ const bauteilLesenTool: ToolDef = {
         });
       }
     }
+    /* Der Türtyp gehört in die Antwort: er bestimmt die Checkliste, nach der gefragt wird. */
+    const typ = b.tuertyp_id ? await tuertypLesen(ctx.env.DB, b.tuertyp_id) : null;
     return {
       objekt: objektAnsicht(objekt),
-      bauteil: bauteilAnsicht(b),
+      bauteil: { ...bauteilAnsicht(b), tuertyp: typ?.name ?? null },
       link: `${ctx.origin}/objekt/${objekt.id}/bauteil/${b.nr}`,
       pruefungen: historie.map((p) => ({
         datum: p.datum,

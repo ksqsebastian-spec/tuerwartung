@@ -769,8 +769,18 @@ code=$(curl -s -o /dev/null -w "%{http_code}" -b $J -X POST "$B/begehung/$BW/pru
   --data-urlencode "tuertyp=Alufenster DK" --data-urlencode "nr=62" --data-urlencode "raum=Küche")
 [ "$code" = "302" ] && ok "Vorratstyp beim Speichern angelegt" || bad "Speichern $code"
 ruf bauteil_lesen "$(jq -nc --arg o "$OID" '{objekt:$o,nr:62}')" \
-  | jq -e '.bauteil.art == "wartung_fenster"' >/dev/null \
+  | jq -e '.bauteil.art == "wartung_fenster" and .bauteil.tuertyp == "Alufenster DK"' >/dev/null \
   && ok "die Vorlage kommt vom Türtyp" || bad "falsche Vorlage"
+# Auch die Bauteilseite wählt den Türtyp, nicht die Vorlage — sonst gäbe es eine zweite
+# Stelle, an der eine Tür ohne Checkliste entsteht.
+curl -s -b $J "$B/objekt/$OID/bauteil/neu" | grep -q '<label for="tuertyp">' \
+  && ok "Bauteilseite fragt nach dem Türtyp" || bad "Bauteilseite zeigt noch die Vorlage"
+curl -s -o /dev/null -b $J -X POST "$B/objekt/$OID/bauteil/neu" \
+  --data-urlencode "tuertyp=Alufenster DK" --data-urlencode "nr=63" \
+  --data-urlencode "raum=Bad" --data-urlencode "wartungspflichtig=1" --data-urlencode "aktiv=1"
+ruf bauteil_lesen "$(jq -nc --arg o "$OID" '{objekt:$o,nr:63}')" \
+  | jq -e '.bauteil.tuertyp == "Alufenster DK" and .bauteil.art == "wartung_fenster"' >/dev/null \
+  && ok "von Hand angelegte Tür trägt ihren Typ" || bad "Typ fehlt am Bauteil"
 
 echo "== 18. Zugriffsschutz =="
 code=$(curl -s -o /dev/null -w "%{http_code}" "$B/datei/$V1")
