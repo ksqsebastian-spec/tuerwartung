@@ -8,8 +8,8 @@
 import type { Kontext, ToolDef } from "./protokoll";
 import { VORLAGEN_IDS, vorlage } from "../vorlagen";
 import { zugriffPruefen } from "../daten/basis";
-import { geschossAnlegen, geschosseListe, objektAufloesen } from "../daten/objekte";
-import { tuertypAnlegen, tuertypSuchen } from "../daten/tuertypen";
+import { geschossAnlegen, geschosseListe, geschossZuordnen, objektAufloesen } from "../daten/objekte";
+import { tuertypAnlegen, tuertypPerName } from "../daten/tuertypen";
 import { bauteilAendern, bauteilPerKennung } from "../daten/bauteile";
 import type { Objekt } from "../daten/objekte";
 import {
@@ -70,6 +70,14 @@ async function holeGeschoss(
     geschosse.find((g) => g.id === text) ??
     geschosse.find((g) => g.name.toLowerCase() === text.toLowerCase());
   if (treffer) return treffer.id;
+  /*
+   * "1.OG" und "OG" sind dasselbe Stockwerk -- die Tuerenliste schreibt das eine, die
+   * Fensterliste das andere. 'geschossZuordnen' kennt die kanonische Schreibweise und findet
+   * eine bereits angelegte Etage derselben Hoehe wieder; nur was gar nicht nach Geschoss
+   * aussieht ("Haus A", "Halle"), wird unveraendert angelegt.
+   */
+  const zugeordnet = await geschossZuordnen(ctx.env.DB, objekt.id, text);
+  if (zugeordnet) return zugeordnet;
   return (await geschossAnlegen(ctx.env.DB, objekt.id, text)).id;
 }
 
@@ -299,16 +307,12 @@ const bauplanUebernehmenTool: ToolDef = {
       throw new Error(`Art '${art}' gibt es nicht. Möglich: plan, tuerliste.`);
     }
 
+    /*
+     * Der Import entsteht erst weiter unten, wenn feststeht, dass es etwas zu verwahren gibt.
+     * Ein zweiter Lauf derselben Datei soll keine leere Zeile hinterlassen, die dann jemand
+     * wegräumen muss.
+     */
     let imp = args.import ? await holeImport(ctx, String(args.import)) : null;
-    if (!imp) {
-      imp = await importAnlegen(ctx.env.DB, {
-        objekt_id: objekt.id,
-        art,
-        dateiname: String(args.dateiname ?? "").trim() || "ohne Dateinamen",
-        geschoss_id: art === "plan" ? await holeGeschoss(ctx, objekt, args.geschoss) : null,
-        angelegt_von: ctx.nutzer.benutzer,
-      });
-    }
 
     /*
      * Die Türtypen stehen in der Liste — eine Türenliste führt je Zeile „FS 30 RD", „Vollspan",
@@ -322,14 +326,14 @@ const bauplanUebernehmenTool: ToolDef = {
     for (const t of tueren) {
       const name = String(t.tuertyp ?? "").trim();
       if (name && !typen.has(name.toLowerCase())) {
-        const vorhanden = await tuertypSuchen(ctx.env.DB, name);
+        const vorhanden = await tuertypPerName(ctx.env.DB, name);
         if (vorhanden) {
           typen.set(name.toLowerCase(), vorhanden.id);
         } else {
           const neuerTyp = await tuertypAnlegen(ctx.env.DB, {
             name,
             art: String(t.art ?? "wartung_drehfluegel"),
-            beschreibung: `Aus ${imp.art === "plan" ? "dem Plan" : "der Liste"} übernommen`,
+            beschreibung: `Aus ${art === "plan" ? "dem Plan" : "der Liste"} übernommen`,
             /* Was an dieser Zeile steht, gilt für alle Türen des Typs. */
             felder: { ...((t.felder ?? {}) as Record<string, string>) },
             pflicht: ["IDENT"],
@@ -373,7 +377,50 @@ const bauplanUebernehmenTool: ToolDef = {
       neue.push(t);
     }
 
-    if (neue.length) await vorschlaegeAnlegen(ctx.env.DB, imp, neue);
+    /*
+     * Dieselbe Datei ein zweites Mal zu lesen ist keine Seltenheit -- das Gespraech reisst ab,
+     * der Agent faengt von vorn an. Ohne Schutz stuenden danach 148 Vorschlaege fuer 74 Fenster
+     * da, und das faellt erst beim Freigeben auf. Also: eine Kennung, die schon als offener
+     * Vorschlag dieses Objekts liegt, kommt kein zweites Mal dazu. Der Aufruf darf sich damit
+     * gefahrlos wiederholen.
+     */
+    const schonOffen = new Set(
+      (await vorschlaegeLesen(ctx.env.DB, { objekt_id: objekt.id, status: "offen" }))
+        .map((v) => String(v.kennung ?? "").trim().toUpperCase())
+        .filter(Boolean),
+    );
+    const doppelt: string[] = [];
+    const frisch = neue.filter((t) => {
+      const k = String(t.kennung ?? "").trim().toUpperCase();
+      if (!k || !schonOffen.has(k)) return true;
+      doppelt.push(k);
+      return false;
+    });
+
+    if (!imp && (frisch.length || verortet.length)) {
+      imp = await importAnlegen(ctx.env.DB, {
+        objekt_id: objekt.id,
+        art,
+        dateiname: String(args.dateiname ?? "").trim() || "ohne Dateinamen",
+        geschoss_id: art === "plan" ? await holeGeschoss(ctx, objekt, args.geschoss) : null,
+        angelegt_von: ctx.nutzer.benutzer,
+      });
+    }
+    if (!imp) {
+      return {
+        objekt: objekt.name,
+        gefunden: 0,
+        schon_offen: doppelt.length,
+        bericht:
+          `Diese Datei liegt schon offen im Objekt — alle ${doppelt.length} Kennungen sind ` +
+          "bereits als Vorschlag da. Nichts doppelt angelegt.",
+        weiter:
+          "Nicht noch einmal einlesen. Mit 'importe_auflisten' den offenen Import suchen und " +
+          "ihn freigeben.",
+      };
+    }
+
+    if (frisch.length) await vorschlaegeAnlegen(ctx.env.DB, imp, frisch);
     const alle = await vorschlaegeLesen(ctx.env.DB, { import_id: imp.id });
     const zahlen = zaehlen(alle);
     await importAendern(ctx.env.DB, imp.id, {
@@ -394,12 +441,18 @@ const bauplanUebernehmenTool: ToolDef = {
       gefunden: alle.length + verortet.length,
       /* Türen, die es schon gab und die jetzt ihre Position im Plan haben. */
       verortet: verortet.length,
+      /* Kennungen, die schon als offener Vorschlag lagen — übersprungen, nicht verdoppelt. */
+      schon_offen: doppelt.length || undefined,
       /* Über den ganzen Import gezählt, nicht nur über diesen Stapel. */
       tuertypen: typenGesamt,
       tuertypen_neu: typenNeu,
       zahlen,
       /* Ein Satz, den man vorlesen kann — nicht die ganze Liste. */
       bericht: [
+        doppelt.length
+          ? `${doppelt.length} ${doppelt.length === 1 ? "Kennung lag" : "Kennungen lagen"} schon ` +
+            "als offener Vorschlag vor — nicht doppelt angelegt."
+          : "",
         verortet.length
           ? `${verortet.length} bekannte ${
               verortet.length === 1 ? "Tür" : "Türen"
@@ -542,9 +595,20 @@ const vorschlaegeAnnehmenTool: ToolDef = {
       status: offenDanach ? undefined : "bestaetigt",
       ergebnis: { angenommen: zahlenRest.angenommen },
     });
+    /*
+     * Ein ganzes Haus sind schnell 140 Bauteile. Die alle einzeln zurueckzugeben hiesse, dem
+     * Agenten eine Liste vorzulegen, die niemand vorliest -- gebraucht wird ein Satz. Also: der
+     * Satz, dazu die ersten paar Nummern zur Probe, der Rest als Zahl.
+     */
+    const probe = angelegt.slice(0, 12);
+    const nummern = angelegt.map((b) => b.nr);
+    const spanne =
+      nummern.length > 1 ? `Nr. ${Math.min(...nummern)}-${Math.max(...nummern)}` : `Nr. ${nummern[0]}`;
     return {
       angelegt: angelegt.length,
-      bauteile: angelegt.map((b) => ({ nr: b.nr, kennung: b.kennung || undefined, art: b.art })),
+      bericht: `${angelegt.length} Bauteile angelegt (${spanne}).`,
+      bauteile: probe.map((b) => ({ nr: b.nr, kennung: b.kennung || undefined, art: b.art })),
+      weitere: angelegt.length > probe.length ? angelegt.length - probe.length : undefined,
       zahlen: zahlenRest,
       noch_offen: offenDanach,
       import_abgeschlossen: offenDanach === 0,

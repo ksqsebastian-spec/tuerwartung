@@ -601,6 +601,46 @@ ruf bauteil_lesen "$(jq -nc --arg o "$LIST" '{objekt:$o,kennung:"IT0.01"}')" \
 ruf objekt_lesen "$(jq -nc --arg o "$LIST" '{objekt:$o}')" \
   | jq -e '[.bauteile[].kennung] | length == 4' >/dev/null \
   && ok "keine Dubletten durch den Plan" || bad "Dubletten"
+echo "== 17g. Fensterliste: Fenster neben Türen im selben Objekt =="
+# Echte Fensterlisten haben Buchstaben als Kennung, keinen Türtyp in einer Spalte und
+# Etagen, die anders geschrieben sind als in der Türenliste desselben Hauses.
+FA=$(jq -nc --arg o "$LIST" --arg s "$STEMPEL" '{objekt:$o,dateiname:"Fensterliste.xlsx",tueren:[
+ {kennung:"A",geschoss:"1.OG",raumnummer:"1.01",raum:"ENR 1",art:"wartung_fenster",
+  tuertyp:("Kunststoff weiss DK/F/FF/OL elektr. " + $s),wartungspflichtig:true,konfidenz:1.0,
+  felder:{FENSTERTYP:"DK/F/FF/OL elektr."}},
+ {kennung:"B",geschoss:"1.OG",raumnummer:"1.01",raum:"ENR 1",art:"wartung_fenster",
+  tuertyp:("Kunststoff weiss DK/F/FF/OL elektr. " + $s),wartungspflichtig:true,konfidenz:1.0},
+ {kennung:"AA",geschoss:"EG",raumnummer:"0.06",raum:"WC",art:"wartung_fenster",
+  tuertyp:("Kunststoff weiss " + $s),wartungspflichtig:true,konfidenz:1.0},
+ {kennung:"AB",geschoss:"EG",raumnummer:"0.06",raum:"WC",art:"wartung_fenster",
+  wartungspflichtig:true,konfidenz:0.5}]}')
+F=$(ruf bauplan_uebernehmen "$FA")
+# Der kurze Name darf nicht im langen aufgehen — sonst fehlt am Ende ein Typ.
+echo "$F" | jq -e '.gefunden == 4 and .tuertypen == 2' >/dev/null \
+  && ok "zwei Fenstertypen, der kurze geht nicht im langen auf" \
+  || bad "Fenstertypen: $(echo "$F" | jq -c '{gefunden,tuertypen,tuertypen_neu}')"
+echo "$F" | jq -e '.bericht | test("1 ist unsicher")' >/dev/null \
+  && ok "unvollständige Zeile wird als unsicher gemeldet" || bad "Konfidenzbericht"
+# Dieselbe Datei ein zweites Mal darf nichts verdoppeln.
+ruf bauplan_uebernehmen "$FA" \
+  | jq -e '.gefunden == 0 and .schon_offen == 4' >/dev/null \
+  && ok "zweiter Lauf derselben Datei legt nichts doppelt an" || bad "Doppelimport"
+FIMP=$(echo "$F" | jq -r .import)
+ruf vorschlaege_annehmen "$(jq -nc --arg i "$FIMP" '{import:$i,alle:true}')" \
+  | jq -e '.angelegt == 4 and (.bauteile | length) <= 12' >/dev/null \
+  && ok "vier Fenster angelegt, Antwort bleibt kurz" || bad "Fensterfreigabe"
+ruf bauteil_lesen "$(jq -nc --arg o "$LIST" '{objekt:$o,kennung:"A"}')" \
+  | jq -e '.bauteil.art == "wartung_fenster"' >/dev/null \
+  && ok "Fenster trägt seine eigene Vorlage" || bad "Fenstervorlage"
+# „1.OG" der Fensterliste und „OG" der Türenliste sind dieselbe Etage.
+ruf objekt_lesen "$(jq -nc --arg o "$LIST" '{objekt:$o}')" \
+  | jq -e '[.geschosse[].name] == ["EG","OG"]' >/dev/null \
+  && ok "1.OG fällt mit OG zusammen" \
+  || bad "Etage gespalten: $(ruf objekt_lesen "$(jq -nc --arg o "$LIST" '{objekt:$o}')" | jq -c '[.geschosse[].name]')"
+ruf objekt_lesen "$(jq -nc --arg o "$LIST" '{objekt:$o}')" \
+  | jq -e '[.bauteile[]] | length == 8' >/dev/null \
+  && ok "Türen und Fenster stehen im selben Bestand" || bad "Bestand gemischt"
+
 LIST_OID=$(ruf objekt_lesen "$(jq -nc --arg o "$LIST" '{objekt:$o}')" | jq -r .objekt.id)
 curl -s -o /dev/null -b $J -X POST "$B/objekt/$LIST_OID/loeschen"
 

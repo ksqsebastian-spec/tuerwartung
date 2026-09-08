@@ -458,9 +458,19 @@ export async function geschossZuordnen(
     if (name) break;
   }
   if (!name) return null;
-  const vorhanden = (await geschosseListe(db, objektId)).find(
-    (g) => g.name.trim().toUpperCase() === name!.toUpperCase(),
-  );
+  const liste = await geschosseListe(db, objektId);
+  const vorhanden =
+    liste.find((g) => g.name.trim().toUpperCase() === name!.toUpperCase()) ??
+    /*
+     * Zwei Listen desselben Hauses schreiben dieselbe Etage verschieden: die Tuerenliste sagt
+     * "OG", die Fensterliste "1.OG". Ohne diese zweite Suche stuende die Etage danach doppelt
+     * im Objekt, mit den Tueren im einen und den Fenstern im anderen Geschoss. Also gilt: gleiche
+     * Hoehe im Haus, gleiches Geschoss. Verglichen wird nur mit Namen, die selbst nach Geschoss
+     * aussehen -- eine frei benannte "Halle" behaelt ihre eigene Etage.
+     */
+    liste.find(
+      (g) => geschossName(g.name) !== null && reihenfolgeAusName(g.name) === reihenfolgeAusName(name!),
+    );
   if (vorhanden) return vorhanden.id;
   return (await geschossAnlegen(db, objektId, name)).id;
 }

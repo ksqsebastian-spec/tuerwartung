@@ -61,6 +61,54 @@ Dutzend Typen, jeder mit eigener Checkliste.
 Eine Liste umfasst das ganze Haus. Gib deshalb `geschoss` **je Zeile** mit, nicht als Argument
 des Imports — das ist nur für Pläne gedacht, die ein Stockwerk zeigen.
 
+## Fensterlisten sind anders gebaut
+
+Eine Fensterliste desselben Bauvorhabens sieht auf den ersten Blick aus wie die Türenliste, hat
+aber drei Eigenheiten, an denen ein unbedachter Import scheitert:
+
+**Die Kennung steht in Spalte „Nr.", nicht in „Fenster Nummer AG".** Die AG-Spalte ist in echten
+Listen oft über alle Zeilen leer — der Bauherr hat nie eine Nummer vergeben. Die laufende Nummer
+links (`A`, `B`, … `Z`, `AA` … `BV`) ist dann die einzige Kennung, die es gibt, und sie ist
+eindeutig. Nimm sie. Sie ist keine Zahl, also bleibt die Türnummer die des Servers; das ist
+richtig so.
+
+**Es gibt keine Türtyp-Spalte.** Der Typ steht verteilt über die Zeile und wird von dir gebildet:
+
+| Was in der Liste steht | Wohin |
+|---|---|
+| **Nr.** („A", „AA", „BV") | `kennung` |
+| **Ebene** („EG", „1.OG", „DG") | `geschoss` |
+| **Raum Nr** / **Raumbezeichnung** | `raumnummer`, `raum` |
+| **Material** (`K`, `H`, `HA`, `A`) | Kunststoff, Holz, Holz-Alu, Alu |
+| **Farbe** („weiß", „RAL 7016") | zweiter Teil des Namens |
+| **Öffnungsart** — schmale Spalten, in denen eine Zahl steht: `DK`, `D`, `HSK`, `PSK`, `F/FF`, `OL` | dritter Teil des Namens, in dieser Reihenfolge mit `/` verbunden |
+
+Die Öffnungsart-Spalten stehen zu zweit oder zu dritt unter einer gemeinsamen Überschrift eine
+Zeile höher („bis 1x2 m" / „größer 1x2 m" / „Elektr." unter `OL`) — es zählt die Überschrift,
+nicht die Einzelspalte, sonst zerfällt ein Typ in drei. Nur `Elektr.` sagt zusätzlich etwas über
+das Fenster und hängt sich hinten an: aus `K` + `weiß` + `DK`, `F/FF`, `OL` (elektrisch) wird der
+Türtyp `Kunststoff weiß DK/F/FF/OL elektr.`, und dieselbe Kombination in der nächsten Zeile fällt
+auf denselben Typ. Schreib den
+Namen jedes Mal **zeichengleich** — Türwerk vergleicht genau und nicht ungefähr, damit
+„Kunststoff weiß" und „Kunststoff weiß DK/F/FF/OL elektr." zwei Typen bleiben und nicht einer.
+
+**Es gibt keine RS/FS-Spalte.** Die Regel von oben greift hier nicht: eine Fensterliste führt
+Fenster, die gewartet werden — alle Zeilen sind `wartungspflichtig: true`, und alle bekommen
+`art: "wartung_fenster"`. Die gebildete Öffnungsart gehört zusätzlich nach `felder.FENSTERTYP`.
+
+**Unvollständige Zeilen bleiben unvollständig.** In echten Listen ist ein ganzer Block schon
+angelegt, aber noch nicht ausgefüllt — Farbe steht da, Material und Öffnungsart nicht. Bau daraus
+keinen Typ namens „weiß": das ist kein Fenster, das ist eine Lücke. Nimm dann den Typ, den die
+Zeile hergibt (`Kunststoff weiß`, wenn wenigstens das Material dasteht), sonst lass `tuertyp`
+weg. Setz bei jeder solchen Zeile die Konfidenz auf `0.5` — dann meldet Türwerk sie von selbst
+als unsicher, und du musst nichts extra erklären. Der Mensch entscheidet, ob so eine Zeile
+schon in den Bestand soll.
+
+**Türen und Fenster wohnen im selben Objekt.** Beide Listen nacheinander übernehmen; die Nummern
+laufen einfach weiter, und der Rundgang mischt sie nach Geschoss und Raumnummer. Schreibt die eine
+Liste „OG" und die andere „1.OG", ist das dieselbe Etage — Türwerk führt sie zusammen, du musst
+nichts angleichen.
+
 ## Ein Grundriss hat die Türnummern meist als Text
 
 Bevor du auf das Bild schaust: **lies die Textebene des PDFs.** Bei Plänen aus einem CAD-Programm

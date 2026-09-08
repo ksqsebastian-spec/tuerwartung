@@ -91,7 +91,29 @@ export async function tuertypLesen(db: D1Database, id: string): Promise<Tuertyp 
   return z ? alsTyp(z as Record<string, unknown>) : null;
 }
 
-/** Türtyp über ID oder Name finden — im Diktat wird der Name gesagt, nicht die Kennung. */
+/**
+ * Türtyp über ID oder **genau diesen Namen** finden.
+ *
+ * Für den Import ist das die einzig richtige Suche: eine Liste nennt „Kunststoff weiß" und
+ * „Kunststoff weiß DK/F/OL" als verschiedene Typen, und eine unscharfe Suche würde den kürzeren
+ * still im längeren aufgehen lassen. Dann fehlt am Ende ein Typ, ohne dass es jemand merkt.
+ */
+export async function tuertypPerName(db: D1Database, text: string): Promise<Tuertyp | null> {
+  const t = text.trim();
+  if (!t) return null;
+  const direkt = await tuertypLesen(db, t);
+  if (direkt) return direkt;
+  const z = await db
+    .prepare("SELECT * FROM tuertypen WHERE name = ? COLLATE NOCASE LIMIT 1")
+    .bind(t)
+    .first();
+  return z ? alsTyp(z as Record<string, unknown>) : null;
+}
+
+/**
+ * Türtyp über ID oder Name finden, notfalls unscharf — im Diktat wird der Name gesagt, nicht die
+ * Kennung, und „nimm den Alu-Typ" soll treffen. Für Importe ist `tuertypPerName` richtig.
+ */
 export async function tuertypSuchen(db: D1Database, text: string): Promise<Tuertyp | null> {
   const t = text.trim();
   if (!t) return null;
