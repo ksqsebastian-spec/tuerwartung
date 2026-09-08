@@ -25,7 +25,7 @@ function typZeile(t: Tuertyp): string {
   return `<a class="posten" href="/stammdaten/${esc(t.id)}">
 <div class="haupt"><div class="name">${esc(t.name)}</div>
 <div class="unter">${esc(VORLAGEN[t.art]?.label ?? t.art)} · ${punkte} Prüfpunkte${
-    t.pflicht.length ? ` · Pflicht: ${esc(t.pflicht.join(", "))}` : ""
+    t.pflicht.length ? ` · Pflicht: ${esc(t.pflicht.map(feldLabel).join(", "))}` : ""
   }</div></div>
 <span class="chip leise">${esc(t.art.replace("wartung_", ""))}</span></a>`;
 }
@@ -49,7 +49,7 @@ export async function stammdatenSeite(
 <input type="hidden" name="name" value="${esc(v.name)}">
 <div class="haupt"><div class="name">${esc(v.name)}</div>
 <div class="unter">${esc(v.beschreibung)}${
-      v.pflicht.length ? ` · Pflicht: ${esc(v.pflicht.join(", "))}` : ""
+      v.pflicht.length ? ` · Pflicht: ${esc(v.pflicht.map(feldLabel).join(", "))}` : ""
     }</div></div>
 <button class="btn schmal leise" type="submit">Übernehmen</button></form>`;
 
