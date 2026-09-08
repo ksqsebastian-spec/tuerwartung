@@ -1,11 +1,14 @@
-# Türwerk 2 — Umsetzungsspezifikation
+# Türwerk — Datenmodell und Entscheidungen
 
-Stand 7. September 2026. Ausgearbeitet von Fable 5.1, gedacht als vollständige Vorgabe für die
-Umsetzung. Wo hier eine Entscheidung steht, ist sie getroffen; wo etwas offen ist, steht es
-unter „Offen" am Ende. Alles andere ist zu bauen, nicht zu diskutieren.
+Die Spezifikation, aus der Türwerk 2 entstanden ist, nachgeführt auf den heutigen Stand.
+Was gebaut ist, steht im README; hier steht, **warum** es so aussieht — das Datenmodell, die
+Regeln der Erfassung, die Versionierung der Berichte und alles, was der Bauplan-Import an
+echten Unterlagen gelernt hat.
 
-Diese Datei ist die Wahrheit über Türwerk 2. Der Code in `src/` ist Türwerk 1 und bleibt als
-Ausgangspunkt bestehen — was übernommen wird, steht in Abschnitt 13.
+Herausgenommen, weil es die Sache nicht mehr beschreibt: der Rundgang ohne Netz, die Fotos, die
+Mängel als eigene Ebene, die Tagestour, die Liste der damals vierundvierzig Tools und die
+Web-Routen. Der Werkzeugkasten hat heute sechs Namen und steht im README; die Oberfläche ändert
+sich schneller als dieses Papier.
 
 ---
 
@@ -18,7 +21,7 @@ Ausgangspunkt bestehen — was übernommen wird, steht in Abschnitt 13.
 3. **Das erste Mal ist die Bestandsaufnahme.** Ein Objekt ohne Bestand wird durch die erste
    Begehung angelegt. Der Bauplan-Import ist ein Beschleuniger, keine Voraussetzung.
 4. **Nichts geht still verloren, nichts wird still überschrieben.** Protokolle sind versioniert.
-   Mängel bleiben offen, bis jemand sie schließt. Offline Erfasstes kommt an.
+   Was nicht in Ordnung war, bleibt an der Tür stehen, bis eine spätere Prüfung es aufhebt.
 5. **KI dort, wo Sprache oder Bilder zu deuten sind — Geometrie und Sortierung sind Rechnung.**
 6. **Der Mensch bestätigt den Bestand.** Kein Import legt Bauteile ohne Freigabe an.
 7. **Die Website ist nicht die zweite Bedienung.** Die Intelligenz sitzt im Agenten am Diktat;
@@ -42,10 +45,13 @@ Ausgangspunkt bestehen — was übernommen wird, steht in Abschnitt 13.
 - Kein HERO-Abgleich (kommt in v3; Felder dafür sind vorgesehen, siehe `hero_*`).
 - Kein Betreiberportal, keine Mandantentrennung (Felder vorgesehen, Zugriff bleibt „alle vier sehen alles").
 - Keine E-Mail-Erinnerungen (Fälligkeit wird angezeigt und per Tool abgefragt; Versand in v3).
+- Keine Mängelverwaltung als eigene Ebene: eine Abweichung heißt, die Tür hat nicht bestanden.
+  Was beim letzten Mal offen war, wird aus der vorigen Prüfung gelesen (siehe 2.2).
+- Kein zweiter Erfassungsweg ohne Netz: der Rundgang mit Service Worker und Warteschlange ist
+  entfallen. Diktat und Formular reichen.
 - Keine DWG-Verarbeitung (nur PDF und Bilder; DWG vorher wandeln).
 - **Kein KI-Aufruf aus dem Worker.** Was zu deuten ist, deutet der Agent, der den Plan
   ohnehin in Händen hält (Abschnitt 7.0).
-- Kein eigenes Kartenrouting über Hamburg (Tagestour öffnet die Adressen in Google Maps).
 
 ---
 
@@ -68,7 +74,7 @@ CREATE TABLE objekte (
   id               TEXT PRIMARY KEY,
   name             TEXT NOT NULL,             -- „Kita Heselstücken"
   adresse          TEXT NOT NULL DEFAULT '',  -- Straße, PLZ Ort (eine Zeile)
-  plz              TEXT NOT NULL DEFAULT '',  -- für die Tagestour
+  plz              TEXT NOT NULL DEFAULT '',
   betreiber        TEXT NOT NULL DEFAULT '',  -- Name, wie er aufs Protokoll gehört
   betreiber_kontakt TEXT NOT NULL DEFAULT '', -- Name des Ansprechpartners vor Ort
   telefon          TEXT NOT NULL DEFAULT '',
@@ -176,43 +182,7 @@ CREATE TABLE pruefungen (
 );
 CREATE INDEX idx_pruefungen_bauteil ON pruefungen (bauteil_id, geprueft_am DESC);
 
--- Mangel: lebt am Bauteil, entsteht aus einer Prüfung, endet durch Freimeldung.
-CREATE TABLE maengel (
-  id            TEXT PRIMARY KEY,
-  objekt_id     TEXT NOT NULL REFERENCES objekte(id),
-  bauteil_id    TEXT NOT NULL REFERENCES bauteile(id),
-  pruefung_id   TEXT REFERENCES pruefungen(id),  -- Ursprung
-  punkte_json   TEXT NOT NULL DEFAULT '[]',      -- ["8","10"] — betroffene Prüfpunkte
-  beschreibung  TEXT NOT NULL DEFAULT '',
-  prioritaet    TEXT NOT NULL DEFAULT 'mittel',  -- hoch | mittel | niedrig
-  frist         TEXT,                            -- YYYY-MM-DD
-  zustaendig    TEXT NOT NULL DEFAULT '',        -- „Seehafer" | „Betreiber" | Freitext
-  status        TEXT NOT NULL DEFAULT 'offen',   -- offen | in_arbeit | behoben | verworfen
-  behoben_am    INTEGER,
-  behoben_von   TEXT NOT NULL DEFAULT '',
-  freimeldung   TEXT NOT NULL DEFAULT '',        -- Text der Freimeldung
-  hero_angebot_id TEXT,                          -- v3
-  angelegt_am   INTEGER NOT NULL,
-  geaendert_am  INTEGER NOT NULL
-);
-CREATE INDEX idx_maengel_offen ON maengel (status, frist);
-CREATE INDEX idx_maengel_bauteil ON maengel (bauteil_id, status);
 
--- Foto: hängt am Bauteil, optional an Prüfung und/oder Mangel.
-CREATE TABLE fotos (
-  id             TEXT PRIMARY KEY,
-  objekt_id      TEXT NOT NULL,
-  bauteil_id     TEXT NOT NULL REFERENCES bauteile(id),
-  pruefung_id    TEXT REFERENCES pruefungen(id),
-  mangel_id      TEXT REFERENCES maengel(id),
-  r2_schluessel  TEXT NOT NULL,                  -- fotos/<objekt>/<bauteil>/<id>.jpg
-  breite         INTEGER NOT NULL,
-  hoehe          INTEGER NOT NULL,
-  notiz          TEXT NOT NULL DEFAULT '',
-  aufgenommen_am INTEGER NOT NULL,
-  von            TEXT NOT NULL DEFAULT ''
-);
-CREATE INDEX idx_fotos_pruefung ON fotos (pruefung_id);
 
 -- Bericht: eine erzeugte PDF-Version. Wird nie gelöscht, nie überschrieben.
 CREATE TABLE berichte (
@@ -221,7 +191,7 @@ CREATE TABLE berichte (
   version       INTEGER NOT NULL,               -- 1, 2, 3 …
   r2_schluessel TEXT NOT NULL,                  -- berichte/<objekt>/<bauteil>/<begehung>/v<version>.pdf
   stand_hash    TEXT NOT NULL,                  -- der Stand, aus dem diese Version entstand
-  seiten        INTEGER NOT NULL DEFAULT 1,     -- 1 = nur Formular, >1 = mit Fotoanhang
+  seiten        INTEGER NOT NULL DEFAULT 1,
   erzeugt_am    INTEGER NOT NULL,
   erzeugt_von   TEXT NOT NULL DEFAULT '',
   UNIQUE (pruefung_id, version)
@@ -276,24 +246,7 @@ CREATE TABLE vorschlaege (
 );
 CREATE INDEX idx_vorschlaege_import ON vorschlaege (import_id, status);
 
--- Tagestour: welche Objekte an welchem Tag in welcher Reihenfolge.
-CREATE TABLE touren (
-  id           TEXT PRIMARY KEY,
-  datum        TEXT NOT NULL,
-  person       TEXT NOT NULL,                   -- Benutzerkennung
-  objekte_json TEXT NOT NULL DEFAULT '[]',      -- ["obj_id", …] in Reihenfolge
-  notiz        TEXT NOT NULL DEFAULT '',
-  angelegt_am  INTEGER NOT NULL,
-  geaendert_am INTEGER NOT NULL,
-  UNIQUE (datum, person)
-);
 
--- Offline-Abgleich: jede Operation vom Handy trägt eine Client-ID; doppelt eintreffende werden verworfen.
-CREATE TABLE sync_ops (
-  op_id        TEXT PRIMARY KEY,                -- vom Client erzeugte UUID
-  person       TEXT NOT NULL,
-  eingegangen_am INTEGER NOT NULL
-);
 ```
 
 ### Abgeleitete Größen (nicht gespeichert, beim Lesen berechnet)
@@ -362,7 +315,7 @@ angelegt (mit `art` der ersten Tür als Vorgabe für Folgeteile) — **das ist d
 und muss ohne jeden Umweg funktionieren: „Türenwartung Kita Heselstücken, Drehflügel" reicht.
 
 Antwort enthält: Begehungs-ID, Objekt-Stammdaten, Anzahl Bauteile, **Liste der fälligen
-Bauteile in Laufreihenfolge** (nr, kennung, raum, Fälligkeit), **offene Mängel** je Bauteil,
+Bauteile in Laufreihenfolge** (nr, kennung, raum, Fälligkeit, letztes Ergebnis),
 und die nächste freie `nr`.
 
 ### 2.2 Prüfung erfassen
@@ -387,31 +340,15 @@ Existiert für (begehung, bauteil) schon eine Prüfung → Überschreiben, das i
 Nach dem Speichern:
 - `felder_snapshot_json` = Bauteilfelder + Objektfelder zum Zeitpunkt.
 - `stand_hash` neu berechnen (Abschnitt 4.1).
-- **Mangel automatisch**, wenn `ergebnis = Nachbesserung` **oder** mindestens ein Check
-  `nio` ist: ein Mangel je Prüfung, `punkte_json` = alle `nio`- und `sb`-Punkte,
-  `beschreibung` = `hinweise`, `prioritaet = mittel`, `frist` = Prüfdatum + 4 Wochen,
-  `zustaendig = 'Seehafer'`. Existiert schon ein offener Mangel aus derselben Prüfung →
-  aktualisieren statt anlegen. Kein Mangel bei nur `sb` ohne `nio` und ohne Nachbesserung.
-- Antwort: `gespeichert: "Tür 12"`, `neu_angelegt`, **`offene_maengel_vorjahr`** (Liste, falls
-  am Bauteil vor dieser Begehung offene Mängel hängen — Claude soll sie vorlesen: „an dieser Tür
-  ist seit 2025 die Dichtung offen — behoben?"), `naechste_nr`.
+- **Was beim letzten Mal offen war** wird nicht gespeichert, sondern gelesen: die jüngste
+  frühere Prüfung dieses Bauteils, sofern sie „Nachbesserung" ergab. Sie kommt als `nachsehen`
+  zurück, und Claude fragt danach: „an dieser Tür war 2025 Punkt 10 offen — erledigt?" Eine
+  zweite, gepflegte Mängelliste sagte dasselbe an zweiter Stelle und lief irgendwann auseinander.
+- Antwort: `gespeichert` (je Tür eine Zeile mit Ort, Ergebnis und den Abweichungen im
+  Klartext), `neu_angelegt`, `nachsehen`, `unvollstaendig`, `noch_offen`, `naechste_nr`.
 
-`pruefungen_erfassen(begehung, pruefungen[])` — Stapel, Reihenfolge zählt, `wie_davor` bezieht
-sich auf die vorige Zeile des Stapels bzw. die letzte gespeicherte Prüfung.
-
-### 2.3 Mängel im Diktat
-
-**Einstufung und Frist.** `pruefung_erfassen` nimmt `prioritaet` (hoch | mittel | niedrig) und
-`zustaendig` mit; daraus folgt die Frist: **7 / 28 / 90 Tage** ab dem Begehungsdatum. Ohne
-Angabe bleibt es bei „mittel" und 28 Tagen wie bisher. Die Einstufung ist Sache des Agenten,
-nicht des Monteurs — er sagt „Brandschutztür schließt nicht", Claude macht daraus „hoch"
-(Leitsatz 5: KI dort, wo Sprache zu deuten ist). Eine spätere Korrektur derselben Prüfung nimmt
-eine einmal gesetzte Einstufung **nicht** zurück; sie wandert nur mit, wenn sie ausdrücklich
-wieder mitkommt.
-
-`mangel_schliessen(bauteil|mangel, freimeldung?)` — „Dichtung ist getauscht" → Status
-`behoben`, `behoben_am`, `behoben_von`. Das Tool nimmt `bauteil` (Objekt + nr) und schließt
-dann **alle** offenen Mängel des Bauteils, oder eine `mangel`-ID gezielt.
+Ein Aufruf nimmt mehrere Türen entgegen; die Reihenfolge zählt, `wie_davor` bezieht sich auf
+die vorige Zeile des Stapels bzw. die zuletzt gespeicherte Prüfung.
 
 ### 2.4 Begehung abschließen — ein Aufruf, alles fertig
 
@@ -453,7 +390,7 @@ Status ist damit `geplant | laufend | abgeschlossen | abgebrochen`.
 Keine Tabelle, nur Berechnung (Abschnitt 1, abgeleitete Größen). Oberflächen:
 
 - **Startseite `/objekte`**: Objekte sortiert nach Fälligkeit, Zustand als Chip
-  (rot überfällig, gelb ≤ 30 Tage, grün), daneben Anzahl offener Mängel.
+  (rot überfällig, gelb ≤ 30 Tage, grün), daneben das letzte Ergebnis.
 - **Tool `faellig(tage=30)`**: Objekte mit Fälligkeit ≤ heute + tage, mit Anzahl fälliger
   Bauteile — damit „was ist diese Woche dran?" im Chat funktioniert.
 - **Objektseite**: Bauteile mit letzter Prüfung und Fälligkeit; Filter „nur fällige".
@@ -471,7 +408,7 @@ fällig. Ein Objekt gilt als „fertig für dieses Jahr", wenn kein Bauteil fäl
 - `stand_hash` = SHA-256 über die kanonische JSON-Serialisierung von
   `{ objekt: {name, adresse, betreiber, ident, rechtsgrundlagen}, begehung: {datum, pruefer,
   befaehigung, ort, beteiligte, betreiber_name, unterschrieben_am}, bauteil: {nr, kennung, art,
-  raum, raumnummer, flur, felder}, pruefung: {checks, ergebnis, hinweise}, fotos: [ids],
+  raum, raumnummer, flur, felder}, pruefung: {checks, ergebnis, hinweise},
   unterschrift_pruefer: r2_schluessel }` — Schlüssel sortiert, keine Zeitstempel außer
   `unterschrieben_am`.
 - `berichte_erzeugen` erzeugt für jede Prüfung, deren `stand_hash` **nicht** dem Hash der
@@ -506,18 +443,11 @@ fällig. Ein Objekt gilt als „fertig für dieses Jahr", wenn kein Bauteil fäl
 - Zusätzlich das Feld `BETREIBER_NAME` als Text unter der Unterschrift, falls das Profil eine
   Koordinate dafür hat (Startwert: `x` wie Unterschrift, `top` + 44, Schriftgröße 7). Optional.
 
-### 4.3 Fotoanhang
-
-Hat eine Prüfung Fotos, hängt `Fueller.erzeugen` nach der Formularseite **eine Anhangseite je
-zwei Fotos** an (A4, pdf-lib `addPage`): Kopfzeile „Fotoanhang — Tür 12, Objekt, Datum",
-je Foto max. 160×120 mm mit Notiz und Zeitstempel darunter. Fotos werden vor dem Einbetten
-auf max. 1200 px Kante verkleinert (das passiert schon beim Hochladen, Abschnitt 6).
-
 ### 4.4 Sammelbericht je Begehung
 
 `sammelbericht_erzeugen(begehung)` — erzeugt ein PDF aus: **Deckblatt** (mit pdf-lib
 gezeichnet: Objekt, Adresse, Betreiber, Prüfdatum, Prüfer, Tabelle aller geprüften Bauteile mit
-Ergebnis, Summe Mängel, Betreiber-Unterschrift und -Name) + die neuesten Einzelberichte in
+Ergebnis, Summe bestanden und Nachbesserung, Betreiber-Unterschrift und -Name) + die neuesten Einzelberichte in
 Laufreihenfolge (pdf-lib `copyPages`). Versioniert wie Einzelberichte. Das ist das Dokument,
 das der Betreiber bekommt.
 
@@ -541,9 +471,13 @@ Darüber ein Satz und genau ein Knopf (Leitsatz 7):
 | Zustand | Satz | Knopf |
 |---|---|---|
 | kein Bestand | „Noch kein Bestand. Die erste erfasste Tür legt ihn an." | Erste Tür erfassen |
-| fällige offen | „5 von 9 Türen sind fällig." | Checkliste öffnen |
-| alles erfasst, Berichte offen | „Alles erfasst. 9 Berichte stehen aus." | Berichte erstellen |
-| durch | „Nichts fällig — das Objekt ist bis 07.09.2027 durch." | Berichte ansehen |
+| fällige offen | „5 von 9 Türen sind fällig." | Tür erfassen |
+| alles erfasst, nicht unterschrieben | „Alles erfasst. Es fehlt die Unterschrift des Betreibers." | Unterschreiben lassen |
+| durch | „Alles durch — das Objekt ist bis 07.09.2027 fertig." | *(keiner)* |
+
+Berichte haben keinen Knopf mehr: wer den Reiter öffnet, will sie, also entstehen sie beim
+Öffnen. Und „Unterschrift" erscheint erst, wenn es etwas zu unterschreiben gibt — vorher stand
+sie als vierter gleichrangiger Knopf daneben, auf einem leeren Objekt.
 
 **Der Termin kommt in der Oberfläche nicht vor** (Leitsatz 8). `GET /objekt/:id/erfassen` löst
 über `begehungFuerTag` den heutigen Termin auf — fortsetzen, wenn einer läuft, sonst anlegen.
@@ -557,69 +491,6 @@ Der Bestand stellt genau eine Frage, also darf sie nicht doppelt beantwortet wer
 Abweichung (`nio`) macht die Prüfung von selbst zu „Nachbesserung", ohne dass jemand `ergebnis`
 setzt. Kommen Kreuze mit und ist keines „nicht", ist sie „bestanden" — auch als Korrektur, damit
 „Tür 3 doch in Ordnung" zurücknimmt. Ein ausdrücklich gesetztes `ergebnis` sticht beides.
-
----
-
-## 5. Rundgang am Handy (offline)
-
-### 5.1 Was es ist
-
-`/rundgang/:begehung` — **eine** Seite, die ohne Netz funktioniert. Kein Framework; ein
-Service Worker cached die Seite selbst, IndexedDB hält die Daten. Der Rest der Website bleibt
-serverseitig gerendert und braucht Netz.
-
-### 5.2 Ablauf
-
-1. Beim Öffnen (mit Netz): `GET /api/rundgang/:begehung` liefert JSON: Begehung, Objekt,
-   Vorlagen-Punkte je Art, alle Bauteile (aktiv, wartungspflichtig) in **Laufreihenfolge**
-   (Abschnitt 7.9), je Bauteil: letzte Prüfung (Datum, Ergebnis, Checks), offene Mängel, und
-   die in dieser Begehung schon erfassten Prüfungen. Wird in IndexedDB gespeichert.
-2. Oberfläche: Liste in Laufreihenfolge, oben die nächste ungeprüfte Tür groß. Antippen öffnet
-   das Prüfraster (wie `tuerSeite` in v1: Felder, Punkte mit i.O./nicht/entf./Bem., Ergebnis,
-   Hinweise) plus **Kamera-Knopf** und **„unbekannte Tür"-Knopf** (legt Bauteil mit nächster
-   freier `nr` an, `quelle = rundgang`).
-3. Jede Speicherung schreibt eine Operation in die lokale Warteschlange:
-   `{ op_id: uuid, art: 'pruefung'|'bauteil_neu'|'foto'|'mangel_schliessen', payload, ts }`.
-4. Ein Abgleich-Lauf (bei `online`-Ereignis, beim Öffnen, alle 30 s solange die Seite offen
-   ist) sendet die Warteschlange gebündelt an `POST /api/sync` und entfernt bestätigte
-   Operationen. Fotos werden **einzeln** als Multipart nachgeschoben, nach ihrer Prüfung.
-5. Anzeige des Abgleichstands oben: „3 Änderungen warten" / „alles übertragen".
-
-### 5.3 Abgleichregeln (Server, `POST /api/sync`)
-
-- Body: `{ ops: [...] }`. Jede `op_id` wird in `sync_ops` eingetragen; **bereits bekannte
-  `op_id` → 200, keine Wirkung** (Wiederholung ist harmlos).
-- `pruefung`: Upsert nach (begehung, bauteil). Existiert eine Prüfung mit **jüngerem**
-  `geprueft_am` → eingehende verwerfen (Antwort `konflikt: "aelter"`). Sonst schreiben.
-- `bauteil_neu`: `nr` vom Client vorgeschlagen; ist sie inzwischen belegt → Server vergibt die
-  nächste freie und antwortet mit Zuordnung `{ client_nr, server_nr }`; der Client schreibt
-  die Zuordnung in seine wartenden Operationen um.
-- `foto`: Multipart `POST /api/foto` mit `op_id`, `bauteil_id`, `pruefung`-Referenz als
-  (begehung, bauteil_nr), Bild. Idempotent über `op_id`.
-- Stammdaten (Objekt, Bauteilfelder außer den in der Prüfung mitgegebenen): **Server gewinnt.**
-- Antwort je Operation: `{ op_id, ok, konflikt?, zuordnung? }`.
-
-### 5.4 Service Worker
-
-Cache-first für `/rundgang/*` (Shell), `/icon.svg`, das Vorlagen-JSON. Network-only für
-`/api/*`. Versionierter Cache-Name; bei neuem Deployment alter Cache verworfen. Keine
-Push-Benachrichtigungen.
-
----
-
-## 6. Fotos
-
-- Aufnahme im Rundgang oder auf der Bauteil-/Prüfungsseite: `<input type=file accept=image/*
-  capture=environment>`.
-- **Verkleinerung im Browser** vor dem Upload (Canvas): längste Kante 1600 px, JPEG-Qualität
-  0.82. Ziel ≤ 400 KB. EXIF-Rotation beachten (`createImageBitmap` mit
-  `imageOrientation: 'from-image'`).
-- `POST /api/foto` (Multipart: `bild`, `bauteil_id`, `begehung_id?`, `mangel_id?`, `notiz?`,
-  `op_id`) → R2 `fotos/<objekt>/<bauteil>/<id>.jpg`, Zeile in `fotos`. Antwort: Foto-ID.
-- Anzeige: Bauteilseite (Galerie über alle Jahre), Prüfungsseite, Mangelseite. Auslieferung über
-  `/datei/fotos/…` (Präfix in `datei()` freigeben).
-- Löschen nur durch den Aufnehmenden oder `rolle = buero`, nur solange kein Bericht das Foto
-  enthält (Hash-Vergleich); danach nur „ausblenden" (Flag `aktiv`, in Berichten bleibt es).
 
 ---
 
@@ -689,38 +560,6 @@ offener Vorschlag liegt, kommt nicht noch einmal dazu — der Aufruf darf sich w
 für das Zusammenführen von Plan und Liste (7.7) und für Fälle, in denen einzeln gesteuert werden
 soll. Der Regelweg sind die zwei Schritte.
 
-### 1.3 Der Vorrat, und warum das Formular am Türtyp hängt
-
-Zwei Dinge fielen beim Durchgehen der fertigen Anwendung auf, und beide waren dieselbe Lücke.
-
-**Der leere Anfang.** Die Stammdatenseite begann leer. Wer die erste Tür erfassen wollte, musste
-vorher einen Türtyp erfinden — Name, Vorlage, Pflichtfelder —, ohne zu wissen, was davon später
-zählt. Das ist die Sorte Frage, die eine Anwendung selbst beantworten kann: die gängigen Typen
-sind seit Jahrzehnten dieselben. Also liegen sie im **Vorrat** (`src/vorlagen/typenvorrat.ts`),
-sichtbar, aber nicht in der Datenbank. Wer einen benutzt, legt ihn damit an; wer ihn nie benutzt,
-sieht ihn nur in einer Liste. Nichts einzurichten, nichts aufzuräumen. Pflichtfeld `IDENT` steht
-dort nur, wo es ein Kennzeichnungsschild gibt — sonst käme der Monteur an der ersten Bürotür
-nicht weiter, und das wäre dieselbe Sackgasse in neuer Form.
-
-**Das Formular am Objekt kannte den Türtyp nicht.** Es zeigte ein Auswahlfeld „Vorlage" und
-darunter die Punkte dieser Vorlage. Damit ging die halbe Anwendung an ihrem eigenen Kern vorbei:
-eine am Türtyp zurechtgelegte Checkliste kam im Browser nie an, Pflichtfelder wurden nicht
-verlangt, Zusatzfelder gab es nicht, und die falsche Vorlage war ein Klick weit weg. Der Rundgang
-ohne Netz hatte denselben Fehler — zwei Wahrheiten in einer Anwendung.
-
-Jetzt führt überall der Türtyp: erst die eine Frage („was für eine Tür ist das?"), dann seine
-Checkliste, seine Pflichtfelder, seine Zusatzfelder. Die Vorlage lässt sich gar nicht mehr wählen.
-Was für alle Türen des Typs gleich ist, liegt eingeklappt darunter statt in der ersten Reihe.
-
-### 7.1 Grundsatz (überholt, siehe 7.0)
-
-Alles Schwere läuft **im Browser**, nicht im Worker: PDF rendern, Vektoren lesen, Bilder
-kacheln. Der Worker speichert, ruft für Tabellen und Scans die Anthropic-API auf, führt
-zusammen und legt Vorschläge an. Grund: Worker-CPU-Zeit ist knapp, `pdf.js` braucht Canvas.
-
-Bibliotheken (per `<script>` von cdnjs, feste Version): `pdfjs-dist` 4.x (Rendern + Operator-
-Liste + Text), `xlsx` (SheetJS) für XLSX/CSV. Beide nur auf der Import-Seite geladen.
-
 ### 7.2 Upload und Rasterbild
 
 Seite `/objekt/:id/import`. Der Nutzer wählt Datei und Art (Türliste / Plan) und bei Plänen
@@ -733,101 +572,6 @@ das Bild) auf **2400 px Breite** als PNG und lädt es hoch: `POST /api/import/pl
 Auswertung.
 
 Mehrseitige PDF: Seite auswählbar (Miniaturen); je Seite ein Geschoss.
-
-### 7.3 Vektorplan → Kandidaten (zurückgestellt, siehe 7.0)
-
-Aus `page.getOperatorList()` (pdf.js) werden alle Pfade in Seitenkoordinaten gesammelt. Dabei
-den Transformationsstapel (`save`/`restore`/`transform`) mitführen. **Achtung:** die Kodierung
-der Pfadsegmente in `constructPath` hat sich zwischen pdf.js-Versionen geändert — beim Bauen die
-Struktur der eingesetzten Version prüfen und die Segmente in eine eigene Form bringen:
-`{ typ: 'line'|'cubic', punkte: [...] }`, alles in Seitenpunkten, y nach unten (Flip).
-
-**Bogen-Erkennung** — zwei Wege, beide zu implementieren:
-
-a) *Echte Kurven.* Ein kubischer Bézier mit Kontrollpunkten P0,P1,P2,P3 ist ein Viertelkreis,
-   wenn |P1−P0| ≈ |P2−P3| ≈ 0.5523·|P0−P3|/√2 und der Winkel P0→P3 um den gemeinsamen
-   Mittelpunkt ≈ 90° (Toleranz ±12°). Mittelpunkt: Schnitt der Normalen in P0 und P3.
-
-b) *Polylinien.* Folgen von ≥ 6 kurzen Segmenten mit gleichem Drehsinn und Gesamtdrehung
-   80°–100°, Segmentlängen nahezu gleich (Variationskoeffizient < 0.35). Kreis per
-   Kleinste-Quadrate anpassen (Kåsa-Fit); Residuum < 0.04·r annehmen.
-
-Ergebnis je Bogen: Mittelpunkt `c`, Radius `r`, Startpunkt `a`, Endpunkt `b`.
-
-**Blatt-Erkennung:** eine Linie mit einem Endpunkt innerhalb 0.08·r von `c` und Länge in
-[0.85·r, 1.15·r], deren anderer Endpunkt innerhalb 0.15·r von `a` oder `b` liegt.
-Bogen + Blatt = **Tür**, Konfidenz 0.9. Bogen ohne Blatt = Konfidenz 0.6. Blatt ohne Bogen
-wird nicht gezählt.
-
-**Zwei Flügel:** zwei Türen, deren Mittelpunkte 1.8·r–2.3·r auseinanderliegen, deren Bögen
-einander zugewandt sind und deren Blätter parallel stehen → eine Tür, `breite_m` verdoppelt,
-Position = Mitte zwischen den Mittelpunkten.
-
-**Maßstab:** `einheiten_je_meter` = Median aller r ÷ 0.9 (Annahme: typische lichte Breite
-0.885–1.0 m). Kandidaten mit r außerhalb [0.55 m, 1.6 m] verwerfen (Möbel, Sanitär,
-Tore separat zulassen bis 2.5 m, Konfidenz −0.2). Wird ein Maßstabsbalken oder „1:100" im Text
-gefunden, ist das die bessere Quelle und überschreibt die Schätzung.
-
-**Text zuordnen:** `page.getTextContent()` liefert Beschriftungen mit Position. Jedem
-Kandidaten die Beschriftungen innerhalb 3·r zuordnen (`text_nahe_json`). Daraus:
-- `raumnummer` = erste Beschriftung, die `/^\d{1,2}[.\-]?\d{2,3}[a-z]?$/` oder
-  `/^[A-Z]?\d\.\d{2,3}$/` matcht;
-- `kennung` = Beschriftung mit `/^T[-\s.]?\d/i` oder `/^Tür\s*\d/i`;
-- `wartungspflichtig = 1` und `felder.ZULASSUNG` = Treffer, wenn eine Beschriftung
-  `/\b(T|EI|E)\s?(30|60|90|120)\b|\bRS\b|\bFSA\b|\bRWA\b/` matcht — das ist der Fall
-  **Brandschutzplan**, die eigentlich richtige Planquelle.
-
-Ausgabe: Kandidatenliste mit normierten Koordinaten `x = (cx − x0)/breite`, `y` analog, bezogen
-auf dieselbe Seitenbox wie das Rasterbild. `POST /api/import/:id/kandidaten` → `vorschlaege`.
-
-### 7.4 DXF → Kandidaten (zurückgestellt, siehe 7.0)
-
-DXF ist Text. Nur die Entitäten `ARC` (Mittelpunkt, Radius, Start-/Endwinkel), `LINE`,
-`LWPOLYLINE`, `TEXT`/`MTEXT`, `INSERT` (Blöcke: Blockdefinitionen mit Türsymbolen sind der
-Normalfall — jedes `INSERT` eines Blocks, der einen ARC von ~90° enthält, ist ein Kandidat,
-Position = Einfügepunkt, Rotation = Einfügewinkel). Layer-Namen mit `TUER|TÜR|DOOR|A_DOOR`
-heben die Konfidenz auf 0.95. Rasterbild: Bounding Box aller Entitäten auf 2400 px zeichnen
-(Canvas, nur Linien/Bögen/Text) — reicht als Hintergrund.
-
-### 7.5 Scan → Kandidaten (überholt, siehe 7.0 — das liest jetzt der Agent)
-
-Nur wenn das PDF keine Vektorpfade enthält oder eine Bilddatei hochgeladen wird.
-
-- Der Browser kachelt das Rasterbild in Kacheln von höchstens **1400 × 1400 px** mit 100 px
-  Überlappung und lädt sie hoch. Der Worker ruft **je Kachel** die API auf:
-  - Modell `claude-opus-5`, `output_config: { effort: "medium" }`, `max_tokens: 4096`.
-  - Inhalt: Bild (base64, `image/png`) + Text: „Dies ist ein Ausschnitt eines Gebäudegrundrisses.
-    Finde alle Türsymbole (Viertelkreisbogen mit Türblatt). Gib für jede Tür die Position des
-    Drehpunkts als Anteil der Bildbreite/-höhe (0..1), die geschätzte Breite in Pixeln, die
-    Beschriftungen im Umkreis, und ob eine Brandschutzkennzeichnung (T30, T90, RS, EI30 …)
-    erkennbar ist. Kein Möbel, keine Fenster."
-  - Strukturierte Ausgabe über `output_config.format` mit JSON-Schema
-    `{ tueren: [{ x, y, breite_px, doppelfluegel, beschriftungen: string[], kennzeichnung: string|null, sicherheit: number }] }`.
-  - Kacheln parallel, höchstens 4 gleichzeitig. Kandidaten in Seitenkoordinaten
-    zurückrechnen; Duplikate im Überlappungsbereich (Abstand < 0.02 normiert) zusammenführen.
-  - Konfidenz = `0.4 · sicherheit`, nie über 0.5.
-- Kosten: ein A3-Plan bei 2400 px sind ~4–6 Kacheln, je Kachel wenige Cent. Anzeigen, bevor
-  gestartet wird.
-- Secret `ANTHROPIC_API_KEY` als Worker-Secret. SDK `@anthropic-ai/sdk` (läuft unter
-  `nodejs_compat`). Fehlerbehandlung nach Klassen (`RateLimitError` → Wiederholung nach
-  `retry-after`, sonst Import auf `status = 'ausgewertet'` mit Warnung).
-
-### 7.6 Türliste → Kandidaten (überholt, siehe 7.0 — das liest jetzt der Agent)
-
-- XLSX/CSV: SheetJS im Browser → JSON-Zeilen (erste Zeile als Kopf) → `POST /api/import/:id/tabelle`.
-- PDF-Tabelle: Datei als `document`-Block (base64, `application/pdf`) an die API, Modell
-  `claude-opus-5`, `effort: "medium"`, strukturierte Ausgabe mit Schema
-  `{ zeilen: [{ nr, kennung, geschoss, raumnummer, raum, art, feuerwiderstand, breite_mm, hersteller, bemerkung }] }`
-  und der Anweisung, nur Türen zu liefern, die in der Tabelle stehen, nichts zu erfinden, und
-  unklare Zellen leer zu lassen. Bei > 60 Seiten Zeilen seitenweise abrufen.
-- **Spaltenzuordnung** bei XLSX: der Worker schickt die Kopfzeile + 5 Beispielzeilen an die API
-  mit Schema `{ zuordnung: { nr, kennung, geschoss, raumnummer, raum, art, feuerwiderstand, breite_mm, hersteller }: spaltenname|null }`,
-  zeigt die Zuordnung an, der Nutzer korrigiert per Auswahlfelder, dann werden alle Zeilen
-  lokal umgesetzt. Kein API-Aufruf je Zeile.
-- Je Zeile ein Vorschlag: `herkunft = tuerliste`, Konfidenz 1.0, `x/y = NULL`,
-  `wartungspflichtig = 1` wenn `feuerwiderstand` nicht leer oder `art` Feststellanlage,
-  `art` aus Stichworten (`Fenster` → `wartung_fenster`; `FSA|Feststell|Haftmagnet` →
-  `wartung_feststellanlagen`; sonst `wartung_drehfluegel`).
 
 ### 7.7 Zusammenführen (Worker)
 
@@ -853,7 +597,7 @@ Bedienung:
 - Kopfleiste: „12 offen · 30 angenommen · 4 verworfen", Knopf **„Alle ≥ 0.85 annehmen"**,
   Knopf **„Wartungspflichtige annehmen"**, Filter nach Konfidenz.
 - Tastatur (Desktop): `j`/`k` nächster/voriger Vorschlag, `a` annehmen, `x` verwerfen.
-- Rundgang-Start setzen: Knopf „Startpunkt", dann Antippen → `geschosse.start_x/y`.
+- Startpunkt des Rundwegs setzen: Knopf „Startpunkt", dann Antippen → `geschosse.start_x/y`.
 
 Annehmen legt ein `bauteil` an: `nr` = nächste freie im Objekt (oder aus `kennung`, wenn sie
 eine reine Zahl ist und frei), `quelle` aus `herkunft`. Der Vorschlag bekommt `bauteil_id`.
@@ -864,7 +608,7 @@ in einer Seitenleiste gelistet und per Ziehen auf den Plan gesetzt.
 
 ### 7.9 Laufreihenfolge
 
-Funktion `laufreihenfolge(bauteile, geschosse)`, in Worker und Rundgang-Client identisch
+Funktion `laufreihenfolge(bauteile, geschosse)`
 (gemeinsames Modul, wird in beide gebündelt):
 
 1. Nach `geschoss.reihenfolge` aufsteigend; Bauteile ohne Geschoss zuletzt.
@@ -931,148 +675,6 @@ Damit braucht ein ganzes Haus **fünf Aufrufe**: `objekt_einrichten`, zweimal
 
 ---
 
-## 8. MCP-Tools v2
-
-Namen deutsch, `readOnlyHint` gesetzt wie in v1. Alle Argumente optional außer den mit `*`.
-`objekt` und `bauteil` dürfen als ID, Name/Adresse (LIKE) bzw. `nr`/`kennung` angegeben werden.
-
-**Lesend**
-
-| Tool | Argumente | Liefert |
-|---|---|---|
-| `lage` | tage=30 | **Das Lagebild in einem Aufruf**: überfällig, bald fällig, Mängel über der Frist, Termine mit ausstehenden **oder veralteten** Berichten, dazu `naechste_schritte` mit dem Tool je Punkt. Ersetzt den Rundruf über `faellig` und `berichte_auflisten` |
-| `objekte_auflisten` | suche, nur_faellige, limit | Objekte mit Fälligkeit, Bauteilzahl, offenen Mängeln |
-| `objekt_lesen` | objekt* | Stammdaten, Geschosse, Bauteile in Laufreihenfolge mit letzter Prüfung/Fälligkeit, offene Mängel, letzte Begehungen |
-| `bauteil_lesen` | objekt*, nr/kennung* | Bauteil, alle Prüfungen (Historie), Mängel, Fotos, Berichte |
-| `faellig` | tage=30 | Objekte mit fälligen Bauteilen (Anzahl, frühestes Datum) |
-| `begehung_lesen` | begehung* | Begehung, Prüfungen mit Klartext-Abweichungen, fehlende fällige Bauteile |
-| `berichte_auflisten` | begehung* | neueste Versionen + ZIP-Link + Sammelbericht-Link |
-| `pruefpunkte` | vorlage* | wie v1 |
-| `vorlagen_auflisten` | — | wie v1 |
-| `vorgaben_lesen` | — | wie v1 |
-| `import_anleitung` | — | die Anleitung für den Agenten (Abschnitt 7.0) |
-| `importe_auflisten` | objekt* | Pläne und Türlisten dieses Objekts mit Zahlen |
-| `vorschlaege_lesen` | import\|objekt*, status, limit | Kandidaten eines Imports |
-
-**Schreibend**
-
-| Tool | Argumente | Wirkung |
-|---|---|---|
-| `tuertypen_auflisten` | auch_stillgelegte | alle Türtypen mit Vorlage, Pflicht- und Zusatzfeldern — dazu `vorrat`, die gängigen Typen, die bereitliegen |
-| `checkliste_lesen` | tuertyp* | die Prüfpunkte dieses Typs, wie sie hier gelten |
-| `tuertyp_anlegen` | name*, vorlage*, beschreibung, felder, pflichtfelder[], zusatzfelder[] | legt den Typ an; die Checkliste entsteht aus der Vorlage |
-| `tuertyp_aendern` | tuertyp*, Felder | Stammdaten, Pflicht- und Zusatzfelder; `aktiv: false` legt still |
-| `tuertyp_loeschen` | tuertyp* | endgültig — nur solange keine Tür daran hängt; sonst stilllegen |
-| `checkliste_anpassen` | tuertyp*, punkte[], zuruecksetzen | umbenennen, ausblenden, eigene ergänzen (Abschnitt 1.2) |
-| `tuer_einrichten` | objekt*, tuertyp*, nr, Ortsangaben, felder, ueberspringen[] | **Der geführte Weg zu einer Tür.** Nennt genau EINE nächste Frage, bis `bereit`. Vorher lässt sich nichts prüfen |
-| `objekt_einrichten` | objekt*, alle Stammdatenfelder, ueberspringen[] | **Der geführte Einstieg.** Legt an oder setzt fort, übernimmt Mitgegebenes und nennt `naechste_frage` — genau EINE Frage. Mehrfach aufrufen, bis `fertig`. `weiter_mit` sagt, was danach lohnt |
-| `objekt_anlegen` | name*, adresse, plz, betreiber, betreiber_kontakt, telefon, email, zugang, vertrag, objektart, ident, intervall_monate, rechtsgrundlagen | legt Objekt + Hauptgebäude an |
-| `objekt_aendern` | objekt*, Felder | nur genannte Felder |
-| `bauteil_anlegen` | objekt*, art*, nr, kennung, geschoss, raumnummer, raum, flur, felder, wartungspflichtig | einzelnes Bauteil ohne Import |
-| `bauteile_anlegen` | objekt*, bauteile[]*, art, geschoss | Stapel bis 200; belegte Nummern werden übersprungen, nie überschrieben |
-| `bauteil_aendern` | objekt*, nr*, Felder, aktiv | Stammdaten fortschreiben, stilllegen |
-| `begehung_starten` | objekt*, datum, pruefer, befaehigung, ort, beteiligte, art_vorgabe | Abschnitt 2.1 — legt fehlendes Objekt an |
-| `begehung_aendern` | begehung*, Felder, status | Stammdaten, Status |
-| `pruefung_erfassen` | begehung*, nr, kennung, art, checks, ergebnis, hinweise, felder, wie_davor, neu | Abschnitt 2.2 |
-| `pruefungen_erfassen` | begehung*, pruefungen[]* | Stapel |
-| `mangel_schliessen` | objekt+nr oder mangel*, freimeldung | Abschnitt 2.3 |
-| `begehung_abschliessen` | begehung*, berichte=true, alle_neu | Abschnitt 2.4 — abschließen, Rückblick, Berichte und Sammelbericht in einem Zug |
-| `begehung_abbrechen` | begehung* | Abschnitt 2.5 — leer: gelöscht, sonst `abgebrochen` |
-| `berichte_erzeugen` | begehung*, alle_neu | versioniert, stückweise wie v1 (`fertig: false` → erneut) |
-| `sammelbericht_erzeugen` | begehung* | Abschnitt 4.4 |
-| `geschoss_anlegen` | objekt*, name*, reihenfolge | Geschoss, Reihenfolge aus dem Namen |
-| `bauplan_uebernehmen` | objekt*, tueren[]*, art, geschoss, dateiname, import | **Der Regelweg** (Abschnitt 7.0, 7.10): Import anlegen, Türtypen und Geschosse aus den Zeilen ableiten, bekannte Kennungen direkt verorten — mit fertigem Bericht und Freigabe-Möglichkeiten |
-| `import_starten` | objekt*, art*, dateiname, geschoss | Abschnitt 7.0 |
-| `vorschlaege_anlegen` | import*, kandidaten[]* | was der Agent gefunden hat |
-| `vorschlaege_annehmen` | import*, ids\|ab_konfidenz\|nur_wartungspflichtige\|alle | die Freigabe — hier entstehen Bauteile |
-| `vorschlaege_verwerfen` | import*, ids\|unter_konfidenz | rücknehmbar bis zum Abschluss |
-| `import_zusammenfuehren` | tuerliste*, plan* | Abschnitt 7.7 |
-| `import_abschliessen` | import* | Status `bestaetigt` |
-| `vorgaben_speichern` | wie v1 | |
-
-### 8.1 Prompts und Ressourcen
-
-Der Server meldete beim `initialize` die Fähigkeiten `prompts` und `resources` — und lieferte
-dann leere Listen. Beide sind jetzt gefüllt, weil beide dasselbe tun wie der Rest dieser Stufe:
-**dem Menschen das Formulieren abnehmen.**
-
-**Prompts** erscheinen im Client als Schrägstrich-Befehle. Sie tragen den Ablauf schon in sich:
-
-| Prompt | Argumente | Wofür |
-|---|---|---|
-| `wartung` | objekt* | „Ich stehe an X und fange an" — Prüfpunkte, `begehung_starten`, dann zuhören |
-| `einrichten` | objekt* | führt mit `objekt_einrichten` durch die Stammdaten, eine Frage nach der anderen |
-| `tuertyp` | name* | Türtyp einrichten und seine Checkliste zurechtlegen |
-| `tuer` | objekt*, tuertyp | eine Tür aufsetzen, eine Frage nach der anderen |
-| `tag` | — | `lage` lesen und zusammenfassen, was liegen geblieben ist |
-| `abschluss` | objekt | Rücklesen und `begehung_abschliessen`, bis `fertig` |
-| `bauplan` | objekt* | `import_anleitung` lesen und danach vorgehen, Freigabe einholen |
-
-**Ressourcen** sind Nachschlagewissen, das der Client anhängen kann, ohne dass ein Tool-Aufruf
-im Gespräch auftaucht:
-
-| URI | Inhalt |
-|---|---|
-| `tuerwerk://anleitung/import` | die Agenten-Anleitung aus Abschnitt 7.0 |
-| `tuerwerk://bestand` | alle Objekte mit Fälligkeit und offenen Mängeln als Tabelle |
-| `tuerwerk://checklisten` | die Checkliste jedes Türtyps, wie sie gilt — die Liste zum Vorlesen |
-| `tuerwerk://pruefpunkte/<vorlage>` | die unveränderten Punkte einer Vorlage, als Grundlage |
-
-Kein Sampling und keine Elicitation: der Server ist zustandslos über Streamable HTTP, und beides
-setzt Client-Fähigkeiten voraus, auf die wir uns nicht verlassen können.
-
-`ANLEITUNG` (Server-Instructions) wird angepasst: Objekt statt Wartung, `pruefung_erfassen`
-statt `tuer_erfassen`, der Hinweis auf offene Vorjahresmängel („vorlesen, nachfragen, bei
-Bestätigung `mangel_schliessen`"), und der Bootstrap-Satz: „Kennt der Server das Objekt nicht,
-legt `begehung_starten` es an — die erste Begehung ist die Bestandsaufnahme."
-
-**Skill v3** (`skill/tuerwerk-diktat/SKILL.md`): dieselben Änderungen in der Diktat-Sprache.
-Neu: „Tür 12" meint das Bauteil Nr. 12 des Objekts, nicht die zwölfte Tür des Tages. Bei
-unbekannter Nummer sagt Claude „Tür 12 ist neu — lege ich an" und macht weiter.
-
----
-
-## 9. Web-Routen v2
-
-Alle mit Sitzung, außer den in v1 öffentlichen (OAuth, `/tools.json`, `/anmeldung`, Icons).
-
-| Route | Inhalt |
-|---|---|
-| `GET /` → `/objekte` | |
-| `GET /objekte` | Liste nach Fälligkeit, Suche; „Objekt anlegen" zugeklappt (der Regelweg ist der Chat) |
-| `POST /objekte` | anlegen |
-| `GET /objekt/:id` | Reiter **Bestand** — ein Satz, ein Knopf (Abschnitt 4.5), Türen in Laufreihenfolge mit ihrem Ergebnis: bestanden / nicht bestanden / noch nicht geprüft |
-| `GET /objekt/:id/berichte` | Reiter **Berichte** — je Termin PDFs mit Versionen, Sammelbericht, ZIP, Stammdaten |
-| `GET /objekt/:id/erfassen` | löst den heutigen Termin auf → `/begehung/:id/pruefung/neu` |
-| `POST /objekt/:id` | Stammdaten |
-| `POST /objekt/:id/loeschen` | Ausnahmeweg für Fehlanlagen und Testläufe: Objekt mit allem, was daran hängt. Im Alltag wird stillgelegt (`aktiv = 0`). |
-| `GET/POST /objekt/:id/bauteil/neu`, `/objekt/:id/bauteil/:nr` | Bauteil mit Historie (Prüfungen, Mängel, Fotos, Berichte aller Versionen) |
-| `GET /objekt/:id/import`, `POST /api/import/*` | Abschnitt 7.0, 7.2, 7.7 |
-| `GET /anleitung/import` | die Anleitung für den Agenten, zum Nachlesen (Abschnitt 7.0) |
-| `GET /objekt/:id/plan/:geschoss`, `GET …/daten.json` | Abschnitt 7.8 — Karte mit Markern |
-| `POST /api/plan`, `POST /api/vorschlag/:id`, `POST /api/geschoss/:id/start` | Planbild, Freigabe, Startpunkt |
-| `POST /objekt/:id/begehung` | Termin für ein Datum anlegen (Tour, Rundgang) — in der Oberfläche kein Knopf |
-| `GET /begehung/:id` | leitet aufs Objekt (bzw. auf dessen Reiter Berichte) — der Termin hat keine eigene Seite mehr |
-| `GET /begehung/:id/checkliste`, `/stand.json` | leiten auf `/checkliste` — die Checkliste hängt am Türtyp |
-| `POST /begehung/:id/abschliessen`, `POST /begehung/:id/oeffnen` | Abschnitt 2.4 |
-| `POST /begehung/:id/abbrechen` | Abschnitt 2.5 |
-| `GET/POST /begehung/:id/pruefung/:nr` | Prüfraster wie v1 `tuerSeite` + Fotos |
-| `GET/POST /begehung/:id/unterschrift` | Abschnitt 4.2 |
-| `POST /begehung/:id/erzeugen`, `/sammelbericht` | JSON, stückweise |
-| `GET /begehung/:id/paket.zip` | neueste Versionen |
-| `GET /rundgang/:begehung`, `GET /api/rundgang/:begehung`, `POST /api/sync`, `POST /api/foto` | Abschnitt 5 und 6 |
-| `GET /stammdaten`, `POST /stammdaten` | Türtypen: Liste und Anlegen |
-| `GET/POST /stammdaten/:id`, `POST /stammdaten/:id/stilllegen` | ein Türtyp: Stammdaten, Pflicht- und Zusatzfelder |
-| `GET /checkliste`, `GET/POST /checkliste/:tuertyp` | die Checkliste eines Türtyps ansehen und anpassen |
-| `GET /einstellungen` | wie v1 (Vorgaben, Unterschrift Prüfer) |
-| `GET /verbinden` | wie v1 |
-| `GET /datei/(berichte\|fotos\|plaene\|unterschriften)/…` | Auslieferung |
-
-Gestaltung wie v1 (`layout.ts`, `BASE_CSS`), keine neue Sprache; Planseite und Rundgang sind
-die beiden Seiten mit eigenem Skript.
-
----
-
 ## 10. Vorlagen
 
 - v2: die drei eingebauten Profile bekommen `signature_betreiber` (Abschnitt 4.2). Die
@@ -1090,7 +692,7 @@ die beiden Seiten mit eigenem Skript.
 
 - Alle Datenpfade unter `/datei/` weiter nur mit Sitzung. R2 privat.
 - `POST /api/sync` und `POST /api/foto` akzeptieren die Sitzung **oder** ein Bearer-Token des
-  MCP-OAuth (damit der Rundgang-Client nicht zwei Anmeldungen braucht — er nutzt die Sitzung).
+  MCP-OAuth (die Website und der Connector teilen sich eine Anmeldung).
 - Uploads: Pläne ≤ 40 MB, Fotos ≤ 8 MB vor Verkleinerung, Türlisten ≤ 10 MB. MIME prüfen.
 - `objekt_id` steht an jeder Tabelle; die Zugriffsprüfung `darfObjekt(person, objekt)` ist
   eine Funktion, die in v2 immer `true` liefert und in v3 die Mandantentrennung trägt — **aber
@@ -1106,80 +708,19 @@ die beiden Seiten mit eigenem Skript.
 `src/pdf/zip.ts`, `src/shared/*`, `src/web/layout.ts`, `src/vorlagen/*.json|md|pdf`,
 `scripts/*`, Deployment-Weg, Bindings.
 
-**Erweitert:** `src/pdf/fuellen.ts` (zweite Unterschrift, Fotoanhang, Deckblatt),
+**Erweitert:** `src/pdf/fuellen.ts` (zweite Unterschrift, Deckblatt),
 `src/vorlagen/index.ts` (Betreiber-Signatur, Labels, Laufreihenfolge-Helfer als eigenes Modul
 `src/reihenfolge.ts`), `wrangler.jsonc` (nichts Neues an Bindings, kein neues Secret —
 `ANTHROPIC_API_KEY` ist in `src/env.ts` nur noch optional vermerkt und wird nicht benutzt).
 
-**Ersetzt:** `src/daten/wartungen.ts` → `src/daten/{objekte,bauteile,begehungen,maengel,fotos,berichte,importe,touren}.ts`;
+**Ersetzt:** `src/daten/wartungen.ts` → `src/daten/{objekte,bauteile,begehungen,berichte,importe}.ts`;
 `src/mcp/werkzeuge.ts` → v2-Tools; `src/web/seiten.ts` → aufgeteilt in
-`src/web/{objekte,bauteile,begehungen,maengel,touren,import,plan,rundgang}.ts`;
+`src/web/{objekte,bauteile,begehungen,einrichten,import,plan}.ts`;
 `src/pdf/berichte.ts` → Versionierung; `schema.sql` → v2; `scripts/e2e.sh` → v2-Prüfungen.
 
 **Neu:** `src/import/zusammenfuehren.ts`,
 `public/rundgang.js`, `public/plan.js`, `public/import.js`, `public/sw.js` (über `ASSETS`-Binding
 oder als Text eingebettet — Entscheidung: **eingebettet** wie v1, kein neues Binding).
-
----
-
-## 13. Reihenfolge und Abnahme
-
-Jede Stufe endet mit grünem `scripts/e2e.sh` gegen den Entwicklungsserver **und** gegen die
-Live-Instanz, danach Commit und Deployment. Stufen sind einzeln auslieferbar.
-
-### Stufe 1 — Bestand, Fristen, Mängel, Versionierung, Betreiber-Unterschrift
-
-Bauen: Abschnitte 1, 2, 3, 4, 9 (Tools), 10 (außer Import/Plan/Rundgang/Touren), 11 (Signatur), 13.
-Abnahme:
-- `begehung_starten("Kita Heselstücken")` bei unbekanntem Objekt legt es an; drei
-  `pruefung_erfassen` ohne `nr` erzeugen Bauteile 1–3; zweite Begehung am selben Objekt sieht
-  dieselben Bauteile mit „letzte Prüfung".
-- `pruefung_erfassen` mit `checks {"8":"nio"}` erzeugt einen Mangel; in der zweiten Begehung
-  meldet `pruefung_erfassen` an demselben Bauteil `offene_maengel_vorjahr`; `mangel_schliessen`
-  setzt ihn auf `behoben`.
-- `berichte_erzeugen` zweimal ohne Änderung erzeugt **keine** zweite Version; nach Änderung
-  der Hinweise entsteht v2, v1 bleibt unter seinem R2-Schlüssel abrufbar.
-- Unterschrift hochladen → Bericht v+1 enthält sie an der richtigen Stelle (Sichtprüfung des
-  PDF, Koordinaten ggf. nachziehen und im Profil festschreiben).
-- `faellig(30)` listet das Objekt nicht mehr, nachdem alle Bauteile geprüft sind; nach
-  manuellem Rückdatieren einer Prüfung um 13 Monate wieder.
-- `sammelbericht_erzeugen` liefert Deckblatt + n Seiten.
-
-### Stufe 2 — Rundgang, Fotos, Tagestour
-
-Bauen: Abschnitte 5, 6, 8.
-Die Bedienung der Tagestour weicht ab: statt Ziehen tragen Knöpfe je Wochentag ein
-(Ziehen bleibt als Zugabe für den Rechner). Ein Sieben-Tage-Raster mit Drag & Drop ist auf
-einem Telefon im Auto nicht zu bedienen.
-Abnahme:
-- Rundgang laden, Netz trennen (DevTools offline), zwei Prüfungen + ein Foto erfassen,
-  „unbekannte Tür" anlegen, Netz verbinden → alles auf dem Server, Foto im Bericht-Anhang,
-  neue Tür mit Server-`nr`.
-- Dieselbe Prüfung offline auf zwei Geräten mit verschiedenen Zeiten → jüngere gewinnt.
-- Wiederholtes Senden derselben `op_id` ändert nichts.
-- Tour mit drei Objekten → Maps-Link enthält drei Adressen in Reihenfolge.
-
-### Stufe 3 — Bauplan-Import über den Agenten, Plan-Bestätigung
-
-Bauen: Abschnitt 7 in der Fassung 7.0, dazu 7.7 bis 7.9.
-**Vorher:** die Probe — ein echter Plan und eine echte Türliste des Kunden in der Claude-App
-lesen lassen, ohne dass Türwerk beteiligt ist; Trefferquote von Hand zählen. Unter 60 % Treffer
-→ Ursache prüfen, bevor Tools und Oberfläche gebaut werden.
-Abnahme:
-- Plan-PDF mit bekannter Türzahl in der App → Kandidaten ≥ 80 % davon, Falschpositive ≤ 15 %.
-- Türliste XLSX mit 20 Zeilen → 20 Vorschläge in Türwerk, Felder aus der Liste übernommen.
-- Türliste + Plan → Zusammenführung über `kennung`; angenommene Bauteile haben Position und
-  Listenfelder.
-- Bestätigen im Gespräch: „alle mit T30 annehmen" legt genau diese Bauteile an.
-- Bestätigungsseite auf dem Handy bedienbar (Pan/Zoom/Antippen), „Alle ≥ 0.85 annehmen"
-  legt Bauteile an; Rundgang zeigt sie in Raumnummern-Reihenfolge.
-- Der ganze Weg läuft **ohne Worker-Secret** — nichts in `wrangler secret list` außer
-  `SITZUNGS_SCHLUESSEL`.
-
-### Stufe 4 — Vorlagen-Editor
-
-Abschnitt 11. Abnahme: vierte Vorlage ohne Deployment anlegen, Testbericht rendern, im Diktat
-mit `pruefpunkte` nutzbar.
 
 ---
 
@@ -1194,7 +735,6 @@ mit `pruefpunkte` nutzbar.
 
 ---
 
-## Anhang A — Anthropic-Aufrufe (hinfällig, siehe 7.0)
 
 > Der Worker ruft keine KI mehr auf; der Import läuft über den Agenten in der
 > Claude-App. Dieser Anhang bleibt nur als Beleg dafür stehen, was verworfen wurde.
