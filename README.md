@@ -212,7 +212,14 @@ npm run schema                               # legt die Tabellen an (DROP + CREA
 wrangler secret put SITZUNGS_SCHLUESSEL      # lange Zufallszeichenkette
 ```
 
-`npm run schema` ist wiederholbar und setzt den Bestand zurück — `personen` bleibt erhalten.
+`npm run schema` beginnt mit DROP über alle Tabellen und **setzt den Bestand zurück** —
+`personen` bleibt erhalten. Auf einer Datenbank, in der schon gearbeitet wurde, ist das der
+falsche Weg: ein Deployment braucht kein geändertes Schema. Die Tabellen `maengel`, `fotos` und
+`sync_ops` werden nur nicht mehr benutzt; wer sie loswerden will, nimmt den kleinen Schnitt:
+
+```bash
+npx wrangler d1 execute tuerwartung --remote --file schema_entfallene_tabellen.sql
+```
 
 ## Bindings
 
